@@ -215,6 +215,23 @@ test('testKey：方舟 Agent Plan 端点经内置目录判定密钥可用', asyn
   assert.ok(t.msg.includes('Agent Plan'), JSON.stringify(t));
 });
 
+test('fetchModels：请求带编程工具 UA（通过中转站客户端指纹检测）', async () => {
+  let captured = null;
+  const f = (url, opts) => {
+    captured = { url, headers: opts.headers };
+    return Promise.resolve(res({ data: [{ id: 'claude-opus-5' }] }));
+  };
+  const models = await adapters.fetchModels('custom', { url: 'https://agentrouter.org', style: 'anthropic' }, 'sk-ar', { fetchImpl: f });
+  assert.strictEqual(models.length, 1);
+  assert.ok(captured.headers['User-Agent'] && captured.headers['User-Agent'].startsWith('claude-cli/'),
+    '两种风格请求都应带工具 UA: ' + JSON.stringify(captured.headers));
+  assert.strictEqual(captured.headers['x-api-key'], 'sk-ar');
+
+  await adapters.fetchModels('custom', { url: 'https://agentrouter.org', style: 'openai' }, 'sk-ar', { fetchImpl: f });
+  assert.strictEqual(captured.headers['Authorization'], 'Bearer sk-ar');
+  assert.ok(captured.headers['User-Agent'].startsWith('claude-cli/'));
+});
+
 test('normalizeEndpoints：默认端点、上限与过滤', () => {
   const def = adapters.normalizeEndpoints('deepseek', undefined);
   assert.deepStrictEqual(def, [

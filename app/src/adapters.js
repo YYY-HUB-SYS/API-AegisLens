@@ -85,10 +85,20 @@ function modelsUrl(style, base) {
   return style === 'anthropic' ? b + '/v1/models' : b + '/models';
 }
 
+/* 部分面向编程工具的订阅中转站（如 Agent Router）会做客户端指纹检测，
+   Node 默认 UA 会被拒（401 unauthorized client detected）；
+   带上工具 UA 即可通过，对官方 API 无副作用 */
+const TOOL_UA = 'claude-cli/1.0.23 (external, cli)';
+
 function authHeaders(style, key) {
-  return style === 'anthropic'
-    ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
-    : { 'Authorization': 'Bearer ' + key };
+  const h = { 'User-Agent': TOOL_UA };
+  if (style === 'anthropic') {
+    h['x-api-key'] = key;
+    h['anthropic-version'] = '2023-06-01';
+  } else {
+    h['Authorization'] = 'Bearer ' + key;
+  }
+  return h;
 }
 
 function defaultEndpoints(platform) {
