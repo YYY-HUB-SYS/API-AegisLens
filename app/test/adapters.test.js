@@ -138,7 +138,7 @@ test('testKey：通过 / 失败场景', async () => {
   assert.strictEqual(customStyle.code, 'UNSUPPORTED_STYLE');
 });
 
-test('testKey：/models 404 时回退 chat/completions 鉴权探测（火山方舟 Agent Plan 场景）', async () => {
+test('testKey：/models 404 时回退 chat/completions 鉴权探测（无列表接口的兼容端点）', async () => {
   const calls = [];
   const f = (url, opts) => {
     const u = String(url);
@@ -148,7 +148,7 @@ test('testKey：/models 404 时回退 chat/completions 鉴权探测（火山方�
       error: { code: 'UnsupportedModel', message: 'The requested model does not support the agent plan feature' }
     }, 404));
   };
-  const t = await adapters.testKey('custom', { url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }, 'sk-ark', { fetchImpl: f });
+  const t = await adapters.testKey('custom', { url: 'https://gw.example.com/v1', style: 'openai' }, 'sk-ark', { fetchImpl: f });
   assert.strictEqual(t.status, 'pass', JSON.stringify(t));
   assert.ok(t.msg.includes('chat/completions'));
   assert.strictEqual(calls.length, 2, '应先 GET /models 再 POST 对话接口');
@@ -183,6 +183,36 @@ test('testKey：anthropic 风格 /v1/models 404 时回退 /v1/messages 探测', 
   const t = await adapters.testKey('custom', { url: 'https://gw.example.com', style: 'anthropic' }, 'sk-x', { fetchImpl: f });
   assert.strictEqual(t.status, 'pass', JSON.stringify(t));
   assert.ok(t.msg.includes('/v1/messages'));
+});
+
+test('fetchModels：火山方舟 Agent Plan 端点返回官方内置模型目录', async () => {
+  const f = () => Promise.resolve(res({}, 404));
+  const models = await adapters.fetchModels('custom',
+    { url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }, 'sk-ark', { fetchImpl: f });
+  assert.ok(models.length >= 15, '内置目录应包含完整模型列表');
+  const ds = models.find(m => m.id === 'deepseek-v4-flash');
+  assert.strictEqual(ds.ctx, 1048576);
+  assert.strictEqual(ds.out, 393216);
+  assert.strictEqual(ds.src, 'builtin');
+  const auto = models.find(m => m.id === 'auto');
+  assert.ok(auto, '内置目录应含 Auto 智能路由模型');
+  assert.ok(models.some(m => m.id === 'ark-code-latest'), '内置目录应含编程模型');
+});
+
+test('fetchModels：非方舟端点 404 不落入内置目录', async () => {
+  const f = () => Promise.resolve(res({}, 404));
+  await assert.rejects(
+    () => adapters.fetchModels('custom', { url: 'https://ark.cn-beijing.volces.com/api/v3', style: 'openai' }, 'sk-x', { fetchImpl: f }),
+    /手动添加模型/
+  );
+});
+
+test('testKey：方舟 Agent Plan 端点经内置目录判定密钥可用', async () => {
+  const f = () => Promise.resolve(res({}, 404));
+  const t = await adapters.testKey('custom',
+    { url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }, 'sk-ark', { fetchImpl: f });
+  assert.strictEqual(t.status, 'pass', JSON.stringify(t));
+  assert.ok(t.msg.includes('Agent Plan'), JSON.stringify(t));
 });
 
 test('normalizeEndpoints：默认端点、上限与过滤', () => {

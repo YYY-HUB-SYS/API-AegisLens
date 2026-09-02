@@ -293,8 +293,8 @@ test('API 集成：无 /models 端点时测试回退鉴权探测（火山方舟 
   const { server, base } = await startServer(f);
   try {
     let r = await call(base, 'POST', '/api/keys', {
-      platform: 'custom', customName: '火山方舟', key: 'sk-ark-plan-0001',
-      endpoints: [{ url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }]
+      platform: 'custom', customName: '中转网关', key: 'sk-gw-404-0002',
+      endpoints: [{ url: 'https://gw.example.com/v1', style: 'openai' }]
     });
     const id = r.data.key.id;
 
@@ -306,6 +306,39 @@ test('API 集成：无 /models 端点时测试回退鉴权探测（火山方舟 
     r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
     assert.strictEqual(r.status, 502);
     assert.ok(r.data.error.includes('手动添加模型'), '拉取失败应引导手动添加模型');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：方舟 Agent Plan 拉取模型返回官方内置目录', async () => {
+  const f = (url) => String(url).includes('/models')
+    ? Promise.resolve(new Response('', { status: 404 }))
+    : Promise.resolve(new Response(JSON.stringify({ error: { code: 'UnsupportedModel' } }), { status: 404 }));
+  const { server, base } = await startServer(f);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', customName: '火山方舟', key: 'sk-ark-plan-0001',
+      endpoints: [{ url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }]
+    });
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/test');
+    assert.strictEqual(r.data.test.status, 'pass');
+    assert.ok(r.data.test.msg.includes('Agent Plan'), '测试消息应说明内置目录判定');
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.ok(r.data.models.length >= 15, '应返回内置模型目录');
+    const ds = r.data.models.find(m => m.id === 'deepseek-v4-flash');
+    assert.strictEqual(ds.ctx, 1048576);
+    assert.strictEqual(ds.src, 'builtin');
+    const fetchedCount = r.data.models.length;
+
+    r = await call(base, 'GET', '/api/keys');
+    const saved = r.data.keys.find(k => k.id === id);
+    assert.strictEqual(saved.modelsFetched, true);
+    assert.strictEqual(saved.models.length, fetchedCount, '内置目录应已入库');
   } finally {
     server.close();
   }

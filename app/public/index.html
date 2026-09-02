@@ -146,6 +146,7 @@
   }
   .m-tag.api { color: var(--ok); background: var(--ok-bg); }
   .m-tag.web { color: #1D4ED8; background: rgba(59, 130, 246, 0.13); }
+  .m-tag.builtin { color: #B45309; background: var(--warn-bg); }
   .supp-edit { width: 100%; display: flex; gap: 0.4rem; margin-top: 0.38rem; align-items: center; }
   .supp-edit input {
     width: 150px; border: 1px solid var(--accent); border-radius: 7px;
@@ -733,9 +734,10 @@
         '</div>';
     }
     var srcLabel = m.src === 'api' ? '平台接口'
-      : m.src === 'manual' ? '手动填写'
-      : m.src === 'web' ? '联网检索' : '元数据库';
-    var srcCls = m.src === 'api' ? ' api' : m.src === 'web' ? ' web' : '';
+    : m.src === 'manual' ? '手动填写'
+    : m.src === 'web' ? '联网检索'
+    : m.src === 'builtin' ? '官方目录' : '元数据库';
+    var srcCls = m.src === 'api' ? ' api' : m.src === 'web' ? ' web' : m.src === 'builtin' ? ' builtin' : '';
     return (
       '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
         '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +

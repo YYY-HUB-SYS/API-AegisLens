@@ -131,6 +131,36 @@ function lookupMeta(platform, modelId) {
   return null;
 }
 
+/* 火山方舟 Agent Plan 端点未实现 /models 列表接口（GET 必然 404），
+   按官方文档内置模型目录，来源标 builtin
+   https://www.volcengine.com/docs/82379/2366394（2026-08 版） */
+const ARK_AGENT_PLAN_MODELS = [
+  { id: 'doubao-seed-2.0-mini', ctx: 262144, out: 131072, note: '文本生成·极速' },
+  { id: 'doubao-seed-2.0-lite', ctx: 262144, out: 131072, note: '文本生成·标准' },
+  { id: 'deepseek-v4-flash', ctx: 1048576, out: 393216, note: '文本生成·标准' },
+  { id: 'glm-5.3-flash', ctx: 1048576, out: 131072, note: '文本生成·标准·多模态' },
+  { id: 'doubao-seed-2.1-turbo', ctx: 262144, out: 262144, note: '文本生成·进阶' },
+  { id: 'doubao-seed-evolving', ctx: 1048576, out: 262144, note: '文本生成·进阶' },
+  { id: 'minimax-m3', ctx: 1048576, out: 131072, note: '文本生成·进阶' },
+  { id: 'glm-5.3', ctx: 1048576, out: 131072, note: '文本生成·进阶·默认开启思考' },
+  { id: 'kimi-k2.7-code', ctx: 262144, out: 32768, note: '文本生成·进阶·代码' },
+  { id: 'deepseek-v4-pro', ctx: 1048576, out: 393216, note: '文本生成·进阶' },
+  { id: 'kimi-k3', ctx: 1048576, out: 131072, note: '文本生成·进阶·1M 上下文' },
+  { id: 'ark-code-latest', ctx: 262144, out: 32768, note: '编程模型·OpenCode 示例' },
+  { id: 'auto', ctx: 1048576, out: 131072, note: 'Auto 智能路由' },
+  { id: 'doubao-embedding-vision', ctx: 131072, out: null, note: '向量化' },
+  { id: 'doubao-seedream-5.0-lite', ctx: null, out: null, note: '图片生成' },
+  { id: 'doubao-seedance-2.0', ctx: null, out: null, note: '视频生成' },
+  { id: 'doubao-seedance-2.0-fast', ctx: null, out: null, note: '视频生成' },
+  { id: 'doubao-seedance-2.0-mini', ctx: null, out: null, note: '视频生成' },
+  { id: 'doubao-seed-tts-2.0', ctx: null, out: null, note: '语音合成' },
+  { id: 'doubao-seed-asr-2.0', ctx: null, out: null, note: '语音识别' }
+];
+
+function isArkAgentPlanUrl(url) {
+  return /^https?:\/\/[^\/]*volces\.com\/api\/plan\//i.test(String(url || '').trim());
+}
+
 async function fetchModels(platform, ep, key, opts) {
   const style = (ep && ep.style) || inferStyle(platform);
   const url = (ep && ep.url) || '';
@@ -142,6 +172,11 @@ async function fetchModels(platform, ep, key, opts) {
   }
   const res = await requestJson(modelsUrl(style, url), authHeaders(style, key), opts);
   if (!res.ok) {
+    if (res.status === 404 && isArkAgentPlanUrl(url)) {
+      return ARK_AGENT_PLAN_MODELS.map(function (m) {
+        return { id: m.id, ctx: m.ctx, out: m.out, src: 'builtin', note: m.note };
+      });
+    }
     if (res.status === 404) {
       throw fail(502, '模型列表接口不存在（HTTP 404）：该地址可能不支持 /models，请检查 Base URL 是否正确，或手动添加模型', '404');
     }
@@ -224,7 +259,10 @@ async function testKey(platform, ep, key, opts) {
   const t0 = Date.now();
   try {
     await fetchModels(platform, ep, key, opts);
-    return { status: 'pass', latency: Date.now() - t0, msg: 'GET ' + modelsUrl(style, url) + ' 返回正常，密钥可用' };
+    const msg = isArkAgentPlanUrl(url)
+      ? '火山方舟 Agent Plan 端点，已按官方内置模型目录确认密钥可用'
+      : 'GET ' + modelsUrl(style, url) + ' 返回正常，密钥可用';
+    return { status: 'pass', latency: Date.now() - t0, msg: msg };
   } catch (e) {
     if (e.code !== '404') return { status: 'fail', code: e.code || 'ERROR', msg: e.message };
     return chatAuthFallback(style, url, key, opts, t0);
