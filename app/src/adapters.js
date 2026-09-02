@@ -4,26 +4,34 @@ const PLATFORMS = {
   deepseek: {
     id: 'deepseek', name: 'DeepSeek', color: '#22A5F7',
     defaultBase: 'https://api.deepseek.com', defaultModel: 'deepseek-chat',
+    endpoints: [
+      { url: 'https://api.deepseek.com', style: 'openai' },
+      { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+    ],
     currency: 'CNY', supportsBalance: true, auth: 'bearer'
   },
   openai: {
     id: 'openai', name: 'OpenAI', color: '#4B3FE3',
     defaultBase: 'https://api.openai.com/v1', defaultModel: 'gpt-4o',
+    endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }],
     currency: 'USD', supportsBalance: false, auth: 'bearer'
   },
   anthropic: {
     id: 'anthropic', name: 'Anthropic', color: '#D97757',
     defaultBase: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-4-5',
+    endpoints: [{ url: 'https://api.anthropic.com', style: 'anthropic' }],
     currency: 'USD', supportsBalance: false, auth: 'anthropic'
   },
   moonshot: {
     id: 'moonshot', name: 'Moonshot (Kimi)', color: '#F87454',
     defaultBase: 'https://api.moonshot.cn/v1', defaultModel: 'moonshot-v1-8k',
+    endpoints: [{ url: 'https://api.moonshot.cn/v1', style: 'openai' }],
     currency: 'CNY', supportsBalance: false, auth: 'bearer'
   },
   custom: {
     id: 'custom', name: '自定义平台', color: '#8A8FA8',
     defaultBase: '', defaultModel: '',
+    endpoints: [],
     currency: 'CNY', supportsBalance: false, auth: 'bearer'
   }
 };
@@ -63,15 +71,47 @@ async function requestJson(url, headers, opts) {
 
 function trimBase(b) { return String(b || '').replace(/\/+$/, ''); }
 
-function modelsUrl(platform, base) {
+function inferStyle(platform) { return platform === 'anthropic' ? 'anthropic' : 'openai'; }
+
+function isKnownStyle(style) { return style === 'openai' || style === 'anthropic'; }
+
+function modelsUrl(style, base) {
   const b = trimBase(base);
-  return platform === 'anthropic' ? b + '/v1/models' : b + '/models';
+  return style === 'anthropic' ? b + '/v1/models' : b + '/models';
 }
 
-function authHeaders(platform, key) {
-  return platform === 'anthropic'
+function authHeaders(style, key) {
+  return style === 'anthropic'
     ? { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
     : { 'Authorization': 'Bearer ' + key };
+}
+
+function defaultEndpoints(platform) {
+  const p = PLATFORMS[platform];
+  return p && p.endpoints
+    ? p.endpoints.map(function (e) { return { url: e.url, style: e.style }; })
+    : [];
+}
+
+function normalizeEndpoints(platform, raw) {
+  if (raw === undefined || raw === null) return defaultEndpoints(platform);
+  if (!Array.isArray(raw)) throw fail(400, 'endpoints 应为数组，每项含 url 与 style');
+  if (raw.length > 6) throw fail(400, '最多支持 6 个 Base URL');
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    const e = raw[i] || {};
+    const url = String(e.url == null ? '' : e.url).trim();
+    const style = String(e.style == null ? '' : e.style).trim() || inferStyle(platform);
+    if (!url) continue;
+    if (style.length > 30) throw fail(400, '兼容模式名称过长（不超过 30 字符）');
+    out.push({ url: url, style: style });
+  }
+  return out;
+}
+
+function primaryEndpoint(keyRec) {
+  if (keyRec.endpoints && keyRec.endpoints.length) return keyRec.endpoints[0];
+  return { url: keyRec.base || '', style: inferStyle(keyRec.platform) };
 }
 
 function lookupMeta(platform, modelId) {
@@ -86,11 +126,16 @@ function lookupMeta(platform, modelId) {
   return null;
 }
 
-async function fetchModels(platform, key, base, opts) {
-  if (!trimBase(base)) {
-    throw fail(400, '该平台无法自动拉取：请先填写 Base URL，或手动添加模型', 'NO_BASE');
+async function fetchModels(platform, ep, key, opts) {
+  const style = (ep && ep.style) || inferStyle(platform);
+  const url = (ep && ep.url) || '';
+  if (!trimBase(url)) {
+    throw fail(400, '该密钥未配置 Base URL，无法自动拉取：请先填写地址，或手动添加模型', 'NO_BASE');
   }
-  const res = await requestJson(modelsUrl(platform, base), authHeaders(platform, key), opts);
+  if (!isKnownStyle(style)) {
+    throw fail(400, '「' + style + '」为自定义兼容模式，暂不支持自动拉取模型列表：请使用 OpenAI / Anthropic 兼容地址，或手动添加模型', 'UNSUPPORTED_STYLE');
+  }
+  const res = await requestJson(modelsUrl(style, url), authHeaders(style, key), opts);
   if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
   const list = (res.body && Array.isArray(res.body.data)) ? res.body.data : [];
   const models = [];
@@ -109,22 +154,29 @@ async function fetchModels(platform, key, base, opts) {
   return models;
 }
 
-async function testKey(platform, key, base, opts) {
-  if (!trimBase(base)) {
+async function testKey(platform, ep, key, opts) {
+  const style = (ep && ep.style) || inferStyle(platform);
+  const url = (ep && ep.url) || '';
+  if (!trimBase(url)) {
     return { status: 'fail', code: 'NO_BASE', msg: '无法测试：请先填写 Base URL' };
+  }
+  if (!isKnownStyle(style)) {
+    return { status: 'fail', code: 'UNSUPPORTED_STYLE', msg: '「' + style + '」为自定义兼容模式，暂不支持自动测试' };
   }
   const t0 = Date.now();
   try {
-    await fetchModels(platform, key, base, opts);
-    return { status: 'pass', latency: Date.now() - t0, msg: 'GET /models 返回正常，密钥可用' };
+    await fetchModels(platform, ep, key, opts);
+    return { status: 'pass', latency: Date.now() - t0, msg: 'GET ' + modelsUrl(style, url) + ' 返回正常，密钥可用' };
   } catch (e) {
     return { status: 'fail', code: e.code || 'ERROR', msg: e.message };
   }
 }
 
-async function fetchBalance(platform, key, base, opts) {
+async function fetchBalance(platform, ep, key, opts) {
   if (platform !== 'deepseek') return null;
-  const res = await requestJson(trimBase(base) + '/user/balance', authHeaders(platform, key), opts);
+  const style = (ep && ep.style) || inferStyle(platform);
+  const url = (ep && ep.url) || '';
+  const res = await requestJson(trimBase(url) + '/user/balance', authHeaders(style, key), opts);
   if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
   const infos = (res.body && Array.isArray(res.body.balance_infos)) ? res.body.balance_infos : [];
   const cny = infos.find(function (x) { return x.currency === 'CNY'; }) || infos[0];
@@ -172,5 +224,10 @@ module.exports = {
   mergeModels: mergeModels,
   lookupMeta: lookupMeta,
   modelsUrl: modelsUrl,
-  authHeaders: authHeaders
+  authHeaders: authHeaders,
+  inferStyle: inferStyle,
+  isKnownStyle: isKnownStyle,
+  defaultEndpoints: defaultEndpoints,
+  normalizeEndpoints: normalizeEndpoints,
+  primaryEndpoint: primaryEndpoint
 };

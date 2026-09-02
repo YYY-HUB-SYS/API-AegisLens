@@ -510,11 +510,11 @@
 
     <!-- ============ COVER ============ -->
     <header class="cover">
-      <span class="tagline">Product Design Document · v0.3</span>
+      <span class="tagline">Product Design Document · v0.5</span>
       <h1>AI Key Manager<span class="grad"> 产品设计文档</span></h1>
       <p class="subtitle">一款本地优先的 AI 密钥管理工具：一次录入，全盘掌握，随处可用。本文档梳理产品整体方向与主要功能范围。</p>
       <div class="meta">
-        <span>文档版本 <b>v0.3</b></span>
+        <span>文档版本 <b>v0.5</b></span>
         <span>产品形态 <b>本地 Web 服务</b></span>
         <span>目标平台 <b>国内外 AI 平台</b></span>
         <span>更新日期 <b>2026-09-02</b></span>
@@ -904,10 +904,16 @@ flowchart LR
                 </div>
               </div>
               <div class="form-row">
-                <div class="field">
-                  <label for="f-base">Base URL</label>
-                  <input id="f-base" type="text" value="https://api.deepseek.com">
+                <div class="field" style="flex:1">
+                  <label>Base URL（兼容端点列表）</label>
+                  <input type="text" value="https://api.deepseek.com" style="width:58%;display:inline-block">
+                  <input type="text" value="openai" style="width:32%;display:inline-block" title="兼容模式">
+                  <input type="text" value="https://api.deepseek.com/anthropic" style="width:58%;display:inline-block;margin-top:6px">
+                  <input type="text" value="anthropic" style="width:32%;display:inline-block;margin-top:6px">
+                  <button type="button" class="btn ghost" style="font-size:12px;margin-top:6px">+ 添加地址</button>
                 </div>
+              </div>
+              <div class="form-row">
                 <div class="field">
                   <label for="f-model">默认模型</label>
                   <input id="f-model" type="text" value="deepseek-chat">
@@ -926,17 +932,17 @@ flowchart LR
               <div class="demo-toolbar">
                 <button class="btn primary" id="btn-submit">保存</button>
                 <button class="btn ghost" type="reset">取消</button>
-                <span class="meta" id="form-hint">选择平台后自动填充 base URL 与默认模型</span>
+                <span class="meta" id="form-hint">选择平台后自动填充默认兼容端点与默认模型，同一 Key 可配多个地址</span>
               </div>
             </form>
           </div>
         </div>
 
         <h4>页面布局</h4>
-        <p>新增/编辑密钥使用单一表单，包含 Key 名称、平台选择、API Key、base URL、默认模型、注册时间、有效期七个字段，外加保存与取消操作。平台选择器内置常用平台，并支持「自定义平台」入口。</p>
+        <p>新增/编辑密钥使用单一表单，包含 Key 名称、平台选择、API Key、Base URL 兼容端点列表（动态行）、默认模型、注册时间、有效期七个字段，外加保存与取消操作。平台选择器内置常用平台，并支持「自定义平台」入口。</p>
 
         <h4>业务逻辑</h4>
-        <p>用户选择平台后，系统自动填充该平台的默认 base URL 与默认模型，用户可修改。API Key 为必填项，未填写时保存按钮不可用。Key 名称为自定义字段，可选填，留空时系统自动以「平台名 + Key 末 4 位」生成默认名称；同一平台存在多个密钥时（如主力号与测试号），建议填写名称以便在看板中快速区分，名称在同平台内唯一。保存时系统对密钥做字段级加密后写入本地存储，注册时间与有效期可选；若有效期为空，状态判定退化为「仅按余额判断」。编辑与删除在密钥详情或行操作中触发，删除需二次确认，防止误删。</p>
+        <p>用户选择平台后，系统自动填充该平台的默认兼容端点列表与默认模型，用户可修改。Base URL 以<strong>动态列表</strong>呈现：每行一个地址并附带「兼容模式」输入（可下拉选择 <code>openai</code> / <code>anthropic</code>，也可自由输入自定义兼容模式名，如 <code>gemini</code>），右上角「+ 添加地址」追加新行，行尾「×」删除，最多 6 个地址。同一 Key 可同时配置 OpenAI 兼容与 Anthropic 兼容等多个端点（如 DeepSeek 的 <code>https://api.deepseek.com</code> 与 <code>https://api.deepseek.com/anthropic</code>），供不同工具按协议取用。API Key 为必填项，未填写时保存按钮不可用。Key 名称为自定义字段，可选填，留空时系统自动以「平台名 + Key 末 4 位」生成默认名称；同一平台存在多个密钥时（如主力号与测试号），建议填写名称以便在看板中快速区分，名称在同平台内唯一。保存时系统对密钥做字段级加密后写入本地存储，注册时间与有效期可选；若有效期为空，状态判定退化为「仅按余额判断」。编辑与删除在密钥详情或行操作中触发，删除需二次确认，防止误删。</p>
 
         <h4>字段规则</h4>
         <div class="table-wrap">
@@ -948,7 +954,8 @@ flowchart LR
               <tr><td>Key 名称</td><td>文本</td><td>否</td><td>同平台内唯一；留空自动生成「平台名 + 末 4 位」</td><td>自动生成</td></tr>
               <tr><td>平台</td><td>下拉</td><td>是</td><td>内置平台或自定义</td><td>—</td></tr>
               <tr><td>API Key</td><td>文本</td><td>是</td><td>保存时加密</td><td>—</td></tr>
-              <tr><td>Base URL</td><td>文本</td><td>否</td><td>选择平台后自动填充</td><td>平台默认</td></tr>
+              <tr><td>Base URL 端点列表</td><td>动态行数组</td><td>否</td><td>每行 = 地址 + 兼容模式；最多 6 个；空地址行自动忽略</td><td>平台默认端点</td></tr>
+              <tr><td>兼容模式</td><td>文本（可下拉）</td><td>否</td><td>openai / anthropic / 自定义名称（≤30 字符）；留空按平台推断</td><td>按平台推断</td></tr>
               <tr><td>默认模型</td><td>文本</td><td>否</td><td>选择平台后自动填充</td><td>平台默认</td></tr>
               <tr><td>注册时间</td><td>日期</td><td>否</td><td>可选</td><td>—</td></tr>
               <tr><td>有效期至</td><td>日期</td><td>否</td><td>可选，留空则状态仅看余额</td><td>—</td></tr>
@@ -958,7 +965,10 @@ flowchart LR
 
         <h4>边界与异常</h4>
         <ul>
-          <li>自定义平台需填写平台名称、base URL，可保存为模板供下次复用。</li>
+          <li>自定义平台需填写平台名称与至少一个地址；兼容模式可自由命名，但自定义模式不支持自动拉取模型与自动测试，提示改用 OpenAI / Anthropic 兼容地址或手动添加模型。</li>
+          <li>地址超过 6 个时「+ 添加地址」置灰并提示上限。</li>
+          <li>看板卡片参数区按端点逐个展示胶囊（首个标注 Base URL，其余标注「地址 N」），每条附兼容模式标签与独立复制按钮。</li>
+          <li>旧版本单 base URL 数据在读取时自动迁移为单元素端点列表，兼容模式按平台推断，无需用户操作。</li>
           <li>重复的密钥（同平台同 Key）在保存时提示，避免误重复录入。</li>
         </ul>
       </section>
@@ -995,7 +1005,7 @@ DIFY_LLM_PROVIDER=deepseek
         <p>配置生成以弹窗或独立面板呈现：上方为本地 Agent 工具选择（分段控件），中部为实时生成的配置代码片段（等宽字体、语法着色），下方为复制与关闭操作。</p>
 
         <h4>业务逻辑</h4>
-        <p>用户在密钥卡片点击「生成配置」，系统弹出配置生成面板。面板按目标工具类型（首版支持 1-2 种，如 Dify 与 .env 模板）套用对应模板，将当前密钥的平台、Key、base URL、默认模型代入生成完整配置片段。若模型目录中已拉取该模型的上下文长度与最大输出，则一并代入（如 <code>MAX_TOKENS</code>、<code>CONTEXT_WINDOW</code>），免去用户在工具中手动填写。用户切换工具类型时配置实时重算。生成的配置以「复制到剪贴板」为主要出口，并支持保存为文件（后续版本）。</p>
+        <p>用户在密钥卡片点击「生成配置」，系统弹出配置生成面板。面板按目标工具类型（Dify / n8n / Claude Code / .env）套用对应模板，将当前密钥的平台、Key、默认模型代入生成完整配置片段。<strong>Base URL 按工具协议自动选取</strong>：Dify 与 n8n 优先取 <code>openai</code> 兼容端点，Claude Code 优先取 <code>anthropic</code> 兼容端点（生成 <code>ANTHROPIC_BASE_URL</code> / <code>ANTHROPIC_AUTH_TOKEN</code>），.env 取首个端点；找不到对应模式时回退首个地址。若模型目录中已拉取该模型的上下文长度与最大输出，则一并代入（如 <code>MAX_TOKENS</code>、<code>CONTEXT_WINDOW</code>），免去用户在工具中手动填写。用户切换工具类型时配置实时重算。生成的配置以「复制到剪贴板」为主要出口，并支持保存为文件（后续版本）。</p>
 
         <h4>字段规则</h4>
         <div class="table-wrap">
@@ -1053,7 +1063,7 @@ DIFY_LLM_PROVIDER=deepseek
       <!-- ============ 11 平台适配器 ============ -->
       <section id="module-adapter">
         <h2><span class="idx">11</span>核心功能 · 平台适配器</h2>
-        <p>平台适配器是产品支持多平台的关键抽象。每个平台实现统一的适配器接口，提供三方面能力：<strong>参数模板</strong>（默认 base URL、常用模型列表）、<strong>余额查询</strong>（调用平台接口获取余额）、<strong>有效期判定</strong>（按平台特性推断或留空由用户填写）。</p>
+        <p>平台适配器是产品支持多平台的关键抽象。每个平台实现统一的适配器接口，提供四方面能力：<strong>参数模板</strong>（默认兼容端点列表、常用模型列表）、<strong>协议风格</strong>（openai / anthropic 两种请求风格：认证头 Bearer 与 x-api-key、模型路径 /models 与 /v1/models）、<strong>余额查询</strong>（调用平台接口获取余额）、<strong>有效期判定</strong>（按平台特性推断或留空由用户填写）。默认端点列表按平台预置，如 DeepSeek 同时提供 OpenAI 与 Anthropic 兼容地址，Anthropic 平台仅提供 anthropic 地址，自定义平台从空白列表开始。</p>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1272,7 +1282,7 @@ DIFY_LLM_PROVIDER=deepseek
     <footer>
       <div class="sources">
         <h2>说明</h2>
-        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.4），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块，v0.3 新增密钥自定义「Key 名称」字段，v0.4 将模型参数获取升级为「平台接口 → 元数据库 → 联网检索 → 手动补充」四级兜底链路。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
+        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.5），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块，v0.3 新增密钥自定义「Key 名称」字段，v0.4 将模型参数获取升级为「平台接口 → 元数据库 → 联网检索 → 手动补充」四级兜底链路，v0.5 将 Base URL 升级为「多兼容端点动态列表」（openai / anthropic / 自定义模式，每 Key 最多 6 个地址，配置生成按工具协议自动选端点，旧数据自动迁移）。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
       </div>
     </footer>
 

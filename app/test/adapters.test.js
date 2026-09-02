@@ -12,7 +12,8 @@ test('fetchModels：OpenAI 风格响应解析 + 元数据库补参数', async ()
     captured = { url, headers: opts.headers };
     return Promise.resolve(res({ data: [{ id: 'deepseek-chat' }, { id: 'unknown-model' }] }));
   };
-  const models = await adapters.fetchModels('deepseek', 'sk-test', 'https://api.deepseek.com/', { fetchImpl: f });
+  const ep = { url: 'https://api.deepseek.com/', style: 'openai' };
+  const models = await adapters.fetchModels('deepseek', ep, 'sk-test', { fetchImpl: f });
   assert.strictEqual(captured.url, 'https://api.deepseek.com/models', '末尾斜杠应被去除');
   assert.strictEqual(captured.headers['Authorization'], 'Bearer sk-test');
   assert.strictEqual(models.length, 2);
@@ -33,7 +34,7 @@ test('fetchModels：Anthropic 使用 x-api-key 头与 /v1/models 路径', async 
     captured = { url, headers: opts.headers };
     return Promise.resolve(res({ data: [{ id: 'claude-sonnet-4-5' }] }));
   };
-  const models = await adapters.fetchModels('anthropic', 'sk-ant-test', 'https://api.anthropic.com', { fetchImpl: f });
+  const models = await adapters.fetchModels('anthropic', { url: 'https://api.anthropic.com', style: 'anthropic' }, 'sk-ant-test', { fetchImpl: f });
   assert.strictEqual(captured.url, 'https://api.anthropic.com/v1/models');
   assert.strictEqual(captured.headers['x-api-key'], 'sk-ant-test');
   assert.strictEqual(captured.headers['anthropic-version'], '2023-06-01');
@@ -41,9 +42,27 @@ test('fetchModels：Anthropic 使用 x-api-key 头与 /v1/models 路径', async 
   assert.strictEqual(models[0].out, 64000);
 });
 
+test('fetchModels：DeepSeek Anthropic 兼容端点按 anthropic 风格请求', async () => {
+  let captured = null;
+  const f = (url, opts) => {
+    captured = { url, headers: opts.headers };
+    return Promise.resolve(res({ data: [{ id: 'deepseek-chat' }] }));
+  };
+  await adapters.fetchModels('deepseek', { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(captured.url, 'https://api.deepseek.com/anthropic/v1/models');
+  assert.strictEqual(captured.headers['x-api-key'], 'sk-x');
+});
+
+test('fetchModels：自定义兼容模式拒绝自动拉取', async () => {
+  await assert.rejects(
+    () => adapters.fetchModels('custom', { url: 'https://gw.example.com', style: 'gemini' }, 'sk-x', { fetchImpl: async () => res({}) }),
+    /自定义兼容模式/
+  );
+});
+
 test('fetchModels：无 Base URL 时给出明确错误', async () => {
   await assert.rejects(
-    () => adapters.fetchModels('custom', 'sk-x', '', {}),
+    () => adapters.fetchModels('custom', { url: '', style: 'openai' }, 'sk-x', {}),
     /Base URL/
   );
 });
@@ -51,7 +70,7 @@ test('fetchModels：无 Base URL 时给出明确错误', async () => {
 test('fetchModels：401 归类为密钥无效', async () => {
   const f = () => Promise.resolve(res({ error: 'bad key' }, 401));
   await assert.rejects(
-    () => adapters.fetchModels('openai', 'sk-bad', 'https://api.openai.com/v1', { fetchImpl: f }),
+    () => adapters.fetchModels('openai', { url: 'https://api.openai.com/v1', style: 'openai' }, 'sk-bad', { fetchImpl: f }),
     /401/
   );
 });
@@ -59,7 +78,7 @@ test('fetchModels：401 归类为密钥无效', async () => {
 test('fetchModels：404 提示检查 Base URL', async () => {
   const f = () => Promise.resolve(res({}, 404));
   await assert.rejects(
-    () => adapters.fetchModels('custom', 'sk-x', 'https://wrong.example.com', { fetchImpl: f }),
+    () => adapters.fetchModels('custom', { url: 'https://wrong.example.com', style: 'openai' }, 'sk-x', { fetchImpl: f }),
     /Base URL/
   );
 });
@@ -69,7 +88,7 @@ test('fetchModels：超时中断', async () => {
     opts.signal.addEventListener('abort', () => rej(new Error('aborted')));
   });
   await assert.rejects(
-    () => adapters.fetchModels('deepseek', 'sk-x', 'https://api.deepseek.com', { fetchImpl: f, timeoutMs: 60 }),
+    () => adapters.fetchModels('deepseek', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-x', { fetchImpl: f, timeoutMs: 60 }),
     /超时/
   );
 });
@@ -86,33 +105,81 @@ test('fetchBalance：DeepSeek 余额解析（CNY）', async () => {
       ]
     }));
   };
-  const bal = await adapters.fetchBalance('deepseek', 'sk-test', 'https://api.deepseek.com', { fetchImpl: f });
+  const bal = await adapters.fetchBalance('deepseek', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-test', { fetchImpl: f });
   assert.strictEqual(captured.url, 'https://api.deepseek.com/user/balance');
   assert.strictEqual(bal.value, 110.5);
   assert.strictEqual(bal.status, 'ok');
 });
 
 test('fetchBalance：非 DeepSeek 平台返回 null（不支持）', async () => {
-  const bal = await adapters.fetchBalance('openai', 'sk-x', 'https://api.openai.com/v1', { fetchImpl: async () => res({}) });
+  const bal = await adapters.fetchBalance('openai', { url: 'https://api.openai.com/v1', style: 'openai' }, 'sk-x', { fetchImpl: async () => res({}) });
   assert.strictEqual(bal, null);
 });
 
 test('testKey：通过 / 失败场景', async () => {
-  const ok = await adapters.testKey('deepseek', 'sk-x', 'https://api.deepseek.com', {
+  const ok = await adapters.testKey('deepseek', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-x', {
     fetchImpl: () => Promise.resolve(res({ data: [{ id: 'deepseek-chat' }] }))
   });
   assert.strictEqual(ok.status, 'pass');
   assert.ok(ok.latency >= 0);
 
-  const fail401 = await adapters.testKey('deepseek', 'sk-bad', 'https://api.deepseek.com', {
+  const fail401 = await adapters.testKey('deepseek', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-bad', {
     fetchImpl: () => Promise.resolve(res({}, 401))
   });
   assert.strictEqual(fail401.status, 'fail');
   assert.strictEqual(fail401.code, '401');
 
-  const noBase = await adapters.testKey('custom', 'sk-x', '', {});
+  const noBase = await adapters.testKey('custom', { url: '', style: 'openai' }, 'sk-x', {});
   assert.strictEqual(noBase.status, 'fail');
   assert.strictEqual(noBase.code, 'NO_BASE');
+
+  const customStyle = await adapters.testKey('custom', { url: 'https://gw.example.com', style: 'my-style' }, 'sk-x', {});
+  assert.strictEqual(customStyle.status, 'fail');
+  assert.strictEqual(customStyle.code, 'UNSUPPORTED_STYLE');
+});
+
+test('normalizeEndpoints：默认端点、上限与过滤', () => {
+  const def = adapters.normalizeEndpoints('deepseek', undefined);
+  assert.deepStrictEqual(def, [
+    { url: 'https://api.deepseek.com', style: 'openai' },
+    { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+  ]);
+
+  assert.deepStrictEqual(adapters.normalizeEndpoints('custom', null), [], '自定义平台默认无端点');
+
+  const kept = adapters.normalizeEndpoints('custom', [
+    { url: 'https://a.example.com', style: 'openai' },
+    { url: '', style: 'anthropic' },
+    { url: 'https://b.example.com' }
+  ]);
+  assert.deepStrictEqual(kept, [
+    { url: 'https://a.example.com', style: 'openai' },
+    { url: 'https://b.example.com', style: 'openai' }
+  ], '空 URL 被过滤，缺省 style 按平台推断');
+
+  assert.throws(() => adapters.normalizeEndpoints('custom', new Array(7).fill({ url: 'https://x.com' })), /最多支持 6 个/);
+  assert.throws(() => adapters.normalizeEndpoints('custom', 'not-array'), /数组/);
+  assert.throws(() => adapters.normalizeEndpoints('custom', [{ url: 'https://x.com', style: 'a'.repeat(31) }]), /兼容模式名称过长/);
+
+  const customStyle = adapters.normalizeEndpoints('custom', [{ url: 'https://gw.example.com', style: 'gemini 兼容' }]);
+  assert.deepStrictEqual(customStyle, [{ url: 'https://gw.example.com', style: 'gemini 兼容' }]);
+});
+
+test('primaryEndpoint：取首个端点并兼容旧 base 字段', () => {
+  const eps = [{ url: 'https://a.com', style: 'openai' }, { url: 'https://b.com', style: 'anthropic' }];
+  assert.deepStrictEqual(adapters.primaryEndpoint({ platform: 'deepseek', endpoints: eps }), eps[0]);
+  assert.deepStrictEqual(
+    adapters.primaryEndpoint({ platform: 'anthropic', base: 'https://api.anthropic.com' }),
+    { url: 'https://api.anthropic.com', style: 'anthropic' }
+  );
+  assert.deepStrictEqual(
+    adapters.primaryEndpoint({ platform: 'openai', base: 'https://api.openai.com/v1' }),
+    { url: 'https://api.openai.com/v1', style: 'openai' }
+  );
+  assert.deepStrictEqual(
+    adapters.primaryEndpoint({ platform: 'custom', endpoints: [] }),
+    { url: '', style: 'openai' }
+  );
 });
 
 test('lookupMeta：精确匹配与通配符匹配', () => {

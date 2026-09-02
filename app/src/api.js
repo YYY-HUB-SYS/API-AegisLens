@@ -135,12 +135,21 @@ async function routeApi(req, res, ctx) {
         && x.name === name;
     });
     if (dup) throw bad(409, '该平台下已存在同名密钥');
+    let endpoints;
+    try {
+      const raw = b.endpoints !== undefined
+        ? b.endpoints
+        : (b.base !== undefined ? [{ url: b.base, style: adapters.inferStyle(platform) }] : undefined);
+      endpoints = adapters.normalizeEndpoints(platform, raw);
+    } catch (e) {
+      throw bad(400, e.message);
+    }
     const rec = storage.createKey({
       name: name,
       platform: platform,
       customName: customName,
       key: keyValue,
-      base: str(b.base) || plat.defaultBase,
+      endpoints: endpoints,
       model: str(b.model) || plat.defaultModel,
       reg: str(b.reg),
       exp: str(b.exp),
@@ -154,7 +163,7 @@ async function routeApi(req, res, ctx) {
     const cur = requireKey(id);
     const b = await readBody(req);
     const patch = {};
-    ['name', 'customName', 'base', 'model', 'reg', 'exp'].forEach(function (f) {
+    ['name', 'customName', 'model', 'reg', 'exp'].forEach(function (f) {
       if (b[f] !== undefined) patch[f] = str(b[f]);
     });
     if (b.platform !== undefined) {
@@ -173,6 +182,16 @@ async function routeApi(req, res, ctx) {
     if (platform === 'custom') patch.customName = customName;
     if (patch.name === '') {
       patch.name = autoName(platform, customName, patch.key || cur.key);
+    }
+    if (b.endpoints !== undefined || b.base !== undefined) {
+      try {
+        const raw = b.endpoints !== undefined
+          ? b.endpoints
+          : [{ url: b.base, style: adapters.inferStyle(platform) }];
+        patch.endpoints = adapters.normalizeEndpoints(platform, raw);
+      } catch (e) {
+        throw bad(400, e.message);
+      }
     }
     const name = patch.name || cur.name;
     const dup = storage.listKeys().some(function (x) {
@@ -194,14 +213,14 @@ async function routeApi(req, res, ctx) {
 
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/test$/.exec(path))) {
     const k = requireKey(m[1]);
-    const test = await adapters.testKey(k.platform, k.key, k.base, { fetchImpl: fetchImpl });
+    const test = await adapters.testKey(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
     const rec = storage.saveTest(k.id, test);
     return json(res, 200, { test: rec.test });
   }
 
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/models\/fetch$/.exec(path))) {
     const k = requireKey(m[1]);
-    const fetched = await adapters.fetchModels(k.platform, k.key, k.base, { fetchImpl: fetchImpl });
+    const fetched = await adapters.fetchModels(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
     let merged = adapters.mergeModels(k.models, fetched);
     let enrichInfo = null;
     if (merged.some(function (mm) { return mm.ctx == null || mm.out == null; })) {
@@ -322,7 +341,7 @@ async function routeApi(req, res, ctx) {
       const plat = platOf(k.platform);
       if (!plat || !plat.supportsBalance) continue;
       try {
-        const bal = await adapters.fetchBalance(k.platform, k.key, k.base, { fetchImpl: fetchImpl });
+        const bal = await adapters.fetchBalance(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
         if (bal) {
           storage.saveBalance(k.id, bal);
           updated++;

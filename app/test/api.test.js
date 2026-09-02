@@ -195,6 +195,93 @@ test('API 安全：拒绝跨域写请求', async () => {
   }
 });
 
+test('API 集成：endpoints 数组的创建、校验与更新', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek',
+      key: 'sk-multi-ep-0001',
+      endpoints: [
+        { url: 'https://api.deepseek.com', style: 'openai' },
+        { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+      ]
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.key.id;
+    assert.deepStrictEqual(r.data.key.endpoints, [
+      { url: 'https://api.deepseek.com', style: 'openai' },
+      { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+    ]);
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-legacy-base-0002', base: 'https://api.deepseek.com'
+    });
+    assert.strictEqual(r.status, 201, '旧版 base 字段应仍可用');
+    assert.deepStrictEqual(r.data.key.endpoints, [{ url: 'https://api.deepseek.com', style: 'openai' }]);
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-default-ep-0003'
+    });
+    assert.strictEqual(r.status, 201);
+    assert.strictEqual(r.data.key.endpoints.length, 2, '未传地址时用平台默认端点');
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-too-many-0004',
+      endpoints: new Array(7).fill({ url: 'https://x.example.com' })
+    });
+    assert.strictEqual(r.status, 400);
+    assert.ok(r.data.error.includes('6'));
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-bad-ep-0005', endpoints: 'not-array'
+    });
+    assert.strictEqual(r.status, 400);
+
+    r = await call(base, 'PUT', '/api/keys/' + id, {
+      endpoints: [{ url: 'https://gw.example.com', style: 'gemini 兼容' }]
+    });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.data.key.endpoints, [{ url: 'https://gw.example.com', style: 'gemini 兼容' }]);
+
+    r = await call(base, 'PUT', '/api/keys/' + id, { name: '改名不动端点' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.endpoints.length, 1, '普通更新不应清空端点');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：测试与拉取使用首个端点', async () => {
+  const urls = [];
+  const f = (url) => {
+    urls.push(String(url));
+    return Promise.resolve(new Response(JSON.stringify({ data: [{ id: 'deepseek-chat' }] }), { status: 200 }));
+  };
+  const { server, base } = await startServer(f);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek',
+      key: 'sk-primary-ep-0006',
+      endpoints: [
+        { url: 'https://primary.example.com', style: 'openai' },
+        { url: 'https://second.example.com', style: 'anthropic' }
+      ]
+    });
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/test');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.test.status, 'pass');
+    assert.ok(urls[0].startsWith('https://primary.example.com/models'), '测试应请求首个端点');
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.status, 200);
+    assert.ok(urls[1].startsWith('https://primary.example.com/models'), '拉取应请求首个端点');
+  } finally {
+    server.close();
+  }
+});
+
 test('API 校验：非法请求体与非 JSON', async () => {
   const { server, base } = await startServer(mockFetch);
   try {

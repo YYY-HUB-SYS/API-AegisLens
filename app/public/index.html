@@ -238,6 +238,21 @@
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .field input.mono { font-family: var(--mono); }
+  .ep-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .ep-row { display: flex; gap: 6px; margin-top: 6px; }
+  .ep-row input {
+    border: 1px solid var(--rule); border-radius: 8px;
+    padding: 0.5rem 0.7rem; font-size: 0.85rem; background: #fff; color: var(--ink);
+    min-width: 0;
+  }
+  .ep-row input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .ep-row .ep-url { flex: 3; font-family: var(--mono); }
+  .ep-row .ep-style { flex: 1.3; font-family: var(--mono); }
+  .ep-row .ep-del { flex-shrink: 0; }
+  .ep-style-tag {
+    font-size: 10px; font-weight: 700; color: var(--sub);
+    background: #F0F1F3; border-radius: 999px; padding: 1px 7px; white-space: nowrap;
+  }
   .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
   .form-grid .span2 { grid-column: span 2; }
   .btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
@@ -334,9 +349,16 @@
         <input id="f-key" type="text" class="mono" placeholder="sk-..." autocomplete="off" spellcheck="false">
       </div>
       <div class="field span2">
-        <label for="f-base">Base URL <span class="hint">OpenAI 兼容地址，一般无需修改</span></label>
-        <input id="f-base" type="text" class="mono" placeholder="https://api.deepseek.com" spellcheck="false">
+        <div class="ep-head">
+          <label style="margin:0">Base URL <span class="hint">同一 Key 可配多个兼容端点（如 OpenAI / Anthropic 兼容）</span></label>
+          <button type="button" class="btn ghost small" id="btn-add-ep" title="最多 6 个地址">+ 添加地址</button>
+        </div>
+        <div id="endpoints-box"></div>
       </div>
+      <datalist id="style-list">
+        <option value="openai">OpenAI 兼容</option>
+        <option value="anthropic">Anthropic 兼容</option>
+      </datalist>
       <div class="field">
         <label for="f-model">默认模型 <span class="hint">可稍后在模型目录中设置</span></label>
         <input id="f-model" type="text" class="mono" placeholder="deepseek-chat" spellcheck="false">
@@ -365,6 +387,7 @@
     <div class="seg" id="seg-tool">
       <button data-tool="dify" class="active">Dify</button>
       <button data-tool="n8n">n8n</button>
+      <button data-tool="claude">Claude Code</button>
       <button data-tool="env">.env</button>
     </div>
     <pre class="config-pre" id="config-pre"></pre>
@@ -433,6 +456,23 @@
     return state.platforms[id] || { name: id, color: '#8A8FA8', currency: 'CNY', supportsBalance: false };
   }
   function platLabel(k) { return k.platform === 'custom' ? (k.customName || '自定义平台') : P(k.platform).name; }
+  function styleLabel(s) {
+    if (s === 'openai') return 'OpenAI 兼容';
+    if (s === 'anthropic') return 'Anthropic 兼容';
+    return s || 'OpenAI 兼容';
+  }
+  function styleShort(s) {
+    if (s === 'openai') return 'OpenAI';
+    if (s === 'anthropic') return 'Anthropic';
+    return s || 'OpenAI';
+  }
+  function pickEndpoint(k, style) {
+    var eps = (k.endpoints || []).filter(function (e) { return e.url; });
+    for (var i = 0; i < eps.length; i++) {
+      if (eps[i].style === style) return eps[i];
+    }
+    return eps.length ? eps[0] : null;
+  }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
@@ -604,7 +644,15 @@
               '<button class="eye" data-act="reveal" title="' + (revealed ? '隐藏' : '显示明文') + '">' + (revealed ? '🙈' : '👁') + '</button>' +
               '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
             '</span>' +
-            (k.base ? '<span class="param" data-copy="' + esc(k.base) + '"><span class="lbl2">Base URL</span><span class="val">' + esc(k.base) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
+            (k.endpoints || []).map(function (ep, i) {
+              if (!ep.url) return '';
+              return '<span class="param" data-copy="' + esc(ep.url) + '" title="' + esc(styleLabel(ep.style)) + ' 端点，点击复制按钮取地址">' +
+                '<span class="lbl2">' + (i === 0 ? 'Base URL' : '地址 ' + (i + 1)) + '</span>' +
+                '<span class="val">' + esc(ep.url) + '</span>' +
+                '<span class="ep-style-tag" title="' + esc(styleLabel(ep.style)) + '">' + esc(styleShort(ep.style)) + '</span>' +
+                '<button class="copy-btn" data-act="copy" title="复制 ' + esc(ep.url) + '">复制</button>' +
+              '</span>';
+            }).join('') +
             (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
           '</div>' +
           '<div class="kc-l2">' +
@@ -1008,12 +1056,70 @@
   var fCustomName = document.getElementById('f-custom-name');
   var fName = document.getElementById('f-name');
   var fKey = document.getElementById('f-key');
-  var fBase = document.getElementById('f-base');
   var fModel = document.getElementById('f-model');
   var fReg = document.getElementById('f-reg');
   var fExp = document.getElementById('f-exp');
   var nameErr = document.getElementById('name-err');
   var btnFormSave = document.getElementById('btn-form-save');
+  var endpointsBox = document.getElementById('endpoints-box');
+  var btnAddEp = document.getElementById('btn-add-ep');
+  var MAX_EPS = 6;
+
+  function platformDefaultEps(platformId) {
+    var p = state.platforms[platformId];
+    return (p && p.endpoints ? p.endpoints : []).map(function (e) {
+      return { url: e.url, style: e.style };
+    });
+  }
+
+  function addEpRow(url, style) {
+    var row = document.createElement('div');
+    row.className = 'ep-row';
+    row.innerHTML =
+      '<input class="ep-url" type="text" placeholder="https://api.example.com/v1" spellcheck="false" autocomplete="off" value="' + esc(url || '') + '">' +
+      '<input class="ep-style" type="text" list="style-list" placeholder="兼容模式" maxlength="30" spellcheck="false" autocomplete="off" value="' + esc(style || '') + '" title="选 openai / anthropic，或输入自定义兼容模式名">' +
+      '<button type="button" class="btn ghost small ep-del" title="删除该地址">×</button>';
+    row.querySelector('.ep-del').addEventListener('click', function () {
+      row.remove();
+      if (!endpointsBox.querySelectorAll('.ep-row').length) addEpRow('', '');
+      syncEpButtons();
+    });
+    endpointsBox.appendChild(row);
+  }
+
+  function renderEpRows(eps) {
+    endpointsBox.innerHTML = '';
+    var list = eps && eps.length ? eps : [{}];
+    list.forEach(function (e) { addEpRow(e.url, e.style); });
+    syncEpButtons();
+  }
+
+  function collectEndpoints() {
+    var out = [];
+    endpointsBox.querySelectorAll('.ep-row').forEach(function (row) {
+      var url = row.querySelector('.ep-url').value.trim();
+      var style = row.querySelector('.ep-style').value.trim();
+      if (url) out.push({ url: url, style: style });
+    });
+    return out;
+  }
+
+  function syncEpButtons() {
+    var n = endpointsBox.querySelectorAll('.ep-row').length;
+    btnAddEp.disabled = n >= MAX_EPS;
+    btnAddEp.title = n >= MAX_EPS ? '最多支持 ' + MAX_EPS + ' 个地址' : '添加地址（最多 ' + MAX_EPS + ' 个）';
+  }
+
+  btnAddEp.addEventListener('click', function () {
+    if (endpointsBox.querySelectorAll('.ep-row').length >= MAX_EPS) {
+      toast('最多支持 ' + MAX_EPS + ' 个 Base URL', 'warn');
+      return;
+    }
+    addEpRow('', '');
+    syncEpButtons();
+    var rows = endpointsBox.querySelectorAll('.ep-row');
+    rows[rows.length - 1].querySelector('.ep-url').focus();
+  });
 
   function buildPlatformSelect() {
     fPlatform.innerHTML = Object.keys(state.platforms).map(function (id) {
@@ -1031,7 +1137,7 @@
     fCustomName.value = k && k.platform === 'custom' ? k.customName : '';
     fName.value = k ? k.name : '';
     fKey.value = k ? k.key : '';
-    fBase.value = k ? k.base : P(fPlatform.value).defaultBase;
+    renderEpRows(k && k.endpoints && k.endpoints.length ? k.endpoints : platformDefaultEps(fPlatform.value));
     fModel.value = k ? k.model : P(fPlatform.value).defaultModel;
     fReg.value = k ? (k.reg || '') : '';
     fExp.value = k ? (k.exp || '') : '';
@@ -1041,7 +1147,7 @@
 
   fPlatform.addEventListener('change', function () {
     var p = P(fPlatform.value);
-    fBase.value = p.defaultBase;
+    renderEpRows(platformDefaultEps(fPlatform.value));
     fModel.value = p.defaultModel;
     document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
     if (fPlatform.value === 'custom') fCustomName.focus();
@@ -1060,7 +1166,7 @@
       customName: fCustomName.value.trim(),
       name: fName.value.trim(),
       key: fKey.value.trim(),
-      base: fBase.value.trim(),
+      endpoints: collectEndpoints(),
       model: fModel.value.trim(),
       reg: fReg.value,
       exp: fExp.value
@@ -1095,27 +1201,40 @@
 
   function buildConfig(k, tool) {
     var meta = currentModelMeta(k);
+    var ep = tool === 'claude' ? pickEndpoint(k, 'anthropic') : pickEndpoint(k, 'openai');
+    var baseUrl = ep ? ep.url : '';
     if (tool === 'dify') {
       return '# Dify · 模型供应商配置\n' +
         '模型名称: ' + (k.model || '（未设置默认模型）') + '\n' +
         '模型类型: LLM\n' +
         'API Key: ' + k.key + '\n' +
-        'API base: ' + k.base + '\n' +
-        '# 模式选「OpenAI-API-compatible」\n' +
+        'API base: ' + baseUrl + '\n' +
+        '# 模式选「OpenAI-API-compatible」' + (baseUrl ? '' : '（未配置 OpenAI 兼容地址）') + '\n' +
         (meta && meta.ctx ? '# 上下文长度: ' + meta.ctx + ' tokens\n' : '') +
         (meta && meta.out ? '# 最大输出: ' + meta.out + ' tokens\n' : '');
     }
     if (tool === 'n8n') {
       return '// n8n · OpenAI Chat Model 节点\n' +
-        'Base URL = ' + k.base + '\n' +
+        'Base URL = ' + baseUrl + '\n' +
         'API Key = ' + k.key + '\n' +
         'Model = ' + (k.model || '（未设置默认模型）') + '\n' +
         (meta && meta.ctx ? 'Context Window = ' + meta.ctx + '\n' : '') +
         (meta && meta.out ? 'Max Output = ' + meta.out + '\n' : '');
     }
+    if (tool === 'claude') {
+      var cl = ['# Claude Code · 环境变量'];
+      cl.push('ANTHROPIC_BASE_URL=' + baseUrl);
+      cl.push('ANTHROPIC_AUTH_TOKEN=' + k.key);
+      if (baseUrl) cl.push('# 使用「' + styleLabel(ep.style) + '」端点');
+      else cl.push('# 未配置 Anthropic 兼容地址');
+      if (k.model) cl.push('# 模型: ' + k.model);
+      if (meta && meta.ctx) cl.push('# 上下文: ' + meta.ctx + ' tokens');
+      if (meta && meta.out) cl.push('# 最大输出: ' + meta.out + ' tokens');
+      return cl.join('\n');
+    }
     var U = 'AI';
     var lines = ['# .env', U + '_API_KEY=' + k.key];
-    if (k.base) lines.push(U + '_BASE_URL=' + k.base);
+    if (baseUrl) lines.push(U + '_BASE_URL=' + baseUrl);
     if (k.model) lines.push(U + '_MODEL=' + k.model);
     if (meta) {
       if (meta.ctx) lines.push(U + '_CONTEXT_WINDOW=' + meta.ctx);

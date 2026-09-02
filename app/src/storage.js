@@ -1,8 +1,23 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { encryptField, decryptField } = require('./crypto');
+const { inferStyle } = require('./adapters');
 
 function nowIso() { return new Date().toISOString(); }
+
+function normEps(platform, eps) {
+  return (eps || []).map(function (e) {
+    e = e || {};
+    return {
+      url: String(e.url == null ? '' : e.url),
+      style: String(e.style == null ? '' : e.style) || inferStyle(platform)
+    };
+  });
+}
+
+function legacyEps(platform, base) {
+  return base ? [{ url: base, style: inferStyle(platform) }] : [];
+}
 
 function createStore(dataDir, masterKey, opts) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -38,14 +53,20 @@ function makeJsonStore(dataDir, masterKey) {
     fs.renameSync(tmp, file);
   }
   function find(id) { return data.keys.find(function (x) { return x.id === id; }) || null; }
+  function epsOf(doc) {
+    if (Array.isArray(doc.endpoints)) return normEps(doc.platform, doc.endpoints);
+    return legacyEps(doc.platform, doc.base || '');
+  }
   function toRec(doc) {
+    const eps = epsOf(doc);
     return {
       id: doc.id,
       name: doc.name,
       platform: doc.platform,
       customName: doc.customName || '',
       key: decryptField(masterKey, doc.keyEnc),
-      base: doc.base || '',
+      endpoints: eps,
+      base: eps.length ? eps[0].url : '',
       model: doc.model || '',
       reg: doc.reg || '',
       exp: doc.exp || '',
@@ -67,13 +88,17 @@ function makeJsonStore(dataDir, masterKey) {
     getKey(id) { const d = find(id); return d ? toRec(d) : null; },
 
     createKey(input) {
+      const eps = Array.isArray(input.endpoints)
+        ? normEps(input.platform, input.endpoints)
+        : legacyEps(input.platform, input.base || '');
       const doc = {
         id: data.nextId++,
         name: input.name,
         platform: input.platform,
         customName: input.customName || '',
         keyEnc: encryptField(masterKey, input.key),
-        base: input.base || '',
+        endpoints: eps,
+        base: eps.length ? eps[0].url : '',
         model: input.model || '',
         reg: input.reg || '',
         exp: input.exp || '',
@@ -93,10 +118,17 @@ function makeJsonStore(dataDir, masterKey) {
     updateKey(id, patch) {
       const d = find(id);
       if (!d) return null;
-      ['name', 'platform', 'customName', 'base', 'model', 'reg', 'exp'].forEach(function (f) {
+      ['name', 'platform', 'customName', 'model', 'reg', 'exp'].forEach(function (f) {
         if (patch[f] !== undefined) d[f] = patch[f];
       });
       if (patch.key !== undefined) d.keyEnc = encryptField(masterKey, patch.key);
+      if (patch.endpoints !== undefined) {
+        d.endpoints = normEps(d.platform, patch.endpoints);
+        d.base = d.endpoints.length ? d.endpoints[0].url : '';
+      } else if (patch.base !== undefined) {
+        d.base = patch.base;
+        d.endpoints = legacyEps(d.platform, patch.base);
+      }
       d.updatedAt = nowIso();
       persist();
       return toRec(d);
@@ -194,6 +226,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  custom_name TEXT DEFAULT \'\',',
     '  key_enc TEXT NOT NULL,',
     '  base TEXT DEFAULT \'\',',
+    '  endpoints_json TEXT,',
     '  model TEXT DEFAULT \'\',',
     '  reg TEXT DEFAULT \'\',',
     '  exp TEXT DEFAULT \'\',',
@@ -220,12 +253,15 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  PRIMARY KEY (key_id, tool)',
     ');'
   ].join('\n'));
+  try {
+    db.exec('ALTER TABLE keys ADD COLUMN endpoints_json TEXT');
+  } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
 
   const stmt = {
     selectAll: db.prepare('SELECT * FROM keys ORDER BY id'),
     selectOne: db.prepare('SELECT * FROM keys WHERE id = ?'),
-    insert: db.prepare('INSERT INTO keys (name, platform, custom_name, key_enc, base, model, reg, exp, balance_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-    update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, model = ?, reg = ?, exp = ?, updated_at = ? WHERE id = ?'),
+    insert: db.prepare('INSERT INTO keys (name, platform, custom_name, key_enc, base, endpoints_json, model, reg, exp, balance_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, endpoints_json = ?, model = ?, reg = ?, exp = ?, updated_at = ? WHERE id = ?'),
     setBalance: db.prepare('UPDATE keys SET balance_value = ?, balance_status = ?, balance_updated_at = ? WHERE id = ?'),
     setTest: db.prepare('UPDATE keys SET test_json = ? WHERE id = ?'),
     setModelsFetched: db.prepare('UPDATE keys SET models_fetched = 1 WHERE id = ?'),
@@ -250,18 +286,29 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   function loadAssigned(id) {
     return stmt.selAssigned.all(id).map(function (r) { return r.tool; });
   }
+  function epsOfRow(row) {
+    if (row.endpoints_json) {
+      try {
+        const parsed = JSON.parse(row.endpoints_json);
+        if (Array.isArray(parsed)) return normEps(row.platform, parsed);
+      } catch (e) { /* JSON 损坏时回退 legacy */ }
+    }
+    return legacyEps(row.platform, row.base || '');
+  }
   function toRec(row) {
     let test = null;
     if (row.test_json) {
       try { test = JSON.parse(row.test_json); } catch (e) { test = null; }
     }
+    const eps = epsOfRow(row);
     return {
       id: row.id,
       name: row.name,
       platform: row.platform,
       customName: row.custom_name || '',
       key: decryptField(masterKey, row.key_enc),
-      base: row.base || '',
+      endpoints: eps,
+      base: eps.length ? eps[0].url : '',
       model: row.model || '',
       reg: row.reg || '',
       exp: row.exp || '',
@@ -289,10 +336,14 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
 
     createKey(input) {
       const now = nowIso();
+      const eps = Array.isArray(input.endpoints)
+        ? normEps(input.platform, input.endpoints)
+        : legacyEps(input.platform, input.base || '');
       const r = stmt.insert.run(
         input.name, input.platform, input.customName || '',
         encryptField(masterKey, input.key),
-        input.base || '', input.model || '', input.reg || '', input.exp || '',
+        eps.length ? eps[0].url : '', JSON.stringify(eps),
+        input.model || '', input.reg || '', input.exp || '',
         input.balanceStatus || 'pending', now, now
       );
       return toRec(getRow(Number(r.lastInsertRowid)));
@@ -301,19 +352,30 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     updateKey(id, patch) {
       const cur = getRow(id);
       if (!cur) return null;
+      const platform = patch.platform !== undefined ? patch.platform : cur.platform;
+      let eps;
+      if (patch.endpoints !== undefined) {
+        eps = normEps(platform, patch.endpoints);
+      } else if (patch.base !== undefined) {
+        eps = legacyEps(platform, patch.base);
+      } else {
+        eps = epsOfRow(cur);
+      }
       const merged = {
         name: patch.name !== undefined ? patch.name : cur.name,
-        platform: patch.platform !== undefined ? patch.platform : cur.platform,
+        platform: platform,
         customName: patch.customName !== undefined ? patch.customName : (cur.custom_name || ''),
         keyEnc: patch.key !== undefined ? encryptField(masterKey, patch.key) : cur.key_enc,
-        base: patch.base !== undefined ? patch.base : cur.base,
+        base: eps.length ? eps[0].url : '',
+        endpointsJson: JSON.stringify(eps),
         model: patch.model !== undefined ? patch.model : cur.model,
         reg: patch.reg !== undefined ? patch.reg : cur.reg,
         exp: patch.exp !== undefined ? patch.exp : cur.exp
       };
       stmt.update.run(
         merged.name, merged.platform, merged.customName, merged.keyEnc,
-        merged.base, merged.model, merged.reg, merged.exp, nowIso(), id
+        merged.base, merged.endpointsJson,
+        merged.model, merged.reg, merged.exp, nowIso(), id
       );
       return toRec(getRow(id));
     },

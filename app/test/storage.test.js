@@ -65,6 +65,53 @@ function runSuite(backend) {
     assert.ok(text.includes('enc:v1:'), '落盘文件应包含加密前缀');
   });
 
+  test('存储后端 ' + backend + '：endpoints 数组存储与旧 base 自动迁移', () => {
+    const { store } = newStore(backend);
+
+    const rec = store.createKey({
+      name: '多端点', platform: 'deepseek', customName: '', key: KEY_VALUE,
+      endpoints: [
+        { url: 'https://api.deepseek.com', style: 'openai' },
+        { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+      ],
+      model: 'deepseek-chat', reg: '', exp: ''
+    });
+    let k = store.getKey(rec.id);
+    assert.deepStrictEqual(k.endpoints, [
+      { url: 'https://api.deepseek.com', style: 'openai' },
+      { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+    ]);
+    assert.strictEqual(k.base, 'https://api.deepseek.com', 'base 保留首地址便于兼容');
+
+    const upd = store.updateKey(rec.id, {
+      endpoints: [{ url: 'https://gw.example.com', style: 'my-style' }]
+    });
+    assert.deepStrictEqual(upd.endpoints, [{ url: 'https://gw.example.com', style: 'my-style' }]);
+    assert.strictEqual(upd.base, 'https://gw.example.com');
+
+    const keep = store.updateKey(rec.id, { name: '改名不改端点' });
+    assert.strictEqual(keep.endpoints.length, 1, '普通字段更新不应清空端点');
+    assert.strictEqual(keep.endpoints[0].style, 'my-style');
+
+    const legacy = store.createKey({
+      name: '旧数据', platform: 'anthropic', customName: '', key: KEY_VALUE,
+      base: 'https://api.anthropic.com', model: 'claude-sonnet-4-5', reg: '', exp: ''
+    });
+    k = store.getKey(legacy.id);
+    assert.deepStrictEqual(k.endpoints, [{ url: 'https://api.anthropic.com', style: 'anthropic' }], '旧 base 按 anthropic 风格迁移');
+
+    const legacyUpd = store.updateKey(legacy.id, { base: 'https://new.anthropic.com' });
+    assert.deepStrictEqual(legacyUpd.endpoints, [{ url: 'https://new.anthropic.com', style: 'anthropic' }], '旧 base 更新仍走单端点路径');
+
+    const empty = store.createKey({
+      name: '无地址', platform: 'custom', customName: '某中转', key: KEY_VALUE,
+      endpoints: [], model: '', reg: '', exp: ''
+    });
+    k = store.getKey(empty.id);
+    assert.deepStrictEqual(k.endpoints, []);
+    assert.strictEqual(k.base, '');
+  });
+
   test('存储后端 ' + backend + '：模型 upsert 与替换', () => {
     const { store } = newStore(backend);
     const rec = store.createKey({
