@@ -4,3 +4,15 @@
 # 系统缩略图缓存
 Thumbs.db
 .DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+
+# 环境变量（防止误提交真实密钥）
+.env
+.env.*
+
+# 运行时数据目录（如把数据目录设在项目内）
+data/
+*.db
