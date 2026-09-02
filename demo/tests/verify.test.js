@@ -41,6 +41,7 @@ const mustHave = [
   'id="overlay-form"', 'id="overlay-config"', 'id="toasts"',
   'id="f-platform"', 'id="f-name"', 'id="f-key"', 'id="f-base"', 'id="f-model"', 'id="f-reg"', 'id="f-exp"',
   'id="btn-reg-now"',
+  'id="btn-mark-assigned"',
   'id="config-pre"', 'id="seg-tool"', 'id="btn-copy-config"'
 ];
 mustHave.forEach(sel => check('存在元素 ' + sel, html.includes(sel)));
@@ -63,6 +64,11 @@ const feat = {
   '重新拉取保留备注与手动模型': /mergeModels/.test(html) && /old\.note/.test(html),
   '备注带入配置生成': /用途备注/.test(html),
   '预置备注示例': /Dify · 客服机器人/.test(html),
+  '已配置清单（记录/移除/Enter）': /data-act="toggle-assigned"/.test(html) && /data-act="add-assigned"/.test(html) && /data-act="rm-assigned"/.test(html) && /data-act="cancel-assigned"/.test(html) && /data-tool-input/.test(html) && /addAssignedTool/.test(html),
+  '连通性测试（通过/失败场景）': /data-act="test"/.test(html) && /runTest/.test(html) && /testing/.test(html) && /401/.test(html) && /test-chip pass/.test(html) && /test-chip fail/.test(html),
+  '配置去向联动配置弹窗': /btn-mark-assigned/.test(html) && /记录已配置到/.test(html),
+  '删除提示配置影响范围': /确认删除？（已配置 ' \+ impact \+ ' 处）/.test(html),
+  '预置配置去向数据': /assigned: \['Dify', 'n8n'\]/.test(html),
   '设为默认模型': /data-act="set-model"/.test(html),
   '配置生成三模板': /buildConfig/.test(html) && /dify/.test(html) && /n8n/.test(html) && /env/.test(html),
   '配置带入上下文/最大输出': /CONTEXT_WINDOW/.test(html) && /MAX_OUTPUT/.test(html) && /maxOutputTokens/.test(html),
@@ -85,7 +91,7 @@ Object.keys(feat).forEach(k => check('功能: ' + k, feat[k]));
 const acts = new Set();
 const reAct = /data-act="([^"]+)"/g;
 while ((m = reAct.exec(html))) acts.add(m[1]);
-['copy', 'reveal', 'edit', 'del', 'toggle-models', 'fetch-models', 'set-model', 'note-model', 'save-note', 'cancel-note', 'toggle-manual', 'add-model', 'config'].forEach(a =>
+['copy', 'reveal', 'test', 'toggle-assigned', 'add-assigned', 'cancel-assigned', 'rm-assigned', 'edit', 'del', 'toggle-models', 'fetch-models', 'set-model', 'note-model', 'save-note', 'cancel-note', 'toggle-manual', 'add-model', 'config'].forEach(a =>
   check('事件分支处理 ' + a, acts.has(a) && new RegExp("act === '" + a + "'").test(html)));
 
 console.log('');

@@ -213,6 +213,29 @@
   .input-with-btn input { flex: 1; }
   .input-with-btn .btn { flex-shrink: 0; white-space: nowrap; }
 
+  /* ---------- 配置去向 & 连通测试 ---------- */
+  .assigned-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .tool-chip {
+    display: inline-flex; align-items: center; gap: 0.15rem;
+    font-size: 0.72rem; font-weight: 700; color: var(--accent-deep);
+    background: var(--accent-soft); border: 1px solid rgba(75, 63, 227, 0.28);
+    border-radius: 999px; padding: 0.08rem 0.15rem 0.08rem 0.55rem;
+  }
+  .tool-chip .rm {
+    border: none; background: transparent; color: inherit; opacity: 0.55;
+    font-size: 0.82rem; line-height: 1; padding: 0.05rem 0.32rem; border-radius: 999px; cursor: pointer;
+  }
+  .tool-chip .rm:hover { opacity: 1; background: rgba(75, 63, 227, 0.15); }
+  .tool-add-bar { display: flex; gap: 0.4rem; flex-wrap: wrap; width: 100%; }
+  .tool-add-bar input {
+    flex: 1; max-width: 280px; border: 1px solid var(--accent); border-radius: 7px;
+    padding: 0.3rem 0.6rem; font-size: 0.8rem; font-family: inherit;
+  }
+  .tool-add-bar input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .test-chip { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 0.09rem 0.55rem; }
+  .test-chip.pass { color: var(--ok); background: var(--ok-bg); }
+  .test-chip.fail { color: var(--exp); background: var(--exp-bg); }
+
   /* ---------- 空状态 ---------- */
   .empty {
     text-align: center; padding: 4rem 1rem; color: var(--muted);
@@ -337,7 +360,7 @@
 
 <footer class="foot">
   <span>本页为产品 Demo：所有数据为浏览器本地模拟（localStorage 持久化），不包含真实后端。</span>
-  <span>操作流程：新增密钥 → 看板管理 → 拉取模型 → 生成 Agent 配置。</span>
+  <span>操作流程：新增密钥 → 看板管理 → 测试连通 → 拉取模型 → 生成 Agent 配置。</span>
 </footer>
 
 <!-- 新增 / 编辑密钥 -->
@@ -415,6 +438,7 @@
       <pre class="config-pre" id="config-pre"></pre>
       <div class="modal-foot" style="margin-top:0.6rem">
         <button class="btn primary" id="btn-copy-config">复制整段配置</button>
+        <button class="btn ghost small" id="btn-mark-assigned" style="display:none"></button>
         <span class="config-note" id="config-note"></span>
       </div>
     </div>
@@ -473,7 +497,7 @@
     }
   };
 
-  var LS_KEY = 'ai-key-manager-demo-v2';
+  var LS_KEY = 'ai-key-manager-demo-v3';
 
   function fmtDate(d) {
     var t = new Date(d);
@@ -509,25 +533,26 @@
             { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta' },
             { id: 'deepseek-v3', ctx: 131072, out: 16384, src: 'meta', note: 'Cherry Studio · 日常' }
           ],
+          assigned: ['Dify'],
           drawerOpen: true, revealed: false
         },
         {
           id: 2, name: '测试号', platform: 'deepseek',
           key: 'sk-3b7e9d2f6a1c84b05e7f9c3d', base: 'https://api.deepseek.com', model: 'deepseek-reasoner',
           reg: '2025-11-02', exp: fmtDate(t.getTime() + 120 * 86400000),
-          balance: { value: null, status: 'pending' }, models: null, revealed: false
+          balance: { value: null, status: 'pending' }, models: null, assigned: [], revealed: false
         },
         {
           id: 3, name: '测试号', platform: 'openai',
           key: 'sk-9d1c3e5a7b2f4086c1e8d1c', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini',
           reg: '2025-09-01', exp: fmtDate(t.getTime() + 365 * 86400000),
-          balance: { value: 8.42, status: 'ok' }, models: null, revealed: false
+          balance: { value: 8.42, status: 'ok' }, models: null, assigned: ['Cherry Studio'], revealed: false
         },
         {
           id: 4, name: '体验金', platform: 'moonshot',
           key: 'sk-7a3e2c9f4d8b1056e2f9a3e', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k',
           reg: '2025-12-05', exp: fmtDate(t.getTime() + 9 * 86400000),
-          balance: { value: null, status: 'pending' }, models: null, revealed: false
+          balance: { value: null, status: 'pending' }, models: null, assigned: ['Dify', 'n8n'], revealed: false
         },
         {
           id: 5, name: '旧账号', platform: 'anthropic',
@@ -620,6 +645,32 @@
 
     var modelsBtnLabel = k.models ? '模型 ' + k.models.length : '模型目录';
 
+    var testChip = '';
+    if (k.test) {
+      testChip = k.test.status === 'pass'
+        ? '<span class="test-chip pass" title="' + esc(k.test.msg) + '">连通 · ' + esc(k.test.latency + 'ms') + '</span>'
+        : '<span class="test-chip fail" title="' + esc(k.test.msg) + '">不通 · ' + esc(k.test.code) + '</span>';
+    }
+
+    var assigned = k.assigned || [];
+    var assignedRow =
+      '<div class="assigned-row">' +
+        '<span class="meta">已配置到</span>' +
+        assigned.map(function (t) {
+          return '<span class="tool-chip">' + esc(t) +
+            '<button class="rm" data-act="rm-assigned" data-tool="' + esc(t) + '" title="移除「' + esc(t) + '" aria-label="移除 ' + esc(t) + '">×</button></span>';
+        }).join('') +
+        '<button class="btn ghost small" data-act="toggle-assigned">' + (assigned.length ? '+' : '+ 记录配置去向') + '</button>' +
+      '</div>';
+    if (k.assignedOpen) {
+      assignedRow +=
+        '<div class="tool-add-bar">' +
+          '<input data-tool-input maxlength="40" placeholder="工具名，如 Dify、n8n、Cherry Studio" aria-label="配置到的工具名" autocomplete="off">' +
+          '<button class="btn primary small" data-act="add-assigned">添加</button>' +
+          '<button class="btn small" data-act="cancel-assigned">取消</button>' +
+        '</div>';
+    }
+
     return (
       '<article class="keycard" data-id="' + k.id + '">' +
         '<div class="kc-main">' +
@@ -627,10 +678,14 @@
             '<span class="plat"><span class="plat-dot" style="background:' + p.color + '"></span>' + esc(k.platform === 'custom' ? (k.customName || '自定义平台') : p.name) + '</span>' +
             '<span class="kname">' + esc(k.name) + '</span>' +
             '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
+            testChip +
             '<span class="meta">余额 ' + esc(balanceText(k)) + '</span>' +
             (k.reg ? '<span class="meta">注册 ' + esc(k.reg) + '</span>' : '') +
             (k.exp ? '<span class="meta">有效期至 ' + esc(k.exp) + '</span>' : '<span class="meta">长期有效</span>') +
             '<span class="kc-actions">' +
+              (k.testing
+                ? '<button class="btn ghost small" disabled><span class="spin"></span> 测试中</button>'
+                : '<button class="btn ghost small" data-act="test" title="调用模型列表接口验证密钥可用性">' + (k.test ? '重新测试' : '测试') + '</button>') +
               '<button class="btn ghost small" data-act="edit">编辑</button>' +
               '<button class="btn ghost small" data-act="del">删除</button>' +
             '</span>' +
@@ -658,6 +713,7 @@
               '<button class="btn primary small" data-act="config">生成配置</button>' +
             '</span>' +
           '</div>' +
+          assignedRow +
         '</div>' +
         '<div class="drawer' + drawerOpen + '" data-drawer="' + k.id + '">' + drawerBody + '</div>' +
       '</article>'
@@ -819,6 +875,33 @@
       save(); render();
       return;
     }
+    if (act === 'test') {
+      runTest(k);
+      return;
+    }
+    if (act === 'toggle-assigned') {
+      k.assignedOpen = !k.assignedOpen;
+      save(); render();
+      var toolInput = document.querySelector('[data-tool-input]');
+      if (toolInput) toolInput.focus();
+      return;
+    }
+    if (act === 'add-assigned') {
+      addAssignedTool(k, card.querySelector('[data-tool-input]').value.trim());
+      return;
+    }
+    if (act === 'cancel-assigned') {
+      k.assignedOpen = false;
+      save(); render();
+      return;
+    }
+    if (act === 'rm-assigned') {
+      var tool = btn.dataset.tool;
+      k.assigned = (k.assigned || []).filter(function (x) { return x !== tool; });
+      save(); render();
+      toast('已从配置清单移除「' + tool + '」', 'warn');
+      return;
+    }
     if (act === 'edit') { openForm(k); return; }
     if (act === 'del') {
       if (btn.dataset.armed === '1') {
@@ -826,8 +909,9 @@
         save(); render();
         toast('已删除「' + k.name + '」');
       } else {
+        var impact = (k.assigned || []).length;
         btn.dataset.armed = '1';
-        btn.textContent = '确认删除？';
+        btn.textContent = impact ? '确认删除？（已配置 ' + impact + ' 处）' : '确认删除？';
         btn.classList.add('danger-confirm');
         setTimeout(function () {
           if (!btn.isConnected) return;
@@ -903,13 +987,48 @@
   });
 
   document.getElementById('board').addEventListener('keydown', function (ev) {
-    if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-note-input]')) {
+    if (ev.key !== 'Enter' || !ev.target.matches) return;
+    var card = ev.target.closest('.keycard');
+    var k = card ? findKey(Number(card.dataset.id)) : null;
+    if (!k) return;
+    if (ev.target.matches('[data-note-input]')) {
       ev.preventDefault();
-      var card = ev.target.closest('.keycard');
-      var k = card ? findKey(Number(card.dataset.id)) : null;
-      if (k) commitNote(k, ev.target.value.trim());
+      commitNote(k, ev.target.value.trim());
+    } else if (ev.target.matches('[data-tool-input]')) {
+      ev.preventDefault();
+      addAssignedTool(k, ev.target.value.trim());
     }
   });
+
+  /* ================= 连通测试与配置去向（模拟） ================= */
+
+  function runTest(k) {
+    if (k.testing) return;
+    k.testing = true;
+    save(); render();
+    setTimeout(function () {
+      k.testing = false;
+      if (k.exp && daysFromToday(k.exp) < 0) {
+        k.test = { status: 'fail', code: '401', msg: '401 Unauthorized · 密钥已失效或被平台禁用' };
+        toast('「' + k.name + '」连通失败：密钥已失效', 'warn');
+      } else {
+        var ms = Math.round(160 + Math.random() * 420);
+        k.test = { status: 'pass', latency: ms, msg: ms + 'ms · GET /models 返回正常，密钥可用' };
+        toast('「' + k.name + '」测试通过（' + ms + 'ms）');
+      }
+      save(); render();
+    }, 1100);
+  }
+
+  function addAssignedTool(k, name) {
+    if (!name) { toast('请填写工具名', 'warn'); return; }
+    k.assigned = k.assigned || [];
+    if (k.assigned.indexOf(name) >= 0) { toast('「' + name + '」已在配置清单中', 'warn'); return; }
+    k.assigned.push(name);
+    k.assignedOpen = false;
+    save(); render();
+    toast('已记录「' + k.name + '」配置到 ' + name);
+  }
 
   /* ================= 模型拉取（模拟） ================= */
 
@@ -1068,7 +1187,7 @@
         model: fModel.value.trim(),
         reg: fReg.value, exp: fExp.value,
         balance: { value: null, status: 'pending' },
-        models: null, revealed: false
+        models: null, assigned: [], revealed: false
       });
       toast('密钥「' + finalName + '」已保存，余额待刷新');
     }
@@ -1159,6 +1278,21 @@
     document.getElementById('config-note').textContent = meta && meta.ctx
       ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
       : '提示：先「拉取模型」或手动添加模型，配置可自动带入上下文与最大输出';
+
+    var markBtn = document.getElementById('btn-mark-assigned');
+    var toolLabel = configTool === 'dify' ? 'Dify' : configTool === 'n8n' ? 'n8n' : null;
+    if (!toolLabel) {
+      markBtn.style.display = 'none';
+    } else {
+      markBtn.style.display = '';
+      if ((k.assigned || []).indexOf(toolLabel) >= 0) {
+        markBtn.textContent = '已配置到 ' + toolLabel + ' ✓';
+        markBtn.disabled = true;
+      } else {
+        markBtn.textContent = '记录已配置到 ' + toolLabel;
+        markBtn.disabled = false;
+      }
+    }
   }
 
   document.getElementById('seg-tool').addEventListener('click', function (ev) {
@@ -1167,6 +1301,14 @@
     this.querySelectorAll('.opt').forEach(function (o) { o.classList.remove('on'); });
     opt.classList.add('on');
     configTool = opt.dataset.tool;
+    renderConfig();
+  });
+
+  document.getElementById('btn-mark-assigned').addEventListener('click', function () {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var toolLabel = configTool === 'dify' ? 'Dify' : 'n8n';
+    addAssignedTool(k, toolLabel);
     renderConfig();
   });
 
