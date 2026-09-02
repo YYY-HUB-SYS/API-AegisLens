@@ -238,6 +238,74 @@ test('testKey：通过 / 失败场景', async () => {
   assert.strictEqual(customStyle.code, 'UNSUPPORTED_STYLE');
 });
 
+test('小红书 Dots：域名命中认证覆盖，用 api-key 头替代 Bearer', async () => {
+  let captured = null;
+  const f = (url, opts) => {
+    captured = { url, headers: opts.headers };
+    return Promise.resolve(res({ data: [{ id: 'dots3-note-prev' }] }));
+  };
+  const models = await adapters.fetchModels('dots', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-key-1', { fetchImpl: f });
+  assert.strictEqual(captured.url, 'https://note3-prev-api.askdiandian.com/v1/models');
+  assert.strictEqual(captured.headers['api-key'], 'dots-key-1', '应使用平台自定义 api-key 头');
+  assert.strictEqual(captured.headers['Authorization'], undefined, '不应再发送 Bearer');
+  const m = models.find(x => x.id === 'dots3-note-prev');
+  assert.strictEqual(m.ctx, 524288, '512K 上下文来自内置元数据');
+
+  await adapters.fetchModels('custom', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-key-2', { fetchImpl: f });
+  assert.strictEqual(captured.headers['api-key'], 'dots-key-2', '自定义平台指向该域名同样生效');
+
+  await adapters.fetchModels('dots', { url: 'https://note3-prev-api.askdiandian.com', style: 'anthropic' }, 'dots-key-3', { fetchImpl: f });
+  assert.strictEqual(captured.url, 'https://note3-prev-api.askdiandian.com/v1/models', 'anthropic 风格模型路径');
+  assert.strictEqual(captured.headers['api-key'], 'dots-key-3');
+  assert.strictEqual(captured.headers['anthropic-version'], '2023-06-01', 'anthropic 风格保留协议版本头');
+
+  await adapters.fetchModels('deepseek', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(captured.headers['Authorization'], 'Bearer sk-x', '其他域名不受影响');
+});
+
+test('小红书 Dots：模型列表公开不校验密钥，测试改走对话接口鉴权探测', async () => {
+  const calls = [];
+  const badKeyFetch = (url, opts) => {
+    calls.push({ url: String(url), method: opts.method || 'GET', headers: opts.headers });
+    if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [{ id: 'dots3-note-prev' }] }));
+    return Promise.resolve(res({ title: 'Request processing error', status: 403, error_type: 'governance.dots_platform_key_not_allowed' }, 403));
+  };
+  let t = await adapters.testKey('dots', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-bad', { fetchImpl: badKeyFetch });
+  assert.strictEqual(t.status, 'fail', '无效密钥不能因公开模型列表而误判');
+  assert.strictEqual(t.code, '403');
+  assert.strictEqual(calls.length, 1, '不应依赖公开的 /models 做鉴权判断');
+  assert.strictEqual(calls[0].method, 'POST', '直接走对话接口探测');
+  assert.strictEqual(calls[0].headers['api-key'], 'dots-bad');
+
+  const goodKeyFetch = (url, opts) => {
+    if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [{ id: 'dots3-note-prev' }] }));
+    return Promise.resolve(res({ error: { code: 'model_not_found', message: 'The model `__key_probe__` does not exist' } }, 404));
+  };
+  t = await adapters.testKey('dots', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-good', { fetchImpl: goodKeyFetch });
+  assert.strictEqual(t.status, 'pass', JSON.stringify(t));
+  assert.ok(t.msg.includes('chat/completions'));
+
+  const customFetch = (url, opts) => {
+    if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [] }));
+    return Promise.resolve(res({ error: { message: 'model not found: __key_probe__' } }, 404));
+  };
+  t = await adapters.testKey('custom', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-good', { fetchImpl: customFetch });
+  assert.strictEqual(t.status, 'pass', '自定义平台指向该域名同样走对话探测');
+});
+
+test('平台目录：小红书 Dots 条目', () => {
+  const dots = adapters.PLATFORMS.dots;
+  assert.ok(dots, '目录应含 dots 平台');
+  assert.strictEqual(dots.name, '小红书 Dots');
+  assert.strictEqual(dots.defaultModel, 'dots3-note-prev');
+  assert.strictEqual(dots.endpoints.length, 2, 'OpenAI 与 Anthropic 双端点');
+  assert.strictEqual(dots.endpoints[0].url, 'https://note3-prev-api.askdiandian.com/v1');
+  assert.strictEqual(dots.endpoints[0].style, 'openai');
+  assert.strictEqual(dots.endpoints[1].style, 'anthropic');
+  assert.strictEqual(dots.auth, 'apikey');
+  assert.strictEqual(dots.supportsBalance, false, '平台未提供余额接口');
+});
+
 test('testKey：/models 404 时回退 chat/completions 鉴权探测（无列表接口的兼容端点）', async () => {
   const calls = [];
   const f = (url, opts) => {

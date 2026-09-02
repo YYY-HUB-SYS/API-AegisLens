@@ -136,6 +136,18 @@
       "auth": "bearer"
     },
     {
+      "id": "dots",
+      "name": "小红书 Dots",
+      "color": "#FF2442",
+      "defaultModel": "dots3-note-prev",
+      "endpoints": [
+        { "url": "https://note3-prev-api.askdiandian.com/v1", "style": "openai" },
+        { "url": "https://note3-prev-api.askdiandian.com", "style": "anthropic" }
+      ],
+      "currency": "CNY",
+      "auth": "apikey"
+    },
+    {
       "id": "custom",
       "name": "自定义平台",
       "color": "#8A8FA8",

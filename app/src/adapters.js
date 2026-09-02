@@ -62,6 +62,27 @@ function matchBalanceApi(url) {
   return null;
 }
 
+/* 特殊认证平台按「端点域名」匹配：默认认证头（Bearer / x-api-key）不被接受，
+   需改用平台自定义头。publicModels 表示模型列表接口完全公开（不校验密钥），
+   连通性测试须改走对话接口鉴权探测，否则无效密钥也会误判为可用。
+   小红书 Dots 文档：https://dots.ai/platform/docs（api-key 头，2026-09 验证） */
+const AUTH_OVERRIDES = [
+  {
+    re: /(^|\.)askdiandian\.com$/i,
+    header: 'api-key',
+    publicModels: true
+  }
+];
+
+function authOverrideOf(url) {
+  const h = hostOf(url);
+  if (!h) return null;
+  for (let i = 0; i < AUTH_OVERRIDES.length; i++) {
+    if (AUTH_OVERRIDES[i].re.test(h)) return AUTH_OVERRIDES[i];
+  }
+  return null;
+}
+
 /* 平台目录数据驱动：新增平台只需在 platform-catalog.json 增加条目，
    supportsBalance 由余额域名匹配自动推导 */
 const PLATFORMS = {};
@@ -215,8 +236,14 @@ function modelsUrl(style, base) {
    带上工具 UA 即可通过，对官方 API 无副作用 */
 const TOOL_UA = 'claude-cli/1.0.23 (external, cli)';
 
-function authHeaders(style, key) {
+function authHeaders(style, key, url) {
   const h = { 'User-Agent': TOOL_UA };
+  const override = url ? authOverrideOf(url) : null;
+  if (override) {
+    h[override.header] = key;
+    if (style === 'anthropic') h['anthropic-version'] = '2023-06-01';
+    return h;
+  }
   if (style === 'anthropic') {
     h['x-api-key'] = key;
     h['anthropic-version'] = '2023-06-01';
@@ -305,7 +332,7 @@ async function fetchModels(platform, ep, key, opts) {
   if (!isKnownStyle(style)) {
     throw fail(400, '「' + style + '」为自定义兼容模式，暂不支持自动拉取模型列表：请使用 OpenAI / Anthropic 兼容地址，或手动添加模型', 'UNSUPPORTED_STYLE');
   }
-  const res = await requestJson(modelsUrl(style, url), authHeaders(style, key), opts);
+  const res = await requestJson(modelsUrl(style, url), authHeaders(style, key, url), opts);
   if (!res.ok) {
     if (res.status === 404 && isArkAgentPlanUrl(url)) {
       return ARK_AGENT_PLAN_MODELS.map(function (m) {
@@ -352,7 +379,7 @@ function modelErrorOf(body) {
    模型类错误 = 请求已通过鉴权，密钥可用；不产生实际推理与计费 */
 async function chatAuthFallback(style, base, key, opts, t0) {
   const path = chatProbePath(style);
-  const headers = Object.assign(authHeaders(style, key), { 'Content-Type': 'application/json' });
+  const headers = Object.assign(authHeaders(style, key, base), { 'Content-Type': 'application/json' });
   const body = JSON.stringify({
     model: '__key_probe__',
     max_tokens: 1,
@@ -376,7 +403,7 @@ async function chatAuthFallback(style, base, key, opts, t0) {
     return {
       status: 'pass',
       latency: Date.now() - t0,
-      msg: '该端点未提供模型列表接口，已通过 POST ' + path + ' 鉴权探测确认密钥可用'
+      msg: '已通过 POST ' + path + ' 鉴权探测确认密钥可用（模型列表接口不校验密钥）'
     };
   }
   return { status: 'fail', code: String(res.status), msg: platformError(res.status) };
@@ -392,6 +419,12 @@ async function testKey(platform, ep, key, opts) {
     return { status: 'fail', code: 'UNSUPPORTED_STYLE', msg: '「' + style + '」为自定义兼容模式，暂不支持自动测试' };
   }
   const t0 = Date.now();
+  /* 模型列表完全公开的平台（如小红书 Dots）：/models 不校验密钥，
+     无效密钥也会返回 200，须改用对话接口做真实鉴权探测 */
+  const override = authOverrideOf(url);
+  if (override && override.publicModels) {
+    return chatAuthFallback(style, url, key, opts, t0);
+  }
   try {
     await fetchModels(platform, ep, key, opts);
     const msg = isArkAgentPlanUrl(url)
@@ -411,7 +444,7 @@ async function fetchBalance(platform, ep, key, opts) {
   if (!api) return null;
   let origin;
   try { origin = new URL(url).origin; } catch (e) { return null; }
-  const res = await requestJson(origin + api.path, authHeaders(style, key), opts);
+  const res = await requestJson(origin + api.path, authHeaders(style, key, url), opts);
   if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
   return api.parse(res.body);
 }

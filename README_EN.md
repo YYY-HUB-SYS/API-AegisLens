@@ -47,7 +47,7 @@ For more deployment options (auto-start on boot, systemd / launchd / Task Schedu
 
 ## Workflow
 
-1. **Add a key** — Pick a platform (12 built-in: DeepSeek / Zhipu / SiliconFlow / Volcano Ark / Moonshot / OpenAI / Anthropic / …, or custom), paste the API key; endpoint URLs and the default model are auto-filled. One key can carry multiple compatible endpoints
+1. **Add a key** — Pick a platform (13 built-in: DeepSeek / Zhipu / SiliconFlow / Volcano Ark / Moonshot / Xiaohongshu Dots / OpenAI / Anthropic / …, or custom), paste the API key; endpoint URLs and the default model are auto-filled. One key can carry multiple compatible endpoints
 2. **Test connectivity** — One click to verify the key works
 3. **Fetch models** — Pull the model catalog automatically; missing parameters are enriched online, and anything still missing can be entered manually
 4. **Generate config** — Render Dify / n8n / Claude Code / `.env` snippets and copy them into your target tool
@@ -59,7 +59,7 @@ cd app
 npm test
 ```
 
-96 tests cover encryption, storage (both backends), API integration, adapters (platform catalog and balance domain matching), proxying, and the start script.
+99 tests cover encryption, storage (both backends), API integration, adapters (platform catalog, balance domain matching, and special-auth platforms), proxying, and the start script.
 
 ## Project Layout
 

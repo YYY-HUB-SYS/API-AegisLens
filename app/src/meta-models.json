@@ -29,5 +29,8 @@
     "moonshot-v1-128k*": { "ctx": 131072, "out": 8192 },
     "kimi-k2*": { "ctx": 262144, "out": 16384 }
   },
+  "dots": {
+    "dots3-note-prev": { "ctx": 524288, "out": null }
+  },
   "custom": {}
 }
