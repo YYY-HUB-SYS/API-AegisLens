@@ -92,7 +92,6 @@ function proxyFetch(urlStr, init, proxyUrl) {
           path: u.pathname + u.search,
           method: (init && init.method) || 'GET',
           headers: headers,
-          agent: false,
           createConnection: function () { return tlsSock; },
           signal: init && init.signal
         }, function (res) {
