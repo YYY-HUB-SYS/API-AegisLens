@@ -165,7 +165,7 @@
     max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
     border-top: 1px solid transparent;
   }
-  .drawer.open { max-height: 640px; border-top-color: var(--rule); }
+  .drawer.open { max-height: 760px; border-top-color: var(--rule); overflow-y: auto; }
   .drawer-inner { padding: 0.8rem 1.05rem 1rem; background: #FAFAFE; }
   .drawer-toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
   .drawer-title { font-size: 0.82rem; font-weight: 800; }
@@ -176,7 +176,7 @@
     padding: 0.42rem 0.75rem;
   }
   .model-item.default { border-color: var(--accent); background: var(--accent-soft); }
-  .mid { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; min-width: 170px; }
+  .mid-param .val { min-width: 150px; }
   .mspec { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .mspec b { color: var(--ink); font-weight: 600; }
   .m-tag {
@@ -185,6 +185,18 @@
   }
   .m-tag.api { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
   .model-item .btn { margin-left: auto; }
+  .drawer-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.75rem; flex-wrap: wrap; }
+  .manual-form { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.55rem; }
+  .manual-form input {
+    border: 1px solid var(--rule); border-radius: 7px; padding: 0.38rem 0.6rem;
+    font-family: var(--mono); font-size: 0.78rem; background: #fff; color: var(--ink);
+  }
+  .manual-form input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .mf-id { flex: 2; min-width: 190px; }
+  .mf-num { flex: 1; min-width: 120px; }
+  .input-with-btn { display: flex; gap: 0.4rem; }
+  .input-with-btn input { flex: 1; }
+  .input-with-btn .btn { flex-shrink: 0; white-space: nowrap; }
 
   /* ---------- 空状态 ---------- */
   .empty {
@@ -279,7 +291,7 @@
     .form-grid { grid-template-columns: 1fr; }
     .stats { gap: 1.3rem; }
     .kc-actions { margin-left: 0; width: 100%; }
-    .mid { min-width: 0; }
+    .mid-param .val { min-width: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -351,7 +363,10 @@
           </div>
           <div class="field">
             <label for="f-reg">注册时间 <span class="hint">可选</span></label>
-            <input id="f-reg" type="date">
+            <div class="input-with-btn">
+              <input id="f-reg" type="date">
+              <button type="button" class="btn small" id="btn-reg-now" title="填入当前日期">现在</button>
+            </div>
           </div>
           <div class="field">
             <label for="f-exp">有效期至 <span class="hint">可选</span></label>
@@ -439,9 +454,7 @@
     custom: {
       name: '自定义平台', color: '#8A8FA8',
       base: '', model: '', currency: '¥',
-      models: [
-        { id: '自定义模型需手动填写', ctx: null, out: null, src: 'meta' }
-      ]
+      models: []
     }
   };
 
@@ -460,6 +473,10 @@
   function maskKey(k) {
     if (!k || k.length <= 8) return k || '';
     return k.slice(0, 3) + '••••••••••••' + k.slice(-4);
+  }
+  function fmtK(n) {
+    if (n == null) return '未知';
+    return n >= 1024 ? Math.round(n / 1024) + 'K' : String(n);
   }
 
   function seedData() {
@@ -633,32 +650,56 @@
           '<span class="drawer-title">模型目录</span>' +
           '<span class="meta">来源：平台接口 + 本地元数据库</span>' +
           '<span class="spacer" style="flex:1"></span>' +
-          '<button class="btn small" data-act="fetch-models">重新拉取</button>' +
+          '<button class="btn ' + (k.models ? 'small' : 'primary small') + '" data-act="fetch-models">' + (k.models ? '重新拉取' : '拉取模型') + '</button>' +
         '</div>';
 
+    var body;
     if (k.modelsLoading) {
-      return head + '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台模型列表接口…</p></div>';
+      body = '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台模型列表接口…</p>';
+    } else if (!k.models) {
+      body = '<p class="meta" style="margin-bottom:0.6rem">尚未拉取，点击右上「拉取模型」模拟调用平台接口。</p>';
+    } else if (!k.models.length) {
+      body = '<p class="meta" style="margin-bottom:0.6rem">暂无模型，可在下方手动添加。</p>';
+    } else {
+      body = '<div class="model-list">' + k.models.map(function (m) { return renderModelRow(k, m); }).join('') + '</div>';
     }
-    if (!k.models) {
-      return head +
-        '<p class="meta" style="margin-bottom:0.6rem">尚未拉取，点击下方按钮模拟调用平台模型接口。</p>' +
-        '<button class="btn primary small" data-act="fetch-models">拉取模型</button></div>';
-    }
-    var rows = k.models.map(function (m) {
-      var isDefault = m.id === k.model;
-      return (
-        '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
-          '<span class="mid">' + esc(m.id) + '</span>' +
-          '<span class="mspec">上下文 <b>' + (m.ctx ? (m.ctx >= 1024 ? Math.round(m.ctx / 1024) + 'K' : m.ctx) : '未知') + '</b></span>' +
-          '<span class="mspec">最大输出 <b>' + (m.out ? (m.out >= 1024 ? Math.round(m.out / 1024) + 'K' : m.out) : '未知') + '</b></span>' +
-          '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : '元数据库') + '</span>' +
-          (isDefault
-            ? '<button class="btn small" disabled>当前默认</button>'
-            : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
-        '</div>'
-      );
-    }).join('');
-    return head + '<div class="model-list">' + rows + '</div></div>';
+    return head + body + manualSection(k) + '</div>';
+  }
+
+  function renderModelRow(k, m) {
+    var isDefault = m.id === k.model;
+    var ctxChip = m.ctx != null
+      ? '<span class="param" data-copy="' + m.ctx + '"><span class="val">上下文 ' + fmtK(m.ctx) + '</span><button class="copy-btn" data-act="copy" title="复制具体数值 ' + m.ctx + '">复制</button></span>'
+      : '<span class="mspec">上下文 <b>未知</b></span>';
+    var outChip = m.out != null
+      ? '<span class="param" data-copy="' + m.out + '"><span class="val">最大输出 ' + fmtK(m.out) + '</span><button class="copy-btn" data-act="copy" title="复制具体数值 ' + m.out + '">复制</button></span>'
+      : '<span class="mspec">最大输出 <b>未知</b></span>';
+    return (
+      '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
+        '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
+        ctxChip + outChip +
+        '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : m.src === 'manual' ? '手动填写' : '元数据库') + '</span>' +
+        (isDefault
+          ? '<button class="btn small" disabled>当前默认</button>'
+          : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
+      '</div>'
+    );
+  }
+
+  function manualSection(k) {
+    var html =
+      '<div class="drawer-foot">' +
+        '<button class="btn small" data-act="toggle-manual">' + (k.manualOpen ? '收起手动添加' : '+ 手动添加模型') + '</button>' +
+        '<span class="meta">接口拉取失败或参数未知时，可手动补充</span>' +
+      '</div>';
+    if (!k.manualOpen) return html;
+    return html +
+      '<div class="manual-form">' +
+        '<input data-mf="id" class="mf-id" placeholder="模型 ID，如 deepseek-chat" aria-label="模型 ID" autocomplete="off">' +
+        '<input data-mf="ctx" class="mf-num" type="number" min="0" placeholder="上下文 tokens" aria-label="上下文 tokens">' +
+        '<input data-mf="out" class="mf-num" type="number" min="0" placeholder="最大输出 tokens" aria-label="最大输出 tokens">' +
+        '<button class="btn primary small" data-act="add-model">添加</button>' +
+      '</div>';
   }
 
   function renderStats() {
@@ -775,6 +816,34 @@
       toast('默认模型已设为 ' + k.model);
       return;
     }
+    if (act === 'toggle-manual') {
+      k.manualOpen = !k.manualOpen;
+      save(); render();
+      return;
+    }
+    if (act === 'add-model') {
+      var inputs = card.querySelectorAll('[data-mf]');
+      var mid = inputs[0].value.trim();
+      var mctx = parseInt(inputs[1].value, 10) || null;
+      var mout = parseInt(inputs[2].value, 10) || null;
+      if (!mid) { toast('请先填写模型 ID', 'warn'); return; }
+      if (!k.models) k.models = [];
+      var hit = null;
+      for (var j = 0; j < k.models.length; j++) if (k.models[j].id === mid) hit = k.models[j];
+      if (hit) {
+        if (mctx == null && mout == null) { toast('模型「' + mid + '」已在目录中', 'warn'); return; }
+        if (mctx != null) hit.ctx = mctx;
+        if (mout != null) hit.out = mout;
+        hit.src = 'manual';
+        toast('已补充「' + mid + '」的参数');
+      } else {
+        k.models.push({ id: mid, ctx: mctx, out: mout, src: 'manual' });
+        toast('已添加模型「' + mid + '」');
+      }
+      k.manualOpen = false;
+      save(); render();
+      return;
+    }
     if (act === 'config') { openConfig(k); return; }
   });
 
@@ -788,8 +857,9 @@
       k.modelsLoading = false;
       var p = PLATFORMS[k.platform];
       if (k.platform === 'custom') {
-        k.models = [{ id: k.model || 'custom-model', ctx: null, out: null, src: 'meta' }];
-        toast('自定义平台：模型参数需手动补充', 'warn');
+        k.models = k.models || [];
+        k.manualOpen = true;
+        toast('自定义平台无标准模型接口，请手动填写模型', 'warn');
       } else {
         k.models = (p.models || []).map(function (m) { return { id: m.id, ctx: m.ctx, out: m.out, src: m.src }; });
         toast('已拉取 ' + k.models.length + ' 个模型（' + p.name + '）');
@@ -825,6 +895,11 @@
     fModel.value = p.model;
     document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
     if (fPlatform.value === 'custom') fCustomName.focus();
+  });
+
+  document.getElementById('btn-reg-now').addEventListener('click', function () {
+    fReg.value = fmtDate(new Date());
+    fReg.focus();
   });
 
   function openForm(k) {
@@ -984,8 +1059,8 @@
     var meta = currentModelMeta(k);
     document.getElementById('config-pre').innerHTML = highlightConfig(buildConfig(k, configTool));
     document.getElementById('config-note').textContent = meta && meta.ctx
-      ? '已带入上下文 ' + (meta.ctx >= 1024 ? Math.round(meta.ctx / 1024) + 'K' : meta.ctx) + ' 与最大输出 ' + (meta.out >= 1024 ? Math.round(meta.out / 1024) + 'K' : meta.out)
-      : '提示：先在卡片中「拉取模型」，配置可自动带入上下文与最大输出';
+      ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
+      : '提示：先「拉取模型」或手动添加模型，配置可自动带入上下文与最大输出';
   }
 
   document.getElementById('seg-tool').addEventListener('click', function (ev) {
