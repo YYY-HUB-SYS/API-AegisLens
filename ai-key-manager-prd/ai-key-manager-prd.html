@@ -338,6 +338,14 @@
     }
     .plat { font-weight: 700; font-size: 0.95rem; }
     .plat-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.35rem; }
+    .kname {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--accent);
+      background: rgba(75, 63, 227, 0.08);
+      border-radius: 999px;
+      padding: 0.1rem 0.55rem;
+    }
     .st {
       font-size: 0.74rem;
       font-weight: 700;
@@ -502,11 +510,11 @@
 
     <!-- ============ COVER ============ -->
     <header class="cover">
-      <span class="tagline">Product Design Document · v0.2</span>
+      <span class="tagline">Product Design Document · v0.3</span>
       <h1>AI Key Manager<span class="grad"> 产品设计文档</span></h1>
       <p class="subtitle">一款本地优先的 AI 密钥管理工具：一次录入，全盘掌握，随处可用。本文档梳理产品整体方向与主要功能范围。</p>
       <div class="meta">
-        <span>文档版本 <b>v0.2</b></span>
+        <span>文档版本 <b>v0.3</b></span>
         <span>产品形态 <b>本地 Web 服务</b></span>
         <span>目标平台 <b>国内外 AI 平台</b></span>
         <span>更新日期 <b>2026-09-02</b></span>
@@ -778,6 +786,7 @@ flowchart LR
               <div class="demo-row">
                 <div class="l1">
                   <span class="plat"><span class="plat-dot" style="background:#22A5F7"></span>DeepSeek</span>
+                  <span class="kname">主力 Key</span>
                   <span class="st ok">有效</span>
                   <span class="meta">余额 ¥12.35</span>
                   <span class="meta">注册 2025-06-18</span>
@@ -795,6 +804,7 @@ flowchart LR
               <div class="demo-row">
                 <div class="l1">
                   <span class="plat"><span class="plat-dot" style="background:#4B3FE3"></span>OpenAI</span>
+                  <span class="kname">测试号</span>
                   <span class="st ok">有效</span>
                   <span class="meta">余额 $8.42</span>
                   <span class="meta">注册 2025-09-01</span>
@@ -812,6 +822,7 @@ flowchart LR
               <div class="demo-row">
                 <div class="l1">
                   <span class="plat"><span class="plat-dot" style="background:#F87454"></span>Moonshot (Kimi)</span>
+                  <span class="kname">体验金</span>
                   <span class="st warn">临期</span>
                   <span class="meta">余额 待查询</span>
                   <span class="meta">注册 2025-12-05</span>
@@ -834,7 +845,7 @@ flowchart LR
         <p>看板页自上而下分为三个区域：顶部工具条（页面标题、密钥计数、刷新与新增操作）、密钥卡片列表（每条密钥一张卡片）、以及各卡片的参数区（密钥掩码、base URL、模型名，均带独立复制按钮）。卡片信息密度高，无需进入详情即可掌握核心状态。</p>
 
         <h4>业务逻辑</h4>
-        <p>打开看板时，系统从本地存储读取全部密钥并按平台分组渲染。每条卡片展示五个信息维度：平台、状态标签（有效/临期/已过期）、余额、注册时间、有效期。密钥默认以掩码形式显示（保留末 4 位），用户可点击「显示」临时查看明文，离开焦点后恢复掩码。余额为「待查询」时展示占位提示，待调度刷新后更新。状态标签由有效期与余额共同计算得出。</p>
+        <p>打开看板时，系统从本地存储读取全部密钥并按平台分组渲染。每条卡片展示六个信息维度：Key 名称、平台、状态标签（有效/临期/已过期）、余额、注册时间、有效期。Key 名称用于区分同平台的多个密钥（如「主力 Key」「测试号」），同平台多 Key 时在组内按名称排列。密钥默认以掩码形式显示（保留末 4 位），用户可点击「显示」临时查看明文，离开焦点后恢复掩码。余额为「待查询」时展示占位提示，待调度刷新后更新。状态标签由有效期与余额共同计算得出。</p>
 
         <h4>字段规则</h4>
         <div class="table-wrap">
@@ -843,6 +854,7 @@ flowchart LR
               <tr><th>展示字段</th><th>来源</th><th>展示形式</th><th>默认</th></tr>
             </thead>
             <tbody>
+              <tr><td>Key 名称</td><td>录入时填写</td><td>文本标签</td><td>自动生成「平台名 + Key 末 4 位」</td></tr>
               <tr><td>平台名称</td><td>录入时选择</td><td>文本 + 平台色点</td><td>—</td></tr>
               <tr><td>状态标签</td><td>系统计算</td><td>有效 / 临期 / 已过期</td><td>有效</td></tr>
               <tr><td>余额</td><td>适配器查询 / 手动</td><td>金额 + 币种</td><td>待查询</td></tr>
@@ -881,6 +893,12 @@ flowchart LR
                   </select>
                 </div>
                 <div class="field">
+                  <label for="f-name">Key 名称</label>
+                  <input id="f-name" type="text" placeholder="如：主力 Key / 测试号（留空自动生成）">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="field">
                   <label for="f-key">API Key <span style="color:#E8463A">*</span></label>
                   <input id="f-key" type="text" placeholder="sk-xxxxxxxxxxxx" required>
                 </div>
@@ -915,10 +933,10 @@ flowchart LR
         </div>
 
         <h4>页面布局</h4>
-        <p>新增/编辑密钥使用单一表单，包含平台选择、API Key、base URL、默认模型、注册时间、有效期六个字段，外加保存与取消操作。平台选择器内置常用平台，并支持「自定义平台」入口。</p>
+        <p>新增/编辑密钥使用单一表单，包含 Key 名称、平台选择、API Key、base URL、默认模型、注册时间、有效期七个字段，外加保存与取消操作。平台选择器内置常用平台，并支持「自定义平台」入口。</p>
 
         <h4>业务逻辑</h4>
-        <p>用户选择平台后，系统自动填充该平台的默认 base URL 与默认模型，用户可修改。API Key 为必填项，未填写时保存按钮不可用。保存时系统对密钥做字段级加密后写入本地存储，注册时间与有效期可选；若有效期为空，状态判定退化为「仅按余额判断」。编辑与删除在密钥详情或行操作中触发，删除需二次确认，防止误删。</p>
+        <p>用户选择平台后，系统自动填充该平台的默认 base URL 与默认模型，用户可修改。API Key 为必填项，未填写时保存按钮不可用。Key 名称为自定义字段，可选填，留空时系统自动以「平台名 + Key 末 4 位」生成默认名称；同一平台存在多个密钥时（如主力号与测试号），建议填写名称以便在看板中快速区分，名称在同平台内唯一。保存时系统对密钥做字段级加密后写入本地存储，注册时间与有效期可选；若有效期为空，状态判定退化为「仅按余额判断」。编辑与删除在密钥详情或行操作中触发，删除需二次确认，防止误删。</p>
 
         <h4>字段规则</h4>
         <div class="table-wrap">
@@ -927,6 +945,7 @@ flowchart LR
               <tr><th>字段</th><th>类型</th><th>必填</th><th>规则</th><th>默认</th></tr>
             </thead>
             <tbody>
+              <tr><td>Key 名称</td><td>文本</td><td>否</td><td>同平台内唯一；留空自动生成「平台名 + 末 4 位」</td><td>自动生成</td></tr>
               <tr><td>平台</td><td>下拉</td><td>是</td><td>内置平台或自定义</td><td>—</td></tr>
               <tr><td>API Key</td><td>文本</td><td>是</td><td>保存时加密</td><td>—</td></tr>
               <tr><td>Base URL</td><td>文本</td><td>否</td><td>选择平台后自动填充</td><td>平台默认</td></tr>
@@ -1080,7 +1099,7 @@ DIFY_LLM_PROVIDER=deepseek
             <div class="demo-models" id="demo-models">
               <div class="demo-toolbar">
                 <strong>选择密钥后自动拉取</strong>
-                <span class="chip">DeepSeek · sk-••••••••••••4f2a</span>
+                <span class="chip">DeepSeek · 主力 Key</span>
                 <span class="spacer"></span>
                 <button class="btn primary small" id="btn-fetch-models">拉取模型</button>
               </div>
@@ -1217,6 +1236,7 @@ DIFY_LLM_PROVIDER=deepseek
           <li>复制采用<strong>参数级独立复制</strong>（因为一键复制整段仍需手动粘贴），配置级整段复制用于生成 Agent 配置。</li>
           <li>MVP 不做云端同步、团队协作、用量统计等联网依赖较强的功能。</li>
           <li>模型信息采用<strong>平台接口拉取 + 本地元数据库补充</strong>双源方案，保证上下文与最大输出在多数平台可用。</li>
+          <li>密钥支持自定义<strong>Key 名称</strong>字段（可选，同平台内唯一），留空时自动生成「平台名 + Key 末 4 位」，用于区分同平台多个密钥。</li>
         </ul>
         <h4>待确认事项</h4>
         <div class="table-wrap">
@@ -1250,7 +1270,7 @@ DIFY_LLM_PROVIDER=deepseek
     <footer>
       <div class="sources">
         <h2>说明</h2>
-        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.2），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
+        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.3），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块，v0.3 新增密钥自定义「Key 名称」字段。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
       </div>
     </footer>
 
