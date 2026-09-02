@@ -365,13 +365,19 @@ function chatProbePath(style) {
   return style === 'anthropic' ? '/v1/messages' : '/chat/completions';
 }
 
-/* 仅凭错误体是否提到 model 判断鉴权已通过（如 UnsupportedModel / model_not_found），
-   而路径不存在的 404（如 Invalid URL）不含 model 字样，仍按地址错误处理 */
+/* 仅凭错误体是否提到 model 判断鉴权已通过（如 UnsupportedModel / model_not_found /
+   小红书 Dots 的 400 gateway.model_not_configured），
+   而路径不存在的 404（如 Invalid URL）不含 model 字样，仍按地址错误处理。
+   各平台错误体字段不一：OpenAI 系用 error.message/code，
+   Dots 等网关用平铺的 title/detail/error_type，逐一纳入匹配 */
 function modelErrorOf(body) {
   if (!body || typeof body !== 'object') return false;
   const err = body.error && typeof body.error === 'object' ? body.error : body;
-  const hay = [err.code, err.message, body.code, body.message].filter(Boolean).join(' ');
-  return /model/i.test(hay);
+  const fields = [
+    err.code, err.message, err.title, err.detail, err.type, err.error_type,
+    body.code, body.message, body.title, body.detail, body.type, body.error_type
+  ];
+  return /model/i.test(fields.filter(Boolean).join(' '));
 }
 
 /* 部分 OpenAI 兼容端点（如火山方舟 Agent Plan）未实现 /models 列表接口，

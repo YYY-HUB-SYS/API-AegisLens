@@ -285,6 +285,15 @@ test('小红书 Dots：模型列表公开不校验密钥，测试改走对话接
   assert.strictEqual(t.status, 'pass', JSON.stringify(t));
   assert.ok(t.msg.includes('chat/completions'));
 
+  /* Dots 实际返回：400 + 平铺错误体（title/detail/error_type，无 error 对象） */
+  const notConfiguredFetch = (url, opts) => {
+    if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [{ id: 'dots3-note-prev' }] }));
+    return Promise.resolve(res({ title: 'Model is not configured', status: 400, detail: 'The requested model is not available.', error_type: 'gateway.model_not_configured' }, 400));
+  };
+  t = await adapters.testKey('dots', { url: 'https://note3-prev-api.askdiandian.com/v1', style: 'openai' }, 'dots-real', { fetchImpl: notConfiguredFetch });
+  assert.strictEqual(t.status, 'pass', '400 model_not_configured 表示鉴权已通过，应判密钥可用');
+  assert.ok(t.msg.includes('chat/completions'));
+
   const customFetch = (url, opts) => {
     if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [] }));
     return Promise.resolve(res({ error: { message: 'model not found: __key_probe__' } }, 404));
