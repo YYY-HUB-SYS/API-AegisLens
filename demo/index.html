@@ -184,6 +184,20 @@
     background: var(--bg); color: var(--muted); border: 1px solid var(--rule);
   }
   .m-tag.api { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+  .m-note {
+    font-size: 0.72rem; font-weight: 600; color: #8A5A00;
+    background: rgba(239, 170, 23, 0.13); border: 1px solid rgba(239, 170, 23, 0.4);
+    border-radius: 999px; padding: 0.06rem 0.55rem;
+    max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer;
+  }
+  .m-note:hover { border-color: #D89B0D; }
+  .note-edit { width: 100%; display: flex; gap: 0.4rem; margin-top: 0.38rem; }
+  .note-edit input {
+    flex: 1; border: 1px solid var(--accent); border-radius: 7px;
+    padding: 0.32rem 0.6rem; font-size: 0.8rem; font-family: inherit;
+  }
+  .note-edit input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
   .model-item .btn { margin-left: auto; }
   .drawer-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.75rem; flex-wrap: wrap; }
   .manual-form { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.55rem; }
@@ -193,6 +207,7 @@
   }
   .manual-form input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
   .mf-id { flex: 2; min-width: 190px; }
+  .mf-note { flex: 2; min-width: 190px; }
   .mf-num { flex: 1; min-width: 120px; }
   .input-with-btn { display: flex; gap: 0.4rem; }
   .input-with-btn input { flex: 1; }
@@ -458,7 +473,7 @@
     }
   };
 
-  var LS_KEY = 'ai-key-manager-demo-v1';
+  var LS_KEY = 'ai-key-manager-demo-v2';
 
   function fmtDate(d) {
     var t = new Date(d);
@@ -488,7 +503,13 @@
           id: 1, name: '主力 Key', platform: 'deepseek',
           key: 'sk-8f2ac41d5b9e7c03a6d4f2a', base: 'https://api.deepseek.com', model: 'deepseek-chat',
           reg: '2025-06-18', exp: fmtDate(t.getTime() + 400 * 86400000),
-          balance: { value: 12.35, status: 'ok' }, models: null, revealed: false
+          balance: { value: 12.35, status: 'ok' },
+          models: [
+            { id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta', note: 'Dify · 客服机器人' },
+            { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta' },
+            { id: 'deepseek-v3', ctx: 131072, out: 16384, src: 'meta', note: 'Cherry Studio · 日常' }
+          ],
+          drawerOpen: true, revealed: false
         },
         {
           id: 2, name: '测试号', platform: 'deepseek',
@@ -674,14 +695,29 @@
     var outChip = m.out != null
       ? '<span class="param" data-copy="' + m.out + '"><span class="val">最大输出 ' + fmtK(m.out) + '</span><button class="copy-btn" data-act="copy" title="复制具体数值 ' + m.out + '">复制</button></span>'
       : '<span class="mspec">最大输出 <b>未知</b></span>';
+    var noteChip = m.note
+      ? '<span class="m-note" data-act="note-model" data-model="' + esc(m.id) + '" title="' + esc(m.note) + '（点击编辑）">' + esc(m.note) + '</span>'
+      : '';
+    var editBar = '';
+    if (k.editingNote === m.id) {
+      editBar =
+        '<div class="note-edit">' +
+          '<input data-note-input value="' + esc(m.note || '') + '" maxlength="60" placeholder="备注这个模型用在哪里，如：Dify · 客服机器人" aria-label="模型备注">' +
+          '<button class="btn primary small" data-act="save-note">保存</button>' +
+          '<button class="btn small" data-act="cancel-note">取消</button>' +
+        '</div>';
+    }
     return (
       '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
         '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
         ctxChip + outChip +
         '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : m.src === 'manual' ? '手动填写' : '元数据库') + '</span>' +
+        noteChip +
+        '<button class="btn ghost small" data-act="note-model" data-model="' + esc(m.id) + '">' + (m.note ? '编辑备注' : '备注') + '</button>' +
         (isDefault
           ? '<button class="btn small" disabled>当前默认</button>'
           : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
+        editBar +
       '</div>'
     );
   }
@@ -698,6 +734,7 @@
         '<input data-mf="id" class="mf-id" placeholder="模型 ID，如 deepseek-chat" aria-label="模型 ID" autocomplete="off">' +
         '<input data-mf="ctx" class="mf-num" type="number" min="0" placeholder="上下文 tokens" aria-label="上下文 tokens">' +
         '<input data-mf="out" class="mf-num" type="number" min="0" placeholder="最大输出 tokens" aria-label="最大输出 tokens">' +
+        '<input data-mf="note" class="mf-note" placeholder="备注（可选）：用于哪个工具" aria-label="备注" autocomplete="off">' +
         '<button class="btn primary small" data-act="add-model">添加</button>' +
       '</div>';
   }
@@ -816,28 +853,46 @@
       toast('默认模型已设为 ' + k.model);
       return;
     }
+    if (act === 'note-model') {
+      k.editingNote = btn.dataset.model;
+      save(); render();
+      var noteInput = document.querySelector('[data-note-input]');
+      if (noteInput) { noteInput.focus(); noteInput.select(); }
+      return;
+    }
+    if (act === 'save-note') {
+      var noteInput2 = card.querySelector('[data-note-input]');
+      commitNote(k, noteInput2 ? noteInput2.value.trim() : '');
+      return;
+    }
+    if (act === 'cancel-note') {
+      k.editingNote = null;
+      save(); render();
+      return;
+    }
     if (act === 'toggle-manual') {
       k.manualOpen = !k.manualOpen;
       save(); render();
       return;
     }
     if (act === 'add-model') {
-      var inputs = card.querySelectorAll('[data-mf]');
-      var mid = inputs[0].value.trim();
-      var mctx = parseInt(inputs[1].value, 10) || null;
-      var mout = parseInt(inputs[2].value, 10) || null;
+      var mid = card.querySelector('[data-mf="id"]').value.trim();
+      var mctx = parseInt(card.querySelector('[data-mf="ctx"]').value, 10) || null;
+      var mout = parseInt(card.querySelector('[data-mf="out"]').value, 10) || null;
+      var mnote = card.querySelector('[data-mf="note"]').value.trim() || null;
       if (!mid) { toast('请先填写模型 ID', 'warn'); return; }
       if (!k.models) k.models = [];
       var hit = null;
       for (var j = 0; j < k.models.length; j++) if (k.models[j].id === mid) hit = k.models[j];
       if (hit) {
-        if (mctx == null && mout == null) { toast('模型「' + mid + '」已在目录中', 'warn'); return; }
+        if (mctx == null && mout == null && !mnote) { toast('模型「' + mid + '」已在目录中', 'warn'); return; }
         if (mctx != null) hit.ctx = mctx;
         if (mout != null) hit.out = mout;
+        if (mnote) hit.note = mnote;
         hit.src = 'manual';
-        toast('已补充「' + mid + '」的参数');
+        toast('已更新「' + mid + '」的信息');
       } else {
-        k.models.push({ id: mid, ctx: mctx, out: mout, src: 'manual' });
+        k.models.push({ id: mid, ctx: mctx, out: mout, note: mnote, src: 'manual' });
         toast('已添加模型「' + mid + '」');
       }
       k.manualOpen = false;
@@ -847,7 +902,48 @@
     if (act === 'config') { openConfig(k); return; }
   });
 
+  document.getElementById('board').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter' && ev.target.matches && ev.target.matches('[data-note-input]')) {
+      ev.preventDefault();
+      var card = ev.target.closest('.keycard');
+      var k = card ? findKey(Number(card.dataset.id)) : null;
+      if (k) commitNote(k, ev.target.value.trim());
+    }
+  });
+
   /* ================= 模型拉取（模拟） ================= */
+
+  function commitNote(k, val) {
+    var mid = k.editingNote;
+    k.editingNote = null;
+    if (mid == null) return;
+    for (var i = 0; i < (k.models || []).length; i++) {
+      if (k.models[i].id === mid) {
+        k.models[i].note = val || null;
+        break;
+      }
+    }
+    save(); render();
+    toast(val ? '备注已保存' : '备注已清除', val ? 'ok' : 'warn');
+  }
+
+  function mergeModels(prev, fetched) {
+    var prevById = {};
+    (prev || []).forEach(function (m) { prevById[m.id] = m; });
+    var out = fetched.map(function (f) {
+      var old = prevById[f.id];
+      if (old && old.src === 'manual') {
+        return { id: f.id, ctx: old.ctx != null ? old.ctx : f.ctx, out: old.out != null ? old.out : f.out, src: 'manual', note: old.note };
+      }
+      return { id: f.id, ctx: f.ctx, out: f.out, src: f.src, note: old ? old.note : null };
+    });
+    (prev || []).forEach(function (m) {
+      if (m.src === 'manual' && !fetched.some(function (f) { return f.id === m.id; })) {
+        out.push({ id: m.id, ctx: m.ctx, out: m.out, src: 'manual', note: m.note });
+      }
+    });
+    return out;
+  }
 
   function fetchModels(k) {
     k.modelsLoading = true;
@@ -861,7 +957,8 @@
         k.manualOpen = true;
         toast('自定义平台无标准模型接口，请手动填写模型', 'warn');
       } else {
-        k.models = (p.models || []).map(function (m) { return { id: m.id, ctx: m.ctx, out: m.out, src: m.src }; });
+        var fetched = (p.models || []).map(function (m) { return { id: m.id, ctx: m.ctx, out: m.out, src: m.src }; });
+        k.models = mergeModels(k.models, fetched);
         toast('已拉取 ' + k.models.length + ' 个模型（' + p.name + '）');
       }
       save(); render();
@@ -1039,6 +1136,7 @@
       if (meta && meta.ctx) lines.push(U + '_CONTEXT_WINDOW=' + meta.ctx);
       if (meta && meta.out) lines.push(U + '_MAX_OUTPUT=' + meta.out);
     }
+    if (meta && meta.note) lines.push('# 用途备注: ' + meta.note);
     return lines.join('\n');
   }
 
