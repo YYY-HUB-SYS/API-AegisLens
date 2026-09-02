@@ -1,0 +1,6 @@
+# 系统生成的 HTML 分享包（预览缓存产物）
+.trae-html-share-packages/
+
+# 系统缩略图缓存
+Thumbs.db
+.DS_Store
