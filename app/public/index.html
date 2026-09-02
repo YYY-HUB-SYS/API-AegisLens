@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Key Manager</title>
+<style>
+  :root {
+    --bg: #F4F5F7;
+    --card: #FFFFFF;
+    --ink: #1A1D29;
+    --sub: #6B7280;
+    --rule: #E5E7EB;
+    --accent: #4B3FE3;
+    --accent-deep: #372BB8;
+    --accent-soft: rgba(75, 63, 227, 0.09);
+    --ok: #0E9F6E;
+    --ok-bg: rgba(14, 159, 110, 0.1);
+    --warn: #B45309;
+    --warn-bg: rgba(239, 170, 23, 0.14);
+    --exp: #C2402A;
+    --exp-bg: rgba(225, 29, 72, 0.09);
+    --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink);
+    font-size: 14px; line-height: 1.5; padding-bottom: 48px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+  .topbar { display: flex; align-items: center; gap: 14px; padding: 18px 0 6px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .logo {
+    width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+    background: linear-gradient(135deg, #4B3FE3, #7C6CF5);
+    color: #fff; font-weight: 800; font-size: 15px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .brand h1 { font-size: 17px; font-weight: 800; letter-spacing: 0.2px; }
+  .brand .sub { font-size: 12px; color: var(--sub); }
+  .topbar-actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn {
+    border: 1px solid var(--rule); background: var(--card); color: var(--ink);
+    border-radius: 8px; padding: 6px 14px; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-deep); color: #fff; }
+  .btn.ghost { border-color: transparent; color: var(--sub); }
+  .btn.ghost:hover { color: var(--exp); }
+  .btn.small { padding: 3px 10px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .danger-confirm { background: var(--exp) !important; border-color: var(--exp) !important; color: #fff !important; }
+  .spin {
+    display: inline-block; width: 12px; height: 12px; vertical-align: -1px;
+    border: 2px solid rgba(75, 63, 227, 0.25); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .stats { display: flex; gap: 10px; padding: 10px 0 14px; flex-wrap: wrap; }
+  .stat {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 8px 16px; display: flex; align-items: baseline; gap: 8px;
+  }
+  .stat .num { font-size: 19px; font-weight: 800; }
+  .stat .lbl { font-size: 12px; color: var(--sub); }
+
+  .board { display: flex; flex-direction: column; gap: 18px; }
+  .group-title {
+    font-size: 12.5px; font-weight: 700; color: var(--sub);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  .group-title::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+
+  .keycard {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 12px;
+    padding: 14px 18px; transition: box-shadow 0.15s;
+  }
+  .keycard:hover { box-shadow: 0 4px 18px rgba(26, 29, 41, 0.07); }
+  .kc-main { display: flex; flex-direction: column; gap: 9px; }
+  .kc-l1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .plat { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13.5px; }
+  .plat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+  .kname {
+    background: var(--accent-soft); color: var(--accent-deep);
+    font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px;
+  }
+  .st { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1.5px 10px; }
+  .st.ok { color: var(--ok); background: var(--ok-bg); }
+  .st.warn { color: var(--warn); background: var(--warn-bg); }
+  .st.exp { color: var(--exp); background: var(--exp-bg); }
+  .st.revoked { color: #fff; background: var(--exp); }
+  .meta { font-size: 12px; color: var(--sub); }
+  .kc-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  .params { display: flex; gap: 8px; flex-wrap: wrap; }
+  .param {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--rule); border-radius: 8px; padding: 4px 6px 4px 12px;
+    background: #FAFAFB;
+  }
+  .param .val {
+    font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+    max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .copy-btn {
+    border: none; background: transparent; color: var(--sub);
+    font-size: 11.5px; font-weight: 700; cursor: pointer; padding: 2px 7px;
+    border-radius: 5px; transition: all 0.12s;
+  }
+  .copy-btn:hover { background: var(--accent); color: #fff; }
+  .param:hover { border-color: var(--accent); }
+  .param .lbl2 { font-size: 11.5px; color: var(--sub); font-weight: 600; }
+  .eye {
+    border: none; background: transparent; cursor: pointer; color: var(--sub);
+    font-size: 13px; padding: 2px 6px; border-radius: 5px;
+  }
+  .eye:hover { background: var(--accent-soft); color: var(--accent); }
+
+  .kc-l2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .kc-more { margin-left: auto; display: flex; gap: 8px; }
+
+  .drawer {
+    max-height: 0; overflow: hidden; transition: max-height 0.25s ease;
+    border-top: 1px dashed transparent; margin-top: 4px;
+  }
+  .drawer.open { max-height: 760px; border-top-color: var(--rule); overflow-y: auto; }
+  .drawer-inner { padding-top: 10px; }
+  .drawer-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .drawer-title { font-size: 13px; font-weight: 800; }
+  .model-list { display: flex; flex-direction: column; gap: 6px; }
+  .model-item {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    border: 1px solid var(--rule); border-radius: 9px; padding: 6px 10px;
+  }
+  .model-item.default { border-color: var(--accent); background: var(--accent-soft); }
+  .mid-param .val { min-width: 0; }
+  .mspec { font-size: 12px; color: var(--sub); }
+  .mspec b { color: var(--ink); font-family: var(--mono); font-weight: 700; }
+  .m-tag {
+    font-size: 11px; font-weight: 700; color: var(--sub);
+    background: #F0F1F3; border-radius: 999px; padding: 1px 8px;
+  }
+  .m-tag.api { color: var(--ok); background: var(--ok-bg); }
+  .m-note {
+    font-size: 0.72rem; font-weight: 600; color: #8A5A00;
+    background: rgba(239, 170, 23, 0.13); border: 1px solid rgba(239, 170, 23, 0.4);
+    border-radius: 999px; padding: 0.06rem 0.55rem;
+    max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    cursor: pointer;
+  }
+  .m-note:hover { border-color: #D89B0D; }
+  .note-edit { width: 100%; display: flex; gap: 0.4rem; margin-top: 0.38rem; }
+  .note-edit input {
+    flex: 1; border: 1px solid var(--accent); border-radius: 7px;
+    padding: 0.32rem 0.6rem; font-size: 0.8rem; font-family: inherit;
+  }
+  .note-edit input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .model-item .btn { margin-left: auto; }
+  .drawer-foot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.75rem; flex-wrap: wrap; }
+  .manual-form { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.55rem; }
+  .manual-form input {
+    border: 1px solid var(--rule); border-radius: 7px; padding: 0.38rem 0.6rem;
+    font-family: var(--mono); font-size: 0.78rem; background: #fff; color: var(--ink);
+  }
+  .manual-form input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .mf-id { flex: 2; min-width: 190px; }
+  .mf-num { flex: 1; min-width: 120px; }
+  .mf-note { flex: 2; min-width: 190px; }
+  .input-with-btn { display: flex; gap: 0.4rem; }
+  .input-with-btn input { flex: 1; }
+  .input-with-btn .btn { flex-shrink: 0; white-space: nowrap; }
+
+  /* ---------- 配置去向 & 连通测试 ---------- */
+  .assigned-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.5rem; }
+  .tool-chip {
+    display: inline-flex; align-items: center; gap: 0.15rem;
+    font-size: 0.72rem; font-weight: 700; color: var(--accent-deep);
+    background: var(--accent-soft); border: 1px solid rgba(75, 63, 227, 0.28);
+    border-radius: 999px; padding: 0.08rem 0.15rem 0.08rem 0.55rem;
+  }
+  .tool-chip .rm {
+    border: none; background: transparent; color: inherit; opacity: 0.55;
+    font-size: 0.82rem; line-height: 1; padding: 0.05rem 0.32rem; border-radius: 999px; cursor: pointer;
+  }
+  .tool-chip .rm:hover { opacity: 1; background: rgba(75, 63, 227, 0.15); }
+  .tool-add-bar { display: flex; gap: 0.4rem; flex-wrap: wrap; width: 100%; }
+  .tool-add-bar input {
+    flex: 1; max-width: 280px; border: 1px solid var(--accent); border-radius: 7px;
+    padding: 0.3rem 0.6rem; font-size: 0.8rem; font-family: inherit;
+  }
+  .tool-add-bar input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .test-chip { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 0.09rem 0.55rem; }
+  .test-chip.pass { color: var(--ok); background: var(--ok-bg); }
+  .test-chip.fail { color: var(--exp); background: var(--exp-bg); }
+
+  .foot {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--card); border-top: 1px solid var(--rule);
+    padding: 8px 20px; font-size: 12px; color: var(--sub);
+    display: flex; gap: 24px; flex-wrap: wrap;
+  }
+  .empty { text-align: center; padding: 70px 0; color: var(--sub); }
+  .empty h3 { color: var(--ink); margin-bottom: 6px; }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(26, 29, 41, 0.45);
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; transition: opacity 0.18s; z-index: 50;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--card); border-radius: 14px; width: min(620px, 92vw);
+    max-height: 88vh; overflow-y: auto; padding: 22px 24px;
+    box-shadow: 0 20px 60px rgba(26, 29, 41, 0.3);
+  }
+  .modal h3 { font-size: 16px; margin-bottom: 2px; }
+  .modal .sub { font-size: 12px; color: var(--sub); margin-bottom: 14px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 11px; }
+  .field label { font-size: 12.5px; font-weight: 700; }
+  .field .hint { font-weight: 400; color: var(--sub); }
+  .field input, .field select {
+    border: 1px solid var(--rule); border-radius: 8px; padding: 8px 11px;
+    font-size: 13.5px; font-family: inherit; background: #fff; color: var(--ink);
+  }
+  .field input:focus, .field select:focus {
+    outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .field input.mono { font-family: var(--mono); }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .form-grid .span2 { grid-column: span 2; }
+  .btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+  .name-err { font-size: 12px; color: var(--exp); min-height: 16px; margin-bottom: 6px; }
+
+  .seg { display: flex; gap: 6px; margin-bottom: 12px; }
+  .seg button {
+    border: 1px solid var(--rule); background: #fff; border-radius: 999px;
+    padding: 5px 16px; font-size: 12.5px; font-weight: 700; color: var(--sub); cursor: pointer;
+  }
+  .seg button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .config-pre {
+    background: #171A26; color: #E7E9F4; border-radius: 10px; padding: 14px 16px;
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+    white-space: pre-wrap; word-break: break-all; margin-bottom: 12px;
+  }
+  .config-pre .k { color: #8BE9C8; }
+  .config-pre .c { color: #7A7F9A; }
+  .config-pre .s { color: #F7C873; }
+  .config-note { font-size: 12px; color: var(--sub); }
+  .modal-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+  .toasts { position: fixed; top: 18px; right: 18px; z-index: 99; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    background: #1F2430; color: #fff; font-size: 13px; font-weight: 600;
+    border-radius: 9px; padding: 9px 16px; box-shadow: 0 8px 24px rgba(26, 29, 41, 0.3);
+    animation: slidein 0.2s ease;
+  }
+  .toast.warn { background: #8A5A00; }
+  .toast.ok { background: #0B7A55; }
+  @keyframes slidein { from { transform: translateX(20px); opacity: 0; } }
+
+  @media (max-width: 900px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid .span2 { grid-column: span 1; }
+    .kc-actions { margin-left: 0; width: 100%; }
+    .stat .num { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">K</div>
+      <div>
+        <h1>AI Key Manager</h1>
+        <div class="sub">本地密钥管理 · 加密存储</div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
+      <button class="btn primary" id="btn-add">+ 新增密钥</button>
+    </div>
+  </header>
+
+  <div class="stats" id="stats"></div>
+  <main class="board" id="board"></main>
+  <div class="empty" id="empty" style="display:none">
+    <h3>还没有任何密钥</h3>
+    <p>点右上角「+ 新增密钥」，把散落各处的 AI API Key 收拢到这里统一管理。</p>
+  </div>
+
+  <footer class="foot">
+    <span id="foot-meta">本地服务运行中…</span>
+    <span>操作流程：新增密钥 → 测试连通 → 拉取模型 → 生成 Agent 配置。</span>
+  </footer>
+</div>
+
+<!-- 新增/编辑密钥 -->
+<div class="overlay" id="overlay-form">
+  <div class="modal">
+    <h3 id="form-title">新增密钥</h3>
+    <p class="sub">Key 名称、注册时间、有效期均为可选；Key 名称留空将自动生成「平台名-末4位」。</p>
+    <div class="form-grid">
+      <div class="field">
+        <label for="f-platform">平台</label>
+        <select id="f-platform"></select>
+      </div>
+      <div class="field" id="field-custom-name" style="display:none">
+        <label for="f-custom-name">自定义平台名称</label>
+        <input id="f-custom-name" type="text" maxlength="30" placeholder="如 智谱、硅基流动">
+      </div>
+      <div class="field">
+        <label for="f-name">Key 名称 <span class="hint">可选 · 同平台唯一</span></label>
+        <input id="f-name" type="text" maxlength="40" placeholder="留空自动生成，如 DeepSeek-4f2a">
+      </div>
+      <div class="field">
+        <label for="f-exp">有效期至 <span class="hint">可选</span></label>
+        <input id="f-exp" type="date">
+      </div>
+      <div class="field span2">
+        <label for="f-key">API Key <span class="hint">必填 · 加密存储</span></label>
+        <input id="f-key" type="text" class="mono" placeholder="sk-..." autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field span2">
+        <label for="f-base">Base URL <span class="hint">OpenAI 兼容地址，一般无需修改</span></label>
+        <input id="f-base" type="text" class="mono" placeholder="https://api.deepseek.com" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="f-model">默认模型 <span class="hint">可稍后在模型目录中设置</span></label>
+        <input id="f-model" type="text" class="mono" placeholder="deepseek-chat" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="f-reg">注册时间 <span class="hint">可选</span></label>
+        <div class="input-with-btn">
+          <input id="f-reg" type="date">
+          <button type="button" class="btn small" id="btn-reg-now" title="填入当前日期">现在</button>
+        </div>
+      </div>
+    </div>
+    <div class="name-err" id="name-err"></div>
+    <div class="btn-row">
+      <button class="btn" data-close="overlay-form">取消</button>
+      <button class="btn primary" id="btn-form-save">新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- 生成配置 -->
+<div class="overlay" id="overlay-config">
+  <div class="modal">
+    <h3 id="config-title">生成配置</h3>
+    <p class="sub" id="config-sub"></p>
+    <div class="seg" id="seg-tool">
+      <button data-tool="dify" class="active">Dify</button>
+      <button data-tool="n8n">n8n</button>
+      <button data-tool="env">.env</button>
+    </div>
+    <pre class="config-pre" id="config-pre"></pre>
+    <div class="modal-foot" style="margin-top:0.6rem">
+      <button class="btn primary" id="btn-copy-config">复制整段配置</button>
+      <button class="btn ghost small" id="btn-mark-assigned" style="display:none"></button>
+      <span class="config-note" id="config-note"></span>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 状态（服务端数据 + 界面瞬态） ================= */
+
+  var state = { keys: [], platforms: {}, meta: null };
+  var ui = {
+    revealed: {}, drawerOpen: {}, editingNote: {},
+    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}
+  };
+  var editingId = null;
+  var configKeyRef = null;
+  var configTool = 'dify';
+
+  /* ================= API ================= */
+
+  function api(method, path, body) {
+    return fetch('/api' + path, {
+      method: method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = {};
+        if (txt) { try { data = JSON.parse(txt); } catch (e) { data = {}; } }
+        if (!res.ok) {
+          var err = new Error(data.error || ('请求失败（HTTP ' + res.status + '）'));
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      });
+    });
+  }
+
+  function findKey(id) {
+    for (var i = 0; i < state.keys.length; i++) {
+      if (state.keys[i].id === id) return state.keys[i];
+    }
+    return null;
+  }
+  function replaceKey(rec) {
+    for (var i = 0; i < state.keys.length; i++) {
+      if (state.keys[i].id === rec.id) { state.keys[i] = rec; return; }
+    }
+    state.keys.push(rec);
+  }
+
+  /* ================= 工具函数 ================= */
+
+  function P(id) {
+    return state.platforms[id] || { name: id, color: '#8A8FA8', currency: 'CNY', supportsBalance: false };
+  }
+  function platLabel(k) { return k.platform === 'custom' ? (k.customName || '自定义平台') : P(k.platform).name; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function fmtDate(d) {
+    var t = new Date(d);
+    return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+  }
+  function daysFromToday(dateStr) {
+    var t = new Date(dateStr + 'T00:00:00');
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.round((t - now) / 86400000);
+  }
+  function keyStatus(k) {
+    if (k.revoked) return 'revoked';
+    if (k.exp) {
+      var d = daysFromToday(k.exp);
+      if (d < 0) return 'exp';
+      if (d <= 30) return 'warn';
+    }
+    return 'ok';
+  }
+  var ST_LABEL = { ok: '有效', warn: '临期', exp: '已过期', revoked: '已停用' };
+  function maskKey(k) {
+    if (!k || k.length <= 8) return k || '';
+    return k.slice(0, 3) + '••••••••••••' + k.slice(-4);
+  }
+  function fmtK(n) {
+    if (n == null) return '未知';
+    return n >= 1024 ? Math.round(n / 1024) + 'K' : String(n);
+  }
+  function balanceText(k) {
+    var b = k.balance || {};
+    if (b.status === 'pending') return '待查询';
+    if (b.status === 'unsupported') return '暂不支持';
+    if (b.status === 'fail') return '查询失败';
+    return (P(k.platform).currency === 'USD' ? '$' : '¥') + Number(b.value).toFixed(2);
+  }
+  function toast(msg, type) {
+    var box = document.getElementById('toasts');
+    var el = document.createElement('div');
+    el.className = 'toast' + (type ? ' ' + type : '');
+    el.textContent = msg;
+    box.appendChild(el);
+    setTimeout(function () { el.remove(); }, 2600);
+  }
+  function copyText(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { legacyCopy(text, done); });
+    } else {
+      legacyCopy(text, done);
+    }
+  }
+  function legacyCopy(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { toast('复制失败，请手动复制', 'warn'); }
+    ta.remove();
+  }
+
+  /* ================= 渲染 ================= */
+
+  function render() {
+    renderStats();
+    renderBoard();
+  }
+
+  function renderStats() {
+    var total = state.keys.length;
+    var platforms = {};
+    var ok = 0, warn = 0, exp = 0;
+    state.keys.forEach(function (k) {
+      platforms[platLabel(k)] = 1;
+      var st = keyStatus(k);
+      if (st === 'ok') ok++;
+      else if (st === 'warn') warn++;
+      else if (st === 'exp' || st === 'revoked') exp++;
+    });
+    var html =
+      '<div class="stat"><span class="num">' + total + '</span><span class="lbl">个密钥</span></div>' +
+      '<div class="stat"><span class="num">' + Object.keys(platforms).length + '</span><span class="lbl">个平台</span></div>' +
+      '<div class="stat"><span class="num" style="color:var(--ok)">' + ok + '</span><span class="lbl">有效</span></div>' +
+      '<div class="stat"><span class="num" style="color:var(--warn)">' + warn + '</span><span class="lbl">临期</span></div>' +
+      '<div class="stat"><span class="num" style="color:var(--exp)">' + exp + '</span><span class="lbl">过期/停用</span></div>';
+    document.getElementById('stats').innerHTML = html;
+    document.getElementById('empty').style.display = total ? 'none' : '';
+    document.getElementById('board').style.display = total ? '' : 'none';
+  }
+
+  function renderBoard() {
+    var groups = [];
+    var byLabel = {};
+    state.keys.forEach(function (k) {
+      var label = platLabel(k);
+      if (!byLabel[label]) {
+        byLabel[label] = { label: label, color: P(k.platform).color, keys: [] };
+        groups.push(byLabel[label]);
+      }
+      byLabel[label].keys.push(k);
+    });
+    document.getElementById('board').innerHTML = groups.map(function (g) {
+      return '<section class="group"><div class="group-title">' + esc(g.label) + '</div>' +
+        g.keys.map(renderCard).join('') + '</section>';
+    }).join('');
+  }
+
+  function renderCard(k) {
+    var st = keyStatus(k);
+    var revealed = !!ui.revealed[k.id];
+    var p = P(k.platform);
+
+    var testChip = '';
+    if (k.test) {
+      testChip = k.test.status === 'pass'
+        ? '<span class="test-chip pass" title="' + esc(k.test.msg) + '">连通 · ' + esc(k.test.latency + 'ms') + '</span>'
+        : '<span class="test-chip fail" title="' + esc(k.test.msg) + '">不通 · ' + esc(k.test.code) + '</span>';
+    }
+
+    var assigned = k.assigned || [];
+    var assignedRow =
+      '<div class="assigned-row">' +
+        '<span class="meta">已配置到</span>' +
+        assigned.map(function (t) {
+          return '<span class="tool-chip">' + esc(t) +
+            '<button class="rm" data-act="rm-assigned" data-tool="' + esc(t) + '" title="移除「' + esc(t) + '" aria-label="移除 ' + esc(t) + '">×</button></span>';
+        }).join('') +
+        '<button class="btn ghost small" data-act="toggle-assigned">' + (assigned.length ? '+' : '+ 记录配置去向') + '</button>' +
+      '</div>';
+    if (ui.assignedOpen[k.id]) {
+      assignedRow +=
+        '<div class="tool-add-bar">' +
+          '<input data-tool-input maxlength="40" placeholder="工具名，如 Dify、n8n、Cherry Studio" aria-label="配置到的工具名" autocomplete="off">' +
+          '<button class="btn primary small" data-act="add-assigned">添加</button>' +
+          '<button class="btn small" data-act="cancel-assigned">取消</button>' +
+        '</div>';
+    }
+
+    var modelsBtnLabel = k.modelsFetched ? ('模型 ' + (k.models || []).length) : '模型目录';
+
+    return (
+      '<article class="keycard" data-id="' + k.id + '">' +
+        '<div class="kc-main">' +
+          '<div class="kc-l1">' +
+            '<span class="plat"><span class="plat-dot" style="background:' + p.color + '"></span>' + esc(platLabel(k)) + '</span>' +
+            '<span class="kname">' + esc(k.name) + '</span>' +
+            '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
+            testChip +
+            '<span class="meta">余额 ' + esc(balanceText(k)) + '</span>' +
+            (k.reg ? '<span class="meta">注册 ' + esc(k.reg) + '</span>' : '') +
+            (k.exp ? '<span class="meta">有效期至 ' + esc(k.exp) + '</span>' : '<span class="meta">长期有效</span>') +
+            '<span class="kc-actions">' +
+              (ui.testing[k.id]
+                ? '<button class="btn ghost small" disabled><span class="spin"></span> 测试中</button>'
+                : '<button class="btn ghost small" data-act="test" title="调用平台模型列表接口验证密钥可用性">' + (k.test ? '重新测试' : '测试') + '</button>') +
+              '<button class="btn ghost small" data-act="edit">编辑</button>' +
+              '<button class="btn ghost small" data-act="del">删除</button>' +
+            '</span>' +
+          '</div>' +
+          '<div class="params">' +
+            '<span class="param" data-copy="' + esc(k.key) + '">' +
+              '<span class="lbl2">Key</span>' +
+              '<span class="val">' + esc(revealed ? k.key : maskKey(k.key)) + '</span>' +
+              '<button class="eye" data-act="reveal" title="' + (revealed ? '隐藏' : '显示明文') + '">' + (revealed ? '🙈' : '👁') + '</button>' +
+              '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
+            '</span>' +
+            (k.base ? '<span class="param" data-copy="' + esc(k.base) + '"><span class="lbl2">Base URL</span><span class="val">' + esc(k.base) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
+            (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
+          '</div>' +
+          '<div class="kc-l2">' +
+            '<span class="kc-more">' +
+              '<button class="btn small" data-act="toggle-models">' + esc(modelsBtnLabel) + '</button>' +
+              '<button class="btn primary small" data-act="config">生成配置</button>' +
+            '</span>' +
+          '</div>' +
+          assignedRow +
+        '</div>' +
+        (ui.drawerOpen[k.id] ? '<div class="drawer open">' + renderDrawer(k) + '</div>' : '<div class="drawer"></div>') +
+      '</article>'
+    );
+  }
+
+  function renderDrawer(k) {
+    var models = k.models || [];
+    var head =
+      '<div class="drawer-inner">' +
+        '<div class="drawer-toolbar">' +
+          '<span class="drawer-title">模型目录</span>' +
+          '<span class="meta">来源：平台接口 + 本地元数据库</span>' +
+          '<span style="flex:1"></span>' +
+          '<button class="btn ' + (k.modelsFetched ? 'small' : 'primary small') + '" data-act="fetch-models"' + (ui.modelsLoading[k.id] ? ' disabled' : '') + '>' + (k.modelsFetched ? '重新拉取' : '拉取模型') + '</button>' +
+        '</div>';
+
+    var body;
+    if (ui.modelsLoading[k.id]) {
+      body = '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台模型列表接口…</p>';
+    } else if (!k.modelsFetched) {
+      body = '<p class="meta" style="margin-bottom:0.6rem">尚未拉取。点击右上「拉取模型」自动获取平台模型列表（含上下文 / 最大输出）。</p>';
+    } else if (!models.length) {
+      body = '<p class="meta" style="margin-bottom:0.6rem">平台未返回任何模型，可在下方手动添加。</p>';
+    } else {
+      body = '<div class="model-list">' + models.map(function (m) { return renderModelRow(k, m); }).join('') + '</div>';
+    }
+    return head + body + manualSection(k) + '</div>';
+  }
+
+  function renderModelRow(k, m) {
+    var isDefault = m.id === k.model;
+    var ctxChip = m.ctx != null
+      ? '<span class="param" data-copy="' + m.ctx + '"><span class="val">上下文 ' + fmtK(m.ctx) + '</span><button class="copy-btn" data-act="copy" title="复制具体数值 ' + m.ctx + '">复制</button></span>'
+      : '<span class="mspec">上下文 <b>未知</b></span>';
+    var outChip = m.out != null
+      ? '<span class="param" data-copy="' + m.out + '"><span class="val">最大输出 ' + fmtK(m.out) + '</span><button class="copy-btn" data-act="copy" title="复制具体数值 ' + m.out + '">复制</button></span>'
+      : '<span class="mspec">最大输出 <b>未知</b></span>';
+    var noteChip = m.note
+      ? '<span class="m-note" data-act="note-model" data-model="' + esc(m.id) + '" title="' + esc(m.note) + '（点击编辑）">' + esc(m.note) + '</span>'
+      : '';
+    var editBar = '';
+    if (ui.editingNote[k.id] === m.id) {
+      editBar =
+        '<div class="note-edit">' +
+          '<input data-note-input value="' + esc(m.note || '') + '" maxlength="60" placeholder="备注这个模型用在哪里，如：Dify · 客服机器人" aria-label="模型备注">' +
+          '<button class="btn primary small" data-act="save-note">保存</button>' +
+          '<button class="btn small" data-act="cancel-note">取消</button>' +
+        '</div>';
+    }
+    return (
+      '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
+        '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
+        ctxChip + outChip +
+        '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : m.src === 'manual' ? '手动填写' : '元数据库') + '</span>' +
+        noteChip +
+        '<button class="btn ghost small" data-act="note-model" data-model="' + esc(m.id) + '">' + (m.note ? '编辑备注' : '备注') + '</button>' +
+        (isDefault
+          ? '<button class="btn small" disabled>当前默认</button>'
+          : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
+        editBar +
+      '</div>'
+    );
+  }
+
+  function manualSection(k) {
+    var html =
+      '<div class="drawer-foot">' +
+        '<button class="btn small" data-act="toggle-manual">' + (ui.manualOpen[k.id] ? '收起手动添加' : '+ 手动添加模型') + '</button>' +
+        '<span class="meta">接口拉取失败或参数未知时，可手动补充</span>' +
+      '</div>';
+    if (!ui.manualOpen[k.id]) return html;
+    return html +
+      '<div class="manual-form">' +
+        '<input data-mf="id" class="mf-id" placeholder="模型 ID，如 deepseek-chat" aria-label="模型 ID" autocomplete="off">' +
+        '<input data-mf="ctx" class="mf-num" type="number" min="0" placeholder="上下文 tokens" aria-label="上下文 tokens">' +
+        '<input data-mf="out" class="mf-num" type="number" min="0" placeholder="最大输出 tokens" aria-label="最大输出 tokens">' +
+        '<input data-mf="note" class="mf-note" placeholder="备注（可选）：用于哪个工具" aria-label="备注" autocomplete="off">' +
+        '<button class="btn primary small" data-act="add-model">添加</button>' +
+      '</div>';
+  }
+
+  /* ================= 看板事件（委托） ================= */
+
+  document.getElementById('board').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    var card = btn.closest('.keycard');
+    if (!card) return;
+    var k = findKey(Number(card.dataset.id));
+    if (!k) return;
+    var act = btn.dataset.act;
+
+    if (act === 'copy') {
+      var holder = btn.closest('[data-copy]');
+      var val = holder ? holder.dataset.copy : '';
+      copyText(val, function () { toast('已复制到剪贴板', 'ok'); });
+      return;
+    }
+    if (act === 'reveal') {
+      ui.revealed[k.id] = !ui.revealed[k.id];
+      render();
+      return;
+    }
+    if (act === 'test') {
+      runTest(k);
+      return;
+    }
+    if (act === 'toggle-assigned') {
+      ui.assignedOpen[k.id] = !ui.assignedOpen[k.id];
+      render();
+      var toolInput = document.querySelector('[data-tool-input]');
+      if (toolInput) toolInput.focus();
+      return;
+    }
+    if (act === 'add-assigned') {
+      addAssignedTool(k, card.querySelector('[data-tool-input]').value.trim());
+      return;
+    }
+    if (act === 'cancel-assigned') {
+      ui.assignedOpen[k.id] = false;
+      render();
+      return;
+    }
+    if (act === 'rm-assigned') {
+      var tool = btn.dataset.tool;
+      api('DELETE', '/keys/' + k.id + '/assigned/' + encodeURIComponent(tool)).then(function (data) {
+        k.assigned = data.assigned;
+        render();
+        toast('已从配置清单移除「' + tool + '」', 'warn');
+      }).catch(function (e) { toast(e.message, 'warn'); });
+      return;
+    }
+    if (act === 'edit') { openForm(k); return; }
+    if (act === 'del') {
+      if (btn.dataset.armed === '1') {
+        api('DELETE', '/keys/' + k.id).then(function () {
+          state.keys = state.keys.filter(function (x) { return x.id !== k.id; });
+          render();
+          toast('已删除「' + k.name + '」');
+        }).catch(function (e) { toast(e.message, 'warn'); });
+      } else {
+        var impact = (k.assigned || []).length;
+        btn.dataset.armed = '1';
+        btn.textContent = impact ? '确认删除？（已配置 ' + impact + ' 处）' : '确认删除？';
+        btn.classList.add('danger-confirm');
+        setTimeout(function () {
+          if (!btn.isConnected) return;
+          btn.dataset.armed = '';
+          btn.textContent = '删除';
+          btn.classList.remove('danger-confirm');
+        }, 3000);
+      }
+      return;
+    }
+    if (act === 'toggle-models') {
+      ui.drawerOpen[k.id] = !ui.drawerOpen[k.id];
+      render();
+      return;
+    }
+    if (act === 'fetch-models') {
+      fetchModels(k);
+      return;
+    }
+    if (act === 'set-model') {
+      api('PUT', '/keys/' + k.id, { model: btn.dataset.model }).then(function (data) {
+        replaceKey(data.key);
+        render();
+        toast('默认模型已设为 ' + data.key.model);
+      }).catch(function (e) { toast(e.message, 'warn'); });
+      return;
+    }
+    if (act === 'note-model') {
+      ui.editingNote[k.id] = btn.dataset.model;
+      render();
+      var noteInput = document.querySelector('[data-note-input]');
+      if (noteInput) { noteInput.focus(); noteInput.select(); }
+      return;
+    }
+    if (act === 'save-note') {
+      commitNote(k, card.querySelector('[data-note-input]').value.trim());
+      return;
+    }
+    if (act === 'cancel-note') {
+      ui.editingNote[k.id] = null;
+      render();
+      return;
+    }
+    if (act === 'toggle-manual') {
+      ui.manualOpen[k.id] = !ui.manualOpen[k.id];
+      render();
+      return;
+    }
+    if (act === 'add-model') {
+      var mid = card.querySelector('[data-mf="id"]').value.trim();
+      var mctx = card.querySelector('[data-mf="ctx"]').value.trim();
+      var mout = card.querySelector('[data-mf="out"]').value.trim();
+      var mnote = card.querySelector('[data-mf="note"]').value.trim();
+      if (!mid) { toast('请先填写模型 ID', 'warn'); return; }
+      var exists = (k.models || []).some(function (m) { return m.id === mid; });
+      if (exists && !mctx && !mout && !mnote) { toast('模型「' + mid + '」已在目录中', 'warn'); return; }
+      api('POST', '/keys/' + k.id + '/models', {
+        id: mid,
+        ctx: mctx ? Number(mctx) : null,
+        out: mout ? Number(mout) : null,
+        note: mnote || null
+      }).then(function (data) {
+        k.models = data.models;
+        ui.manualOpen[k.id] = false;
+        render();
+        toast(exists ? '已更新「' + mid + '」的信息' : '已添加模型「' + mid + '」');
+      }).catch(function (e) { toast(e.message, 'warn'); });
+      return;
+    }
+    if (act === 'config') { openConfig(k); return; }
+  });
+
+  document.getElementById('board').addEventListener('keydown', function (ev) {
+    if (ev.key !== 'Enter' || !ev.target.matches) return;
+    var card = ev.target.closest('.keycard');
+    var k = card ? findKey(Number(card.dataset.id)) : null;
+    if (!k) return;
+    if (ev.target.matches('[data-note-input]')) {
+      ev.preventDefault();
+      commitNote(k, ev.target.value.trim());
+    } else if (ev.target.matches('[data-tool-input]')) {
+      ev.preventDefault();
+      addAssignedTool(k, ev.target.value.trim());
+    }
+  });
+
+  /* ================= 连通测试 / 模型拉取 / 备注 / 配置去向 ================= */
+
+  function runTest(k) {
+    if (ui.testing[k.id]) return;
+    ui.testing[k.id] = true;
+    render();
+    api('POST', '/keys/' + k.id + '/test').then(function (data) {
+      k.test = data.test;
+      ui.testing[k.id] = false;
+      render();
+      if (data.test.status === 'pass') {
+        toast('「' + k.name + '」测试通过（' + data.test.latency + 'ms）', 'ok');
+      } else {
+        toast('「' + k.name + '」测试失败：' + data.test.msg, 'warn');
+      }
+    }).catch(function (e) {
+      ui.testing[k.id] = false;
+      render();
+      toast(e.message, 'warn');
+    });
+  }
+
+  function fetchModels(k) {
+    if (ui.modelsLoading[k.id]) return;
+    ui.modelsLoading[k.id] = true;
+    ui.drawerOpen[k.id] = true;
+    render();
+    api('POST', '/keys/' + k.id + '/models/fetch').then(function (data) {
+      k.models = data.models;
+      k.modelsFetched = true;
+      ui.modelsLoading[k.id] = false;
+      render();
+      toast('已拉取 ' + data.models.length + ' 个模型', 'ok');
+    }).catch(function (e) {
+      ui.modelsLoading[k.id] = false;
+      render();
+      toast(e.message, 'warn');
+    });
+  }
+
+  function commitNote(k, val) {
+    var mid = ui.editingNote[k.id];
+    ui.editingNote[k.id] = null;
+    if (mid == null) return;
+    api('PATCH', '/keys/' + k.id + '/models/' + encodeURIComponent(mid), { note: val }).then(function (data) {
+      k.models = data.models;
+      render();
+      toast(val ? '备注已保存' : '备注已清除', val ? 'ok' : 'warn');
+    }).catch(function (e) { toast(e.message, 'warn'); });
+  }
+
+  function addAssignedTool(k, name) {
+    if (!name) { toast('请填写工具名', 'warn'); return; }
+    api('POST', '/keys/' + k.id + '/assigned', { tool: name }).then(function (data) {
+      k.assigned = data.assigned;
+      ui.assignedOpen[k.id] = false;
+      render();
+      toast('已记录「' + k.name + '」配置到 ' + name, 'ok');
+    }).catch(function (e) {
+      if (e.status === 409) { ui.assignedOpen[k.id] = false; render(); }
+      toast(e.message, 'warn');
+    });
+  }
+
+  /* ================= 新增 / 编辑表单 ================= */
+
+  var fPlatform = document.getElementById('f-platform');
+  var fCustomName = document.getElementById('f-custom-name');
+  var fName = document.getElementById('f-name');
+  var fKey = document.getElementById('f-key');
+  var fBase = document.getElementById('f-base');
+  var fModel = document.getElementById('f-model');
+  var fReg = document.getElementById('f-reg');
+  var fExp = document.getElementById('f-exp');
+  var nameErr = document.getElementById('name-err');
+  var btnFormSave = document.getElementById('btn-form-save');
+
+  function buildPlatformSelect() {
+    fPlatform.innerHTML = Object.keys(state.platforms).map(function (id) {
+      return '<option value="' + esc(id) + '">' + esc(state.platforms[id].name) + '</option>';
+    }).join('');
+  }
+
+  function openForm(k) {
+    editingId = k ? k.id : null;
+    document.getElementById('form-title').textContent = k ? '编辑密钥' : '新增密钥';
+    btnFormSave.textContent = k ? '保存修改' : '新增';
+    nameErr.textContent = '';
+    fPlatform.value = k ? k.platform : 'deepseek';
+    document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
+    fCustomName.value = k && k.platform === 'custom' ? k.customName : '';
+    fName.value = k ? k.name : '';
+    fKey.value = k ? k.key : '';
+    fBase.value = k ? k.base : P(fPlatform.value).defaultBase;
+    fModel.value = k ? k.model : P(fPlatform.value).defaultModel;
+    fReg.value = k ? (k.reg || '') : '';
+    fExp.value = k ? (k.exp || '') : '';
+    openOverlay('overlay-form');
+    if (!k) fKey.focus();
+  }
+
+  fPlatform.addEventListener('change', function () {
+    var p = P(fPlatform.value);
+    fBase.value = p.defaultBase;
+    fModel.value = p.defaultModel;
+    document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
+    if (fPlatform.value === 'custom') fCustomName.focus();
+  });
+
+  document.getElementById('btn-reg-now').addEventListener('click', function () {
+    fReg.value = fmtDate(new Date());
+    fReg.focus();
+  });
+
+  btnFormSave.addEventListener('click', function () {
+    nameErr.textContent = '';
+    if (!fKey.value.trim()) { nameErr.textContent = 'API Key 为必填项'; fKey.focus(); return; }
+    var body = {
+      platform: fPlatform.value,
+      customName: fCustomName.value.trim(),
+      name: fName.value.trim(),
+      key: fKey.value.trim(),
+      base: fBase.value.trim(),
+      model: fModel.value.trim(),
+      reg: fReg.value,
+      exp: fExp.value
+    };
+    var req = editingId
+      ? api('PUT', '/keys/' + editingId, body)
+      : api('POST', '/keys', body);
+    req.then(function (data) {
+      replaceKey(data.key);
+      render();
+      closeOverlay('overlay-form');
+      toast(editingId ? '密钥已更新' : '已新增「' + data.key.name + '」', 'ok');
+    }).catch(function (e) {
+      if (e.status === 409) {
+        nameErr.textContent = e.message;
+        fName.focus();
+      } else {
+        nameErr.textContent = e.message;
+      }
+    });
+  });
+
+  /* ================= 配置生成 ================= */
+
+  function currentModelMeta(k) {
+    var models = k.models || [];
+    for (var i = 0; i < models.length; i++) {
+      if (models[i].id === k.model) return models[i];
+    }
+    return null;
+  }
+
+  function buildConfig(k, tool) {
+    var meta = currentModelMeta(k);
+    if (tool === 'dify') {
+      return '# Dify · 模型供应商配置\n' +
+        '模型名称: ' + (k.model || '（未设置默认模型）') + '\n' +
+        '模型类型: LLM\n' +
+        'API Key: ' + k.key + '\n' +
+        'API base: ' + k.base + '\n' +
+        '# 模式选「OpenAI-API-compatible」\n' +
+        (meta && meta.ctx ? '# 上下文长度: ' + meta.ctx + ' tokens\n' : '') +
+        (meta && meta.out ? '# 最大输出: ' + meta.out + ' tokens\n' : '');
+    }
+    if (tool === 'n8n') {
+      return '// n8n · OpenAI Chat Model 节点\n' +
+        'Base URL = ' + k.base + '\n' +
+        'API Key = ' + k.key + '\n' +
+        'Model = ' + (k.model || '（未设置默认模型）') + '\n' +
+        (meta && meta.ctx ? 'Context Window = ' + meta.ctx + '\n' : '') +
+        (meta && meta.out ? 'Max Output = ' + meta.out + '\n' : '');
+    }
+    var U = 'AI';
+    var lines = ['# .env', U + '_API_KEY=' + k.key];
+    if (k.base) lines.push(U + '_BASE_URL=' + k.base);
+    if (k.model) lines.push(U + '_MODEL=' + k.model);
+    if (meta) {
+      if (meta.ctx) lines.push(U + '_CONTEXT_WINDOW=' + meta.ctx);
+      if (meta.out) lines.push(U + '_MAX_OUTPUT=' + meta.out);
+    }
+    if (meta && meta.note) lines.push('# 用途备注: ' + meta.note);
+    return lines.join('\n');
+  }
+
+  function openConfig(k) {
+    configKeyRef = k.id;
+    configTool = 'dify';
+    document.querySelectorAll('#seg-tool button').forEach(function (b) {
+      b.classList.toggle('active', b.dataset.tool === 'dify');
+    });
+    document.getElementById('config-title').textContent = '生成配置 · ' + k.name;
+    document.getElementById('config-sub').textContent = platLabel(k) + ' · ' + (k.model || '未设置默认模型');
+    renderConfig();
+    openOverlay('overlay-config');
+  }
+
+  function renderConfig() {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var meta = currentModelMeta(k);
+    var text = buildConfig(k, configTool);
+    document.getElementById('config-pre').innerHTML = esc(text)
+      .replace(/(#[^\n]*|\/\/[^\n]*)/g, '<span class="c">$1</span>')
+      .replace(/([A-Z_]+)=/g, '<span class="k">$1</span>=')
+      .replace(/(= ?)([^\n<]+)/g, '$1<span class="s">$2</span>');
+
+    document.getElementById('config-note').textContent = meta && meta.ctx
+      ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
+      : '提示：先「拉取模型」或手动添加模型，配置可自动带入上下文与最大输出';
+
+    var markBtn = document.getElementById('btn-mark-assigned');
+    var toolLabel = configTool === 'dify' ? 'Dify' : configTool === 'n8n' ? 'n8n' : null;
+    if (!toolLabel) {
+      markBtn.style.display = 'none';
+    } else {
+      markBtn.style.display = '';
+      if ((k.assigned || []).indexOf(toolLabel) >= 0) {
+        markBtn.textContent = '已配置到 ' + toolLabel + ' ✓';
+        markBtn.disabled = true;
+      } else {
+        markBtn.textContent = '记录已配置到 ' + toolLabel;
+        markBtn.disabled = false;
+      }
+    }
+  }
+
+  document.querySelectorAll('#seg-tool button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      document.querySelectorAll('#seg-tool button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+      configTool = b.dataset.tool;
+      renderConfig();
+    });
+  });
+
+  document.getElementById('btn-mark-assigned').addEventListener('click', function () {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var toolLabel = configTool === 'dify' ? 'Dify' : 'n8n';
+    api('POST', '/keys/' + k.id + '/assigned', { tool: toolLabel }).then(function (data) {
+      k.assigned = data.assigned;
+      renderConfig();
+      toast('已记录「' + k.name + '」配置到 ' + toolLabel, 'ok');
+    }).catch(function (e) { toast(e.message, 'warn'); });
+  });
+
+  document.getElementById('btn-copy-config').addEventListener('click', function () {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var btn = this;
+    copyText(buildConfig(k, configTool), function () {
+      var old = btn.textContent;
+      btn.textContent = '已复制';
+      setTimeout(function () { btn.textContent = old; }, 1200);
+      toast('配置已复制到剪贴板', 'ok');
+    });
+  });
+
+  /* ================= 余额刷新 ================= */
+
+  document.getElementById('btn-refresh-all').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    document.getElementById('refresh-spin').style.display = '';
+    api('POST', '/refresh-balances').then(function (data) {
+      state.keys = data.keys;
+      render();
+      var msg = '余额刷新完成：更新 ' + data.updated + ' 个';
+      if (data.failed) msg += '，失败 ' + data.failed + ' 个';
+      toast(msg, data.failed ? 'warn' : 'ok');
+    }).catch(function (e) {
+      toast(e.message, 'warn');
+    }).finally(function () {
+      btn.disabled = false;
+      document.getElementById('refresh-spin').style.display = 'none';
+    });
+  });
+
+  /* ================= 顶部操作 ================= */
+
+  document.getElementById('btn-add').addEventListener('click', function () { openForm(null); });
+
+  /* ================= Modal 通用 ================= */
+
+  function openOverlay(id) {
+    document.getElementById(id).classList.add('show');
+  }
+  function closeOverlay(id) {
+    document.getElementById(id).classList.remove('show');
+  }
+
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () { closeOverlay(btn.dataset.close); });
+  });
+  document.querySelectorAll('.overlay').forEach(function (ov) {
+    ov.addEventListener('mousedown', function (ev) {
+      if (ev.target === ov) closeOverlay(ov.id);
+    });
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      document.querySelectorAll('.overlay.show').forEach(function (ov) { ov.classList.remove('show'); });
+    }
+  });
+
+  /* ================= 启动 ================= */
+
+  Promise.all([
+    api('GET', '/platforms'),
+    api('GET', '/keys'),
+    api('GET', '/meta')
+  ]).then(function (results) {
+    (results[0].platforms || []).forEach(function (p) { state.platforms[p.id] = p; });
+    state.keys = results[1].keys || [];
+    state.meta = results[2];
+    buildPlatformSelect();
+    var m = state.meta || {};
+    document.getElementById('foot-meta').textContent =
+      'AI Key Manager v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
+    render();
+  }).catch(function (e) {
+    document.getElementById('foot-meta').textContent = '服务连接失败：' + e.message;
+    toast('服务连接失败，请检查后台服务是否在运行', 'warn');
+  });
+})();
+</script>
+</body>
+</html>

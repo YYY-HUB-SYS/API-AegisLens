@@ -1,0 +1,33 @@
+{
+  "deepseek": {
+    "deepseek-chat": { "ctx": 65536, "out": 8192 },
+    "deepseek-reasoner": { "ctx": 65536, "out": 8192 },
+    "deepseek-v3*": { "ctx": 65536, "out": 8192 },
+    "deepseek-coder*": { "ctx": 131072, "out": 8192 }
+  },
+  "openai": {
+    "gpt-4o*": { "ctx": 128000, "out": 16384 },
+    "gpt-4o-mini*": { "ctx": 128000, "out": 16384 },
+    "gpt-4.1*": { "ctx": 1047576, "out": 32768 },
+    "gpt-4.1-mini*": { "ctx": 1047576, "out": 32768 },
+    "gpt-4.1-nano*": { "ctx": 1047576, "out": 32768 },
+    "o3-mini*": { "ctx": 200000, "out": 100000 },
+    "o4-mini*": { "ctx": 200000, "out": 100000 },
+    "chatgpt-4o-latest*": { "ctx": 128000, "out": 16384 }
+  },
+  "anthropic": {
+    "claude-sonnet-4-5*": { "ctx": 200000, "out": 64000 },
+    "claude-opus-4-1*": { "ctx": 200000, "out": 32000 },
+    "claude-haiku-4-5*": { "ctx": 200000, "out": 32000 },
+    "claude-3-7-sonnet*": { "ctx": 200000, "out": 64000 },
+    "claude-3-5-sonnet*": { "ctx": 200000, "out": 8192 },
+    "claude-3-5-haiku*": { "ctx": 200000, "out": 8192 }
+  },
+  "moonshot": {
+    "moonshot-v1-8k*": { "ctx": 8192, "out": 4096 },
+    "moonshot-v1-32k*": { "ctx": 32768, "out": 8192 },
+    "moonshot-v1-128k*": { "ctx": 131072, "out": 8192 },
+    "kimi-k2*": { "ctx": 262144, "out": 16384 }
+  },
+  "custom": {}
+}

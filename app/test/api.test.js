@@ -1,0 +1,213 @@
+const { test } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { createApp } = require('../src/app');
+const { loadOrCreateMasterKey } = require('../src/crypto');
+const { createStore } = require('../src/storage');
+
+function mockFetch(url, opts) {
+  const u = String(url);
+  if (u.includes('/user/balance')) {
+    return Promise.resolve(new Response(JSON.stringify({
+      is_available: true,
+      balance_infos: [{ currency: 'CNY', total_balance: '88.50' }]
+    }), { status: 200 }));
+  }
+  if (u.includes('/models')) {
+    return Promise.resolve(new Response(JSON.stringify({
+      data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }]
+    }), { status: 200 }));
+  }
+  return Promise.resolve(new Response('{}', { status: 404 }));
+}
+
+function mockFetch401(url, opts) {
+  return Promise.resolve(new Response('{"error":"invalid"}', { status: 401 }));
+}
+
+async function startServer(fetchImpl) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-api-'));
+  const mk = loadOrCreateMasterKey(dir);
+  const storage = createStore(dir, mk, { backend: 'json' });
+  const server = createApp({
+    storage: storage,
+    fetchImpl: fetchImpl,
+    publicDir: path.join(__dirname, '..', 'public'),
+    version: 'test'
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  return { server: server, base: base };
+}
+
+function call(base, method, p, body, headers) {
+  return fetch(base + p, {
+    method: method,
+    headers: Object.assign(
+      body ? { 'Content-Type': 'application/json' } : {},
+      headers || {}
+    ),
+    body: body ? JSON.stringify(body) : undefined
+  }).then(res => res.json().then(data => ({ status: res.status, data: data })));
+}
+
+test('API 集成：完整业务流程', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    const plat = await call(base, 'GET', '/api/platforms');
+    assert.strictEqual(plat.status, 200);
+    const ds = plat.data.platforms.find(p => p.id === 'deepseek');
+    assert.strictEqual(ds.supportsBalance, true);
+    assert.strictEqual(plat.data.platforms.length, 5);
+
+    const idxRes = await fetch(base + '/');
+    assert.strictEqual(idxRes.status, 200);
+    const idxText = await idxRes.text();
+    assert.ok(idxText.includes('AI Key Manager'), '首页应可访问');
+
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek',
+      key: 'sk-1234567890abcdef',
+      name: ''
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const k = r.data.key;
+    assert.strictEqual(k.name, 'DeepSeek-cdef', '名称留空自动生成');
+    assert.strictEqual(k.balance.status, 'pending');
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek',
+      key: 'sk-another-key-9999',
+      name: 'DeepSeek-cdef'
+    });
+    assert.strictEqual(r.status, 409, '同平台重名应被拒绝');
+
+    r = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: '' });
+    assert.strictEqual(r.status, 400, '缺少 Key 应被拒绝');
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'openai', key: 'sk-openai-xyz-1234'
+    });
+    assert.strictEqual(r.status, 201);
+    assert.strictEqual(r.data.key.balance.status, 'unsupported', 'OpenAI 不支持余额查询');
+    const openaiId = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/test');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.test.status, 'pass');
+    assert.ok(r.data.test.latency >= 0);
+
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/models/fetch');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.models.length, 2);
+    const chat = r.data.models.find(m => m.id === 'deepseek-chat');
+    assert.strictEqual(chat.ctx, 65536, '元数据库应补齐上下文');
+    assert.strictEqual(chat.src, 'meta');
+
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/models', {
+      id: 'my-model', ctx: 1000, out: 200, note: 'Dify'
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.models.length, 3);
+
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/models/fetch');
+    const mine = r.data.models.find(m => m.id === 'my-model');
+    assert.ok(mine, '重新拉取后手动模型保留');
+    assert.strictEqual(mine.note, 'Dify');
+    assert.strictEqual(mine.ctx, 1000);
+
+    r = await call(base, 'PATCH', '/api/keys/' + k.id + '/models/my-model', { note: 'n8n' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.models.find(m => m.id === 'my-model').note, 'n8n');
+
+    r = await call(base, 'PUT', '/api/keys/' + k.id, { model: 'my-model' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.model, 'my-model');
+
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/assigned', { tool: 'Dify' });
+    assert.strictEqual(r.status, 201);
+    assert.deepStrictEqual(r.data.assigned, ['Dify']);
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/assigned', { tool: 'Dify' });
+    assert.strictEqual(r.status, 409, '重复添加去向应被拒绝');
+    r = await call(base, 'DELETE', '/api/keys/' + k.id + '/assigned/' + encodeURIComponent('Dify'));
+    assert.deepStrictEqual(r.data.assigned, []);
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.updated, 1, '仅 DeepSeek 支持余额查询');
+    const dsKey = r.data.keys.find(x => x.platform === 'deepseek');
+    assert.strictEqual(dsKey.balance.value, 88.5);
+    assert.strictEqual(dsKey.balance.status, 'ok');
+
+    r = await call(base, 'DELETE', '/api/keys/' + openaiId);
+    assert.strictEqual(r.status, 200);
+    r = await call(base, 'GET', '/api/keys');
+    assert.strictEqual(r.data.keys.length, 1);
+
+    r = await call(base, 'GET', '/api/keys/9999');
+    assert.strictEqual(r.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：401 密钥在测试与拉取时给出失败结果', async () => {
+  const { server, base } = await startServer(mockFetch401);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-bad-key-0000'
+    });
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/test');
+    assert.strictEqual(r.data.test.status, 'fail');
+    assert.strictEqual(r.data.test.code, '401');
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.status, 502);
+    assert.ok(r.data.error.includes('401'));
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    const k = r.data.keys.find(x => x.platform === 'deepseek');
+    assert.strictEqual(k.balance.status, 'fail');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 安全：拒绝跨域写请求', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    const r = await call(base, 'POST', '/api/keys',
+      { platform: 'deepseek', key: 'sk-x-1234' },
+      { Origin: 'http://evil.example.com' });
+    assert.strictEqual(r.status, 403);
+
+    const host = new URL(base).host;
+    const ok = await call(base, 'POST', '/api/keys',
+      { platform: 'deepseek', key: 'sk-x-1234' },
+      { Origin: 'http://' + host });
+    assert.strictEqual(ok.status, 201, '同源写请求应放行');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 校验：非法请求体与非 JSON', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    const r = await fetch(base + '/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json{'
+    });
+    assert.strictEqual(r.status, 400);
+
+    const unknown = await call(base, 'POST', '/api/keys', { platform: 'notexist', key: 'sk-1' });
+    assert.strictEqual(unknown.status, 400);
+  } finally {
+    server.close();
+  }
+});
