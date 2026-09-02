@@ -1,5 +1,7 @@
 # AI Key Manager
 
+[简体中文](./README.md) | [English](./README_EN.md)
+
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
@@ -13,11 +15,12 @@
 - **加密存储** — 密钥以 AES-256-GCM 字段级加密落盘，主密钥独立保管，明文永不落盘；存储文件拷走也无法解出密钥
 - **双存储后端** — 自动优选 SQLite（`node:sqlite`），环境不支持时无缝回退 JSON 文件
 - **多兼容端点** — 同一 Key 可配最多 6 个 Base URL（OpenAI / Anthropic / 自定义兼容模式），如 DeepSeek 可同时登记 `https://api.deepseek.com` 与 `https://api.deepseek.com/anthropic`
-- **连通性测试** — 调用平台模型列表接口验证密钥可用性，展示请求延迟
-- **模型目录** — 自动拉取模型列表；上下文长度与最大输出经四级兜底补全：平台接口 → 内置元数据库 → 联网检索（OpenRouter / models.dev）→ 手动补充
+- **连通性测试** — 调用平台模型列表接口验证密钥可用性；无列表接口的端点（如火山方舟 Agent Plan）自动回退对话接口鉴权探测
+- **模型目录** — 自动拉取模型列表；上下文长度与最大输出经四级兜底补全：平台接口 → 内置元数据库 → 联网检索（OpenRouter / models.dev）→ 手动补充；火山方舟 Agent Plan 端点内置官方模型目录
 - **配置生成** — 按目标工具套用模板，自动带入模型参数；Dify / n8n 取 OpenAI 兼容端点，Claude Code 取 Anthropic 兼容端点（生成 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`）
 - **余额监控** — DeepSeek 余额查询，一键刷新全部密钥
 - **有效期管理** — 临期（30 天内）/ 过期状态自动判定与看板标记
+- **代理自动检测** — 境外中转站等直连不可达的端点自动走系统 / 环境变量代理（CONNECT 隧道），请求带编程工具 User-Agent 以通过中转站客户端检测
 - **零依赖** — 纯 Node.js 标准库实现，`git clone` 后无需 `npm install` 即可运行
 
 ## 快速开始
@@ -31,6 +34,8 @@ npm start
 ```
 
 浏览器打开 <http://127.0.0.1:37700> 即可使用。Windows 用户也可以直接双击 `app/start.bat` 启动。
+
+更详细的部署方式（开机自启、systemd / launchd / 计划任务、反向代理、数据备份与升级）见 [部署指南](./DEPLOYMENT.md)。
 
 ### 环境变量
 
@@ -54,7 +59,7 @@ cd app
 npm test
 ```
 
-71 项测试覆盖加密、存储（双后端）、API 集成、适配器与启动脚本。
+85 项测试覆盖加密、存储（双后端）、API 集成、适配器、代理与启动脚本。
 
 ## 目录结构
 
