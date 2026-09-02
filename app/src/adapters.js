@@ -148,7 +148,13 @@ function mergeModels(prev, fetched) {
         note: old.note || null
       };
     }
-    return { id: f.id, ctx: f.ctx, out: f.out, src: f.src, note: old ? old.note : null };
+    if (old) {
+      const ctx = f.ctx != null ? f.ctx : old.ctx;
+      const out = f.out != null ? f.out : old.out;
+      const fromOld = (f.ctx == null || f.out == null) && (old.ctx != null || old.out != null);
+      return { id: f.id, ctx: ctx, out: out, src: fromOld ? old.src : f.src, note: old.note || null };
+    }
+    return { id: f.id, ctx: f.ctx, out: f.out, src: f.src, note: null };
   });
   (prev || []).forEach(function (m) {
     if (m.src === 'manual' && !fetched.some(function (f) { return f.id === m.id; })) {

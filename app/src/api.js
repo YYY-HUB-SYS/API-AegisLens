@@ -1,4 +1,5 @@
 const adapters = require('./adapters');
+const enrich = require('./enrich');
 
 function bad(status, message) {
   const e = new Error(message);
@@ -61,6 +62,34 @@ function autoName(platform, customName, keyValue) {
 }
 
 function str(v) { return String(v == null ? '' : v).trim(); }
+
+function parseTokens(v, field) {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n <= 0 || n > 100000000) {
+    throw bad(400, field + '必须是正整数（tokens 数量）');
+  }
+  return n;
+}
+
+async function enrichUnknowns(models, fetchImpl) {
+  const unknowns = (models || []).filter(function (m) { return m.ctx == null || m.out == null; });
+  if (!unknowns.length) return { enriched: 0, notFound: [], error: null };
+  let found = {};
+  let error = null;
+  try {
+    const r = await enrich.lookupOnline(unknowns.map(function (m) { return m.id; }), { fetchImpl: fetchImpl });
+    found = r.found;
+    error = r.error;
+  } catch (e) {
+    error = e.message;
+  }
+  const applied = enrich.applyToModels(models, found);
+  const stillUnknown = applied.models.filter(function (m) {
+    return m.ctx == null || m.out == null;
+  }).map(function (m) { return m.id; });
+  return { enriched: applied.changed.length, notFound: stillUnknown, error: error, models: applied.models };
+}
 
 async function routeApi(req, res, ctx) {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -173,9 +202,67 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/models\/fetch$/.exec(path))) {
     const k = requireKey(m[1]);
     const fetched = await adapters.fetchModels(k.platform, k.key, k.base, { fetchImpl: fetchImpl });
-    const merged = adapters.mergeModels(k.models, fetched);
+    let merged = adapters.mergeModels(k.models, fetched);
+    let enrichInfo = null;
+    if (merged.some(function (mm) { return mm.ctx == null || mm.out == null; })) {
+      enrichInfo = await enrichUnknowns(merged, fetchImpl);
+      if (enrichInfo.models) merged = enrichInfo.models;
+    }
     const rec = storage.replaceModels(k.id, merged);
-    return json(res, 200, { models: rec.models });
+    return json(res, 200, {
+      models: rec.models,
+      enrich: enrichInfo
+        ? { enriched: enrichInfo.enriched, notFound: enrichInfo.notFound, error: enrichInfo.error }
+        : { enriched: 0, notFound: [], error: null }
+    });
+  }
+
+  if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/models\/enrich$/.exec(path))) {
+    const k = requireKey(m[1]);
+    const b = await readBody(req).catch(function () { return {}; });
+    const onlyId = str(b.modelId);
+    let targets = (k.models || []).filter(function (mm) { return mm.ctx == null || mm.out == null; });
+    if (onlyId) targets = targets.filter(function (mm) { return mm.id === onlyId; });
+    if (!targets.length) {
+      return json(res, 200, {
+        models: k.models,
+        summary: { checked: 0, enriched: 0, notFound: [], error: null }
+      });
+    }
+    let found = {};
+    let error = null;
+    try {
+      const r = await enrich.lookupOnline(targets.map(function (mm) { return mm.id; }), { fetchImpl: fetchImpl });
+      found = r.found;
+      error = r.error;
+    } catch (e) {
+      error = e.message;
+    }
+    const applied = enrich.applyToModels(k.models, found);
+    applied.models.forEach(function (mm, idx) {
+      if (applied.changed.indexOf(mm.id) >= 0) {
+        const prev = k.models[idx];
+        storage.upsertModel(k.id, {
+          id: mm.id,
+          ctx: mm.ctx != null ? mm.ctx : prev.ctx,
+          out: mm.out != null ? mm.out : prev.out,
+          src: mm.src
+        });
+      }
+    });
+    const rec = storage.getKey(k.id);
+    const stillUnknown = (rec.models || []).filter(function (mm) {
+      return mm.ctx == null || mm.out == null;
+    }).map(function (mm) { return mm.id; });
+    return json(res, 200, {
+      models: rec.models,
+      summary: {
+        checked: targets.length,
+        enriched: applied.changed.length,
+        notFound: stillUnknown,
+        error: error
+      }
+    });
   }
 
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/models$/.exec(path))) {
@@ -183,9 +270,11 @@ async function routeApi(req, res, ctx) {
     const b = await readBody(req);
     const mid = str(b.id);
     if (!mid) throw bad(400, '请填写模型 ID');
+    const ctx = parseTokens(b.ctx, '上下文');
+    const out = parseTokens(b.out, '最大输出');
     const mo = { id: mid, src: 'manual' };
-    if (b.ctx !== undefined && b.ctx !== null && b.ctx !== '') mo.ctx = parseInt(b.ctx, 10) || null;
-    if (b.out !== undefined && b.out !== null && b.out !== '') mo.out = parseInt(b.out, 10) || null;
+    if (ctx !== undefined) mo.ctx = ctx;
+    if (out !== undefined) mo.out = out;
     if (b.note !== undefined) mo.note = str(b.note) || null;
     const rec = storage.upsertModel(k.id, mo);
     return json(res, 200, { models: rec.models });
@@ -195,10 +284,13 @@ async function routeApi(req, res, ctx) {
     const k = requireKey(m[1]);
     const b = await readBody(req);
     const mid = decodeURIComponent(m[2]);
+    const ctx = parseTokens(b.ctx, '上下文');
+    const out = parseTokens(b.out, '最大输出');
     const upd = { id: mid };
+    if (ctx !== undefined) upd.ctx = ctx;
+    if (out !== undefined) upd.out = out;
+    if (ctx !== undefined || out !== undefined) upd.src = 'manual';
     if (b.note !== undefined) upd.note = str(b.note) || null;
-    if (b.ctx !== undefined && b.ctx !== null && b.ctx !== '') upd.ctx = parseInt(b.ctx, 10) || null;
-    if (b.out !== undefined && b.out !== null && b.out !== '') upd.out = parseInt(b.out, 10) || null;
     const rec = storage.upsertModel(k.id, upd);
     if (!rec) throw bad(404, '模型不存在');
     return json(res, 200, { models: rec.models });

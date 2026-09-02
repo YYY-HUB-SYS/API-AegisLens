@@ -145,6 +145,14 @@
     background: #F0F1F3; border-radius: 999px; padding: 1px 8px;
   }
   .m-tag.api { color: var(--ok); background: var(--ok-bg); }
+  .m-tag.web { color: #1D4ED8; background: rgba(59, 130, 246, 0.13); }
+  .supp-edit { width: 100%; display: flex; gap: 0.4rem; margin-top: 0.38rem; align-items: center; }
+  .supp-edit input {
+    width: 150px; border: 1px solid var(--accent); border-radius: 7px;
+    padding: 0.32rem 0.6rem; font-size: 0.8rem; font-family: var(--mono);
+  }
+  .supp-edit input:focus { outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .supp-sep { font-size: 12px; color: var(--sub); }
   .m-note {
     font-size: 0.72rem; font-weight: 600; color: #8A5A00;
     background: rgba(239, 170, 23, 0.13); border: 1px solid rgba(239, 170, 23, 0.4);
@@ -378,8 +386,8 @@
 
   var state = { keys: [], platforms: {}, meta: null };
   var ui = {
-    revealed: {}, drawerOpen: {}, editingNote: {},
-    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}
+    revealed: {}, drawerOpen: {}, editingNote: {}, editingSupp: {},
+    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}
   };
   var editingId = null;
   var configKeyRef = null;
@@ -614,20 +622,25 @@
 
   function renderDrawer(k) {
     var models = k.models || [];
+    var unknownCount = models.filter(function (m) { return m.ctx == null || m.out == null; }).length;
+    var enrichBtn = k.modelsFetched && unknownCount > 0
+      ? '<button class="btn small" data-act="enrich-models"' + (ui.enriching[k.id] ? ' disabled' : '') + '>' + (ui.enriching[k.id] ? '检索中…' : '联网补全 ' + unknownCount + ' 项') + '</button>'
+      : '';
     var head =
       '<div class="drawer-inner">' +
         '<div class="drawer-toolbar">' +
           '<span class="drawer-title">模型目录</span>' +
-          '<span class="meta">来源：平台接口 + 本地元数据库</span>' +
+          '<span class="meta">来源：平台接口 / 元数据库 / 联网检索 / 手动补充</span>' +
           '<span style="flex:1"></span>' +
+          enrichBtn +
           '<button class="btn ' + (k.modelsFetched ? 'small' : 'primary small') + '" data-act="fetch-models"' + (ui.modelsLoading[k.id] ? ' disabled' : '') + '>' + (k.modelsFetched ? '重新拉取' : '拉取模型') + '</button>' +
         '</div>';
 
     var body;
     if (ui.modelsLoading[k.id]) {
-      body = '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台模型列表接口…</p>';
+      body = '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台接口拉取，并联网补全缺失参数…</p>';
     } else if (!k.modelsFetched) {
-      body = '<p class="meta" style="margin-bottom:0.6rem">尚未拉取。点击右上「拉取模型」自动获取平台模型列表（含上下文 / 最大输出）。</p>';
+      body = '<p class="meta" style="margin-bottom:0.6rem">尚未拉取。点击右上「拉取模型」自动获取平台模型列表；缺失的上下文 / 最大输出会自动联网检索补全。</p>';
     } else if (!models.length) {
       body = '<p class="meta" style="margin-bottom:0.6rem">平台未返回任何模型，可在下方手动添加。</p>';
     } else {
@@ -656,17 +669,38 @@
           '<button class="btn small" data-act="cancel-note">取消</button>' +
         '</div>';
     }
+    var needSupp = m.ctx == null || m.out == null;
+    var suppBtn = (needSupp || m.src === 'manual')
+      ? '<button class="btn ghost small supp-btn" data-act="supp-model" data-model="' + esc(m.id) + '">' + (needSupp ? '补充参数' : '编辑参数') + '</button>'
+      : '';
+    var suppBar = '';
+    if (ui.editingSupp[k.id] === m.id) {
+      suppBar =
+        '<div class="supp-edit">' +
+          '<input data-supp-ctx type="number" min="1" step="1" placeholder="上下文 tokens" value="' + (m.ctx != null ? m.ctx : '') + '" aria-label="上下文 tokens">' +
+          '<span class="supp-sep">/</span>' +
+          '<input data-supp-out type="number" min="1" step="1" placeholder="最大输出 tokens" value="' + (m.out != null ? m.out : '') + '" aria-label="最大输出 tokens">' +
+          '<button class="btn primary small" data-act="save-supp" data-model="' + esc(m.id) + '">保存</button>' +
+          '<button class="btn small" data-act="cancel-supp">取消</button>' +
+        '</div>';
+    }
+    var srcLabel = m.src === 'api' ? '平台接口'
+      : m.src === 'manual' ? '手动填写'
+      : m.src === 'web' ? '联网检索' : '元数据库';
+    var srcCls = m.src === 'api' ? ' api' : m.src === 'web' ? ' web' : '';
     return (
       '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
         '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
         ctxChip + outChip +
-        '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : m.src === 'manual' ? '手动填写' : '元数据库') + '</span>' +
+        '<span class="m-tag' + srcCls + '">' + srcLabel + '</span>' +
         noteChip +
+        suppBtn +
         '<button class="btn ghost small" data-act="note-model" data-model="' + esc(m.id) + '">' + (m.note ? '编辑备注' : '备注') + '</button>' +
         (isDefault
           ? '<button class="btn small" disabled>当前默认</button>'
           : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
         editBar +
+        suppBar +
       '</div>'
     );
   }
@@ -675,7 +709,7 @@
     var html =
       '<div class="drawer-foot">' +
         '<button class="btn small" data-act="toggle-manual">' + (ui.manualOpen[k.id] ? '收起手动添加' : '+ 手动添加模型') + '</button>' +
-        '<span class="meta">接口拉取失败或参数未知时，可手动补充</span>' +
+        '<span class="meta">参数未知时：先「联网补全」，检索不到再在模型行点「补充参数」手动填写</span>' +
       '</div>';
     if (!ui.manualOpen[k.id]) return html;
     return html +
@@ -770,6 +804,26 @@
       fetchModels(k);
       return;
     }
+    if (act === 'enrich-models') {
+      runEnrich(k);
+      return;
+    }
+    if (act === 'supp-model') {
+      ui.editingSupp[k.id] = btn.dataset.model;
+      render();
+      var suppInput = document.querySelector('[data-supp-ctx]');
+      if (suppInput) suppInput.focus();
+      return;
+    }
+    if (act === 'cancel-supp') {
+      ui.editingSupp[k.id] = null;
+      render();
+      return;
+    }
+    if (act === 'save-supp') {
+      commitSupp(k, card);
+      return;
+    }
     if (act === 'set-model') {
       api('PUT', '/keys/' + k.id, { model: btn.dataset.model }).then(function (data) {
         replaceKey(data.key);
@@ -831,6 +885,9 @@
     if (ev.target.matches('[data-note-input]')) {
       ev.preventDefault();
       commitNote(k, ev.target.value.trim());
+    } else if (ev.target.matches('[data-supp-ctx]') || ev.target.matches('[data-supp-out]')) {
+      ev.preventDefault();
+      commitSupp(k, card);
     } else if (ev.target.matches('[data-tool-input]')) {
       ev.preventDefault();
       addAssignedTool(k, ev.target.value.trim());
@@ -869,12 +926,56 @@
       k.modelsFetched = true;
       ui.modelsLoading[k.id] = false;
       render();
-      toast('已拉取 ' + data.models.length + ' 个模型', 'ok');
+      var msg = '已拉取 ' + data.models.length + ' 个模型';
+      var e = data.enrich;
+      if (e && e.enriched > 0) msg += '，联网补全 ' + e.enriched + ' 个模型参数';
+      var nf = e && e.notFound ? e.notFound.length : 0;
+      if (nf > 0) msg += '；' + nf + ' 个未检索到，可点「联网补全」重试或手动补充';
+      toast(msg, 'ok');
     }).catch(function (e) {
       ui.modelsLoading[k.id] = false;
       render();
       toast(e.message, 'warn');
     });
+  }
+
+  function runEnrich(k) {
+    if (ui.enriching[k.id]) return;
+    ui.enriching[k.id] = true;
+    ui.drawerOpen[k.id] = true;
+    render();
+    api('POST', '/keys/' + k.id + '/models/enrich').then(function (data) {
+      k.models = data.models;
+      ui.enriching[k.id] = false;
+      render();
+      var s = data.summary || {};
+      if (!s.checked) { toast('所有模型参数均已完整，无需补全', 'ok'); return; }
+      var msg = '联网补全 ' + s.enriched + ' / ' + s.checked + ' 个模型';
+      if (s.notFound && s.notFound.length) msg += '，未找到：' + s.notFound.join('、') + '（可手动补充）';
+      if (s.error) msg += '。' + s.error;
+      toast(msg, s.enriched > 0 ? 'ok' : 'warn');
+    }).catch(function (e) {
+      ui.enriching[k.id] = false;
+      render();
+      toast(e.message, 'warn');
+    });
+  }
+
+  function commitSupp(k, card) {
+    var mid = ui.editingSupp[k.id];
+    if (mid == null) return;
+    var ctxV = card.querySelector('[data-supp-ctx]').value.trim();
+    var outV = card.querySelector('[data-supp-out]').value.trim();
+    if (!ctxV && !outV) { toast('请至少填写一项参数', 'warn'); return; }
+    ui.editingSupp[k.id] = null;
+    var body = {};
+    if (ctxV) body.ctx = Number(ctxV);
+    if (outV) body.out = Number(outV);
+    api('PATCH', '/keys/' + k.id + '/models/' + encodeURIComponent(mid), body).then(function (data) {
+      k.models = data.models;
+      render();
+      toast('已保存「' + mid + '」的参数', 'ok');
+    }).catch(function (e) { toast(e.message, 'warn'); });
   }
 
   function commitNote(k, val) {
