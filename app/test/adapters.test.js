@@ -312,6 +312,9 @@ test('平台目录：小红书 Dots 条目', () => {
   assert.strictEqual(dots.endpoints[0].style, 'openai');
   assert.strictEqual(dots.endpoints[1].style, 'anthropic');
   assert.strictEqual(dots.auth, 'apikey');
+  assert.ok(dots.authNote && dots.authNote.length > 10, '特殊认证说明应透出给前端');
+  assert.ok(dots.authNote.indexOf('api-key') >= 0, '说明应提到 api-key 请求头');
+  assert.strictEqual(adapters.PLATFORMS.deepseek.authNote, '', '常规平台无特殊认证说明');
   assert.strictEqual(dots.supportsBalance, false, '平台未提供余额接口');
 });
 

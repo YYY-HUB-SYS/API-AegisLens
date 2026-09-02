@@ -145,7 +145,8 @@
         { "url": "https://note3-prev-api.askdiandian.com", "style": "anthropic" }
       ],
       "currency": "CNY",
-      "auth": "apikey"
+      "auth": "apikey",
+      "authNote": "官方文档要求用 api-key 请求头传递密钥；实测标准 Authorization: Bearer 与 x-api-key 亦被网关接受（2026-09 验证），标准 OpenAI 兼容工具（Dify / n8n 等）可直接接入"
     },
     {
       "id": "custom",

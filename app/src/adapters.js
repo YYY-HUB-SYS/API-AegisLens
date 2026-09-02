@@ -99,7 +99,8 @@ CATALOG.platforms.forEach(function (p) {
     endpoints: endpoints,
     currency: p.currency || 'CNY',
     supportsBalance: endpoints.some(function (e) { return !!matchBalanceApi(e.url); }),
-    auth: p.auth || 'bearer'
+    auth: p.auth || 'bearer',
+    authNote: p.authNote || ''
   };
 });
 

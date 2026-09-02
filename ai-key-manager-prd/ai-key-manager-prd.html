@@ -510,11 +510,11 @@
 
     <!-- ============ COVER ============ -->
     <header class="cover">
-      <span class="tagline">Product Design Document · v0.7</span>
+      <span class="tagline">Product Design Document · v0.8</span>
       <h1>AI Key Manager<span class="grad"> 产品设计文档</span></h1>
       <p class="subtitle">一款本地优先的 AI 密钥管理工具：一次录入，全盘掌握，随处可用。本文档梳理产品整体方向与主要功能范围。</p>
       <div class="meta">
-        <span>文档版本 <b>v0.7</b></span>
+        <span>文档版本 <b>v0.8</b></span>
         <span>产品形态 <b>本地 Web 服务</b></span>
         <span>目标平台 <b>国内外 AI 平台</b></span>
         <span>更新日期 <b>2026-09-02</b></span>
@@ -1063,7 +1063,7 @@ DIFY_LLM_PROVIDER=deepseek
       <!-- ============ 11 平台适配器 ============ -->
       <section id="module-adapter">
         <h2><span class="idx">11</span>核心功能 · 平台适配器</h2>
-        <p>平台适配器是产品支持多平台的关键抽象，由<strong>数据驱动的平台目录</strong>（<code>platform-catalog.json</code>）承载：每个平台一个目录条目，声明端点列表、品牌色、默认模型与币种；新增平台只需增加条目，无需修改代码。适配器提供四方面能力：<strong>参数模板</strong>（默认兼容端点列表、常用模型列表）、<strong>协议风格</strong>（openai / anthropic 两种请求风格：认证头 Bearer 与 x-api-key、模型路径 /models 与 /v1/models；个别平台使用自定义认证头，如小红书 Dots 要求 <code>api-key</code> 头，按端点域名自动覆盖，自定义平台指向该域名同样生效）、<strong>余额查询</strong>（按端点域名匹配官方余额接口，目录内平台的可查性自动推导）、<strong>有效期判定</strong>（按平台特性推断或留空由用户填写）。默认端点列表按平台预置，如 DeepSeek 同时提供 OpenAI 与 Anthropic 兼容地址，Anthropic 平台仅提供 anthropic 地址，自定义平台从空白列表开始。</p>
+        <p>平台适配器是产品支持多平台的关键抽象，由<strong>数据驱动的平台目录</strong>（<code>platform-catalog.json</code>）承载：每个平台一个目录条目，声明端点列表、品牌色、默认模型与币种；新增平台只需增加条目，无需修改代码。适配器提供四方面能力：<strong>参数模板</strong>（默认兼容端点列表、常用模型列表）、<strong>协议风格</strong>（openai / anthropic 两种请求风格：认证头 Bearer 与 x-api-key、模型路径 /models 与 /v1/models；个别平台使用自定义认证头，如小红书 Dots 要求 <code>api-key</code> 头，按端点域名自动覆盖，自定义平台指向该域名同样生效；特殊认证平台在密钥卡片显示「特殊认证」徽标（点击展开说明），配置生成自动附带认证说明——用户把 Key 填入外部工具时即可看到该平台与标准 Bearer 的差异）、<strong>余额查询</strong>（按端点域名匹配官方余额接口，目录内平台的可查性自动推导）、<strong>有效期判定</strong>（按平台特性推断或留空由用户填写）。默认端点列表按平台预置，如 DeepSeek 同时提供 OpenAI 与 Anthropic 兼容地址，Anthropic 平台仅提供 anthropic 地址，自定义平台从空白列表开始。</p>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1093,7 +1093,7 @@ DIFY_LLM_PROVIDER=deepseek
               <tr>
                 <td>小红书 Dots</td>
                 <td>有（dots3-note-prev，512K 上下文）</td><td>不支持（未提供余额接口）</td><td>用户填写</td>
-                <td>认证用自定义 <code>api-key</code> 头（按域名自动适配）；OpenAI 与 Anthropic 双兼容端点；模型列表公开不校验密钥，连通性测试走对话接口鉴权探测</td>
+                <td>认证用自定义 <code>api-key</code> 头（按域名自动适配，实测标准 Bearer / x-api-key 亦被网关接受，标准 OpenAI 兼容工具可直接接入）；OpenAI 与 Anthropic 双兼容端点；模型列表公开不校验密钥，连通性测试走对话接口鉴权探测；卡片显示「特殊认证」徽标，配置生成附带认证说明</td>
               </tr>
               <tr>
                 <td>硅基流动 SiliconFlow</td>
@@ -1297,7 +1297,7 @@ DIFY_LLM_PROVIDER=deepseek
     <footer>
       <div class="sources">
         <h2>说明</h2>
-        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.7），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块，v0.3 新增密钥自定义「Key 名称」字段，v0.4 将模型参数获取升级为「平台接口 → 元数据库 → 联网检索 → 手动补充」四级兜底链路，v0.5 将 Base URL 升级为「多兼容端点动态列表」（openai / anthropic / 自定义模式，每 Key 最多 6 个地址，配置生成按工具协议自动选端点，旧数据自动迁移），v0.6 将平台配置升级为数据驱动目录（platform-catalog.json），余额查询扩展至 Moonshot / Kimi / 智谱并改为按端点域名匹配（自定义平台指向官方域名同样可查，多端点依次回退；SiliconFlow 余额接口 2026-08-14 官方下线，替代接口发布后恢复支持），v0.7 新增小红书 Dots 平台并支持自定义认证头平台（api-key 头按端点域名自动覆盖；模型列表公开的平台连通性测试改走对话接口鉴权探测）。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
+        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.8），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块，v0.3 新增密钥自定义「Key 名称」字段，v0.4 将模型参数获取升级为「平台接口 → 元数据库 → 联网检索 → 手动补充」四级兜底链路，v0.5 将 Base URL 升级为「多兼容端点动态列表」（openai / anthropic / 自定义模式，每 Key 最多 6 个地址，配置生成按工具协议自动选端点，旧数据自动迁移），v0.6 将平台配置升级为数据驱动目录（platform-catalog.json），余额查询扩展至 Moonshot / Kimi / 智谱并改为按端点域名匹配（自定义平台指向官方域名同样可查，多端点依次回退；SiliconFlow 余额接口 2026-08-14 官方下线，替代接口发布后恢复支持），v0.7 新增小红书 Dots 平台并支持自定义认证头平台（api-key 头按端点域名自动覆盖；模型列表公开的平台连通性测试改走对话接口鉴权探测），v0.8 特殊认证平台在密钥卡片显示「特殊认证」徽标并支持点击展开说明，配置生成（Dify / n8n / Claude Code / .env）自动附带认证说明，确保用户把 Key 填入外部工具时可见该平台的特殊认证要求。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
       </div>
     </footer>
 
