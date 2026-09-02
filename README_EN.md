@@ -47,7 +47,7 @@ For more deployment options (auto-start on boot, systemd / launchd / Task Schedu
 
 ## Workflow
 
-1. **Add a key** — Pick a platform (13 built-in: DeepSeek / Zhipu / SiliconFlow / Volcano Ark / Moonshot / Xiaohongshu Dots / OpenAI / Anthropic / …, or custom), paste the API key; endpoint URLs and the default model are auto-filled. One key can carry multiple compatible endpoints. Platforms with special auth (e.g. Xiaohongshu Dots's `api-key` header) show a "special auth" badge on the card, and generated configs carry the auth note automatically
+1. **Add a key** — Pick a platform (13 built-in: DeepSeek / Zhipu / SiliconFlow / Volcano Ark / Moonshot / Xiaohongshu Dots / OpenAI / Anthropic / …, or custom), paste the API key; endpoint URLs and the default model are auto-filled. One key can carry multiple compatible endpoints. The "special auth note" is a per-key editable field — built-in platforms ship a default note (e.g. Xiaohongshu Dots's `api-key` header), typing your own overrides it, and custom platforms can register their own; keys with a note show a "special auth" badge and generated configs carry the note automatically
 2. **Test connectivity** — One click to verify the key works
 3. **Fetch models** — Pull the model catalog automatically; missing parameters are enriched online, and anything still missing can be entered manually
 4. **Generate config** — Render Dify / n8n / Claude Code / `.env` snippets and copy them into your target tool

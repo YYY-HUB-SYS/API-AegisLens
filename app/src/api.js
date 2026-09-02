@@ -63,6 +63,12 @@ function autoName(platform, customName, keyValue) {
 
 function str(v) { return String(v == null ? '' : v).trim(); }
 
+function authNoteOf(v) {
+  const s = str(v);
+  if (s.length > 500) throw bad(400, '特殊认证说明最长 500 字符');
+  return s;
+}
+
 function parseTokens(v, field) {
   if (v === undefined || v === null || v === '') return undefined;
   const n = Number(v);
@@ -153,6 +159,7 @@ async function routeApi(req, res, ctx) {
       model: str(b.model) || plat.defaultModel,
       reg: str(b.reg),
       exp: str(b.exp),
+      authNote: authNoteOf(b.authNote),
       balanceStatus: endpoints.some(function (e) { return adapters.supportsBalanceUrl(e.url); })
         ? 'pending'
         : 'unsupported'
@@ -168,6 +175,7 @@ async function routeApi(req, res, ctx) {
     ['name', 'customName', 'model', 'reg', 'exp'].forEach(function (f) {
       if (b[f] !== undefined) patch[f] = str(b[f]);
     });
+    if (b.authNote !== undefined) patch.authNote = authNoteOf(b.authNote);
     if (b.platform !== undefined) {
       if (!platOf(str(b.platform))) throw bad(400, '未知平台：' + b.platform);
       patch.platform = str(b.platform);

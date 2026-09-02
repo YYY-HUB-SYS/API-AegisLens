@@ -261,6 +261,50 @@ test('API 集成：endpoints 数组的创建、校验与更新', async () => {
   }
 });
 
+test('API 集成：密钥级特殊认证说明的创建、更新与回退', async () => {
+  const f = () => Promise.resolve(new Response(JSON.stringify({ data: [] }), { status: 200 }));
+  const { server, base } = await startServer(f);
+  try {
+    /* 自定义平台：用户自己登记认证说明 */
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', customName: '内网网关', key: 'sk-gw-authnote-01',
+      endpoints: [{ url: 'https://gw.internal.example.com/v1', style: 'openai' }],
+      authNote: '需用 X-Gw-Token 头传递密钥'
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const customId = r.data.key.id;
+    assert.strictEqual(r.data.key.authNote, '需用 X-Gw-Token 头传递密钥');
+
+    /* 不传 authNote 时为空字符串（显示层回退平台默认） */
+    r = await call(base, 'POST', '/api/keys', { platform: 'dots', key: 'sk-dots-note-02' });
+    assert.strictEqual(r.status, 201);
+    const dotsId = r.data.key.id;
+    assert.strictEqual(r.data.key.authNote, '');
+
+    /* 更新：覆盖与清空 */
+    r = await call(base, 'PUT', '/api/keys/' + dotsId, { authNote: '网关同时接受 Bearer' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.authNote, '网关同时接受 Bearer');
+    r = await call(base, 'PUT', '/api/keys/' + dotsId, { authNote: '' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.authNote, '', '清空后回退平台默认（存储层留空）');
+
+    /* 普通更新不触碰 authNote */
+    r = await call(base, 'PUT', '/api/keys/' + customId, { name: '内网网关-改名' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.authNote, '需用 X-Gw-Token 头传递密钥');
+
+    /* 超长拒绝 */
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-long-note-03', authNote: 'x'.repeat(501)
+    });
+    assert.strictEqual(r.status, 400);
+    assert.ok(r.data.error.includes('500'));
+  } finally {
+    server.close();
+  }
+});
+
 test('API 集成：测试与拉取使用首个端点', async () => {
   const urls = [];
   const f = (url) => {

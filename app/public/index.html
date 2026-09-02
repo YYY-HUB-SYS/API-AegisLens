@@ -246,8 +246,13 @@
     border: 1px solid var(--rule); border-radius: 8px; padding: 8px 11px;
     font-size: 13.5px; font-family: inherit; background: #fff; color: var(--ink);
   }
-  .field input:focus, .field select:focus {
+  .field input:focus, .field select:focus, .field textarea:focus {
     outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .field textarea {
+    width: 100%; border: 1px solid var(--rule); border-radius: 8px; padding: 8px 11px;
+    font-size: 13.5px; font-family: inherit; background: #fff; color: var(--ink);
+    resize: vertical; line-height: 1.5;
   }
   .field input.mono { font-family: var(--mono); }
   .ep-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
@@ -382,6 +387,10 @@
           <button type="button" class="btn small" id="btn-reg-now" title="填入当前日期">现在</button>
         </div>
       </div>
+      <div class="field span2">
+        <label for="f-authnote">特殊认证说明 <span class="hint">可选 · 显示在卡片与生成的配置中，填写后覆盖平台默认</span></label>
+        <textarea id="f-authnote" rows="2" maxlength="500" placeholder="如：该平台要求用 api-key 请求头传递密钥，Dify 需选 OpenAI 兼容模式…" spellcheck="false"></textarea>
+      </div>
     </div>
     <div class="name-err" id="name-err"></div>
     <div class="btn-row">
@@ -468,6 +477,7 @@
     return state.platforms[id] || { name: id, color: '#8A8FA8', currency: 'CNY', supportsBalance: false };
   }
   function platLabel(k) { return k.platform === 'custom' ? (k.customName || '自定义平台') : P(k.platform).name; }
+  function authNoteOf(k) { return k.authNote || P(k.platform).authNote || ''; }
   function styleLabel(s) {
     if (s === 'openai') return 'OpenAI 兼容';
     if (s === 'anthropic') return 'Anthropic 兼容';
@@ -601,6 +611,7 @@
     var st = keyStatus(k);
     var revealed = !!ui.revealed[k.id];
     var p = P(k.platform);
+    var authNote = authNoteOf(k);
 
     var testChip = '';
     if (k.test) {
@@ -638,7 +649,7 @@
             '<span class="kname">' + esc(k.name) + '</span>' +
             '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
             testChip +
-            (p.authNote ? '<button class="auth-chip" data-act="toggle-auth" title="该平台认证方式有特殊要求，点击展开说明">⚠ 特殊认证</button>' : '') +
+            (authNote ? '<button class="auth-chip" data-act="toggle-auth" title="该密钥带特殊认证说明，点击展开查看">⚠ 特殊认证</button>' : '') +
             '<span class="meta">余额 ' + esc(balanceText(k)) + '</span>' +
             (k.reg ? '<span class="meta">注册 ' + esc(k.reg) + '</span>' : '') +
             (k.exp ? '<span class="meta">有效期至 ' + esc(k.exp) + '</span>' : '<span class="meta">长期有效</span>') +
@@ -668,7 +679,7 @@
             }).join('') +
             (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
           '</div>' +
-          (p.authNote && ui.authOpen[k.id] ? '<div class="auth-note-bar">⚠ ' + esc(p.authNote) + '</div>' : '') +
+          (authNote && ui.authOpen[k.id] ? '<div class="auth-note-bar">⚠ ' + esc(authNote) + '</div>' : '') +
           '<div class="kc-l2">' +
             '<span class="kc-more">' +
               '<button class="btn small" data-act="toggle-models">' + esc(modelsBtnLabel) + '</button>' +
@@ -1079,6 +1090,7 @@
   var fModel = document.getElementById('f-model');
   var fReg = document.getElementById('f-reg');
   var fExp = document.getElementById('f-exp');
+  var fAuthNote = document.getElementById('f-authnote');
   var nameErr = document.getElementById('name-err');
   var btnFormSave = document.getElementById('btn-form-save');
   var endpointsBox = document.getElementById('endpoints-box');
@@ -1161,8 +1173,17 @@
     fModel.value = k ? k.model : P(fPlatform.value).defaultModel;
     fReg.value = k ? (k.reg || '') : '';
     fExp.value = k ? (k.exp || '') : '';
+    fAuthNote.value = k ? (k.authNote || '') : '';
+    updateAuthNotePlaceholder();
     openOverlay('overlay-form');
     if (!k) fKey.focus();
+  }
+
+  function updateAuthNotePlaceholder() {
+    var def = P(fPlatform.value).authNote;
+    fAuthNote.placeholder = def
+      ? '平台默认：' + def + '\n（留空使用上述默认说明，填写则覆盖）'
+      : '如：该平台要求用 api-key 请求头传递密钥，Dify 需选 OpenAI 兼容模式…';
   }
 
   fPlatform.addEventListener('change', function () {
@@ -1170,6 +1191,7 @@
     renderEpRows(platformDefaultEps(fPlatform.value));
     fModel.value = p.defaultModel;
     document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
+    updateAuthNotePlaceholder();
     if (fPlatform.value === 'custom') fCustomName.focus();
   });
 
@@ -1189,7 +1211,8 @@
       endpoints: collectEndpoints(),
       model: fModel.value.trim(),
       reg: fReg.value,
-      exp: fExp.value
+      exp: fExp.value,
+      authNote: fAuthNote.value.trim()
     };
     var req = editingId
       ? api('PUT', '/keys/' + editingId, body)
@@ -1224,7 +1247,7 @@
     var ep = tool === 'claude' ? pickEndpoint(k, 'anthropic') : pickEndpoint(k, 'openai');
     var baseUrl = ep ? ep.url : '';
     var p = P(k.platform);
-    var authLine = p.authNote ? '# 认证: ' + p.authNote : '';
+    var authLine = authNoteOf(k) ? '# 认证: ' + authNoteOf(k) : '';
     if (tool === 'dify') {
       return '# Dify · 模型供应商配置\n' +
         '模型名称: ' + (k.model || '（未设置默认模型）') + '\n' +
@@ -1254,7 +1277,7 @@
       if (k.model) cl.push('# 模型: ' + k.model);
       if (meta && meta.ctx) cl.push('# 上下文: ' + meta.ctx + ' tokens');
       if (meta && meta.out) cl.push('# 最大输出: ' + meta.out + ' tokens');
-      if (p.authNote) cl.push(authLine);
+      if (authLine) cl.push(authLine);
       return cl.join('\n');
     }
     var U = 'AI';
@@ -1266,7 +1289,7 @@
       if (meta.out) lines.push(U + '_MAX_OUTPUT=' + meta.out);
     }
     if (meta && meta.note) lines.push('# 用途备注: ' + meta.note);
-    if (p.authNote) lines.push(authLine);
+    if (authLine) lines.push(authLine);
     return lines.join('\n');
   }
 
@@ -1292,12 +1315,11 @@
       .replace(/([A-Z_]+)=/g, '<span class="k">$1</span>=')
       .replace(/(= ?)([^\n<]+)/g, '$1<span class="s">$2</span>');
 
-    var p = P(k.platform);
     document.getElementById('config-note').textContent = meta && meta.ctx
       ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
       : '提示：先「拉取模型」或手动添加模型，配置可自动带入上下文与最大输出';
-    if (p.authNote) {
-      document.getElementById('config-note').textContent = '⚠ 特殊认证：' + p.authNote;
+    if (authNoteOf(k)) {
+      document.getElementById('config-note').textContent = '⚠ 特殊认证：' + authNoteOf(k);
       document.getElementById('config-note').style.color = 'var(--warn)';
     } else {
       document.getElementById('config-note').style.color = '';

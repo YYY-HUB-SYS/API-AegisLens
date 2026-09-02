@@ -70,6 +70,7 @@ function makeJsonStore(dataDir, masterKey) {
       model: doc.model || '',
       reg: doc.reg || '',
       exp: doc.exp || '',
+      authNote: doc.authNote || '',
       balance: doc.balance || emptyBalance(),
       test: doc.test || null,
       modelsFetched: !!doc.modelsFetched,
@@ -102,6 +103,7 @@ function makeJsonStore(dataDir, masterKey) {
         model: input.model || '',
         reg: input.reg || '',
         exp: input.exp || '',
+        authNote: input.authNote || '',
         balance: emptyBalance(input.balanceStatus),
         test: null,
         modelsFetched: false,
@@ -118,7 +120,7 @@ function makeJsonStore(dataDir, masterKey) {
     updateKey(id, patch) {
       const d = find(id);
       if (!d) return null;
-      ['name', 'platform', 'customName', 'model', 'reg', 'exp'].forEach(function (f) {
+      ['name', 'platform', 'customName', 'model', 'reg', 'exp', 'authNote'].forEach(function (f) {
         if (patch[f] !== undefined) d[f] = patch[f];
       });
       if (patch.key !== undefined) d.keyEnc = encryptField(masterKey, patch.key);
@@ -230,6 +232,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  model TEXT DEFAULT \'\',',
     '  reg TEXT DEFAULT \'\',',
     '  exp TEXT DEFAULT \'\',',
+    '  auth_note TEXT DEFAULT \'\',',
     '  balance_value REAL,',
     '  balance_status TEXT DEFAULT \'pending\',',
     '  balance_updated_at TEXT,',
@@ -256,12 +259,15 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   try {
     db.exec('ALTER TABLE keys ADD COLUMN endpoints_json TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
+  try {
+    db.exec('ALTER TABLE keys ADD COLUMN auth_note TEXT');
+  } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
 
   const stmt = {
     selectAll: db.prepare('SELECT * FROM keys ORDER BY id'),
     selectOne: db.prepare('SELECT * FROM keys WHERE id = ?'),
-    insert: db.prepare('INSERT INTO keys (name, platform, custom_name, key_enc, base, endpoints_json, model, reg, exp, balance_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
-    update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, endpoints_json = ?, model = ?, reg = ?, exp = ?, updated_at = ? WHERE id = ?'),
+    insert: db.prepare('INSERT INTO keys (name, platform, custom_name, key_enc, base, endpoints_json, model, reg, exp, auth_note, balance_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, endpoints_json = ?, model = ?, reg = ?, exp = ?, auth_note = ?, updated_at = ? WHERE id = ?'),
     setBalance: db.prepare('UPDATE keys SET balance_value = ?, balance_status = ?, balance_updated_at = ? WHERE id = ?'),
     setTest: db.prepare('UPDATE keys SET test_json = ? WHERE id = ?'),
     setModelsFetched: db.prepare('UPDATE keys SET models_fetched = 1 WHERE id = ?'),
@@ -312,6 +318,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       model: row.model || '',
       reg: row.reg || '',
       exp: row.exp || '',
+      authNote: row.auth_note || '',
       balance: {
         value: row.balance_value == null ? null : row.balance_value,
         status: row.balance_status || 'pending',
@@ -344,7 +351,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         encryptField(masterKey, input.key),
         eps.length ? eps[0].url : '', JSON.stringify(eps),
         input.model || '', input.reg || '', input.exp || '',
-        input.balanceStatus || 'pending', now, now
+        input.authNote || '', input.balanceStatus || 'pending', now, now
       );
       return toRec(getRow(Number(r.lastInsertRowid)));
     },
@@ -370,12 +377,13 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         endpointsJson: JSON.stringify(eps),
         model: patch.model !== undefined ? patch.model : cur.model,
         reg: patch.reg !== undefined ? patch.reg : cur.reg,
-        exp: patch.exp !== undefined ? patch.exp : cur.exp
+        exp: patch.exp !== undefined ? patch.exp : cur.exp,
+        authNote: patch.authNote !== undefined ? patch.authNote : (cur.auth_note || '')
       };
       stmt.update.run(
         merged.name, merged.platform, merged.customName, merged.keyEnc,
         merged.base, merged.endpointsJson,
-        merged.model, merged.reg, merged.exp, nowIso(), id
+        merged.model, merged.reg, merged.exp, merged.authNote, nowIso(), id
       );
       return toRec(getRow(id));
     },
