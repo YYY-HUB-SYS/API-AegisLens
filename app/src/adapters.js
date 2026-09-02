@@ -35,6 +35,17 @@ const BALANCE_APIS = [
       }
       return { value: Number(d.available_balance), status: 'ok' };
     }
+  },
+  {
+    re: /(^|\.)bigmodel\.cn$/i,
+    path: '/api/biz/account/query-customer-account-report',
+    parse: function (body) {
+      const d = body && body.data;
+      if (!d || d.balance == null) {
+        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
+      }
+      return { value: Number(d.balance), status: 'ok' };
+    }
   }
 ];
 

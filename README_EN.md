@@ -18,7 +18,7 @@ Bring the API keys scattered across AI platforms into one local dashboard — en
 - **Connectivity testing** — Verifies key validity via the platform's model list endpoint; endpoints without a list API (e.g. Volcano Ark Agent Plan) automatically fall back to an auth probe against the chat endpoint
 - **Model catalog** — Auto-fetches model lists; context window and max output are filled by a four-level fallback chain: platform API → built-in metadata DB → web search (OpenRouter / models.dev) → manual entry. Volcano Ark Agent Plan endpoints ship with a built-in official model catalog
 - **Config generation** — Renders per-tool templates with model parameters included. Dify / n8n pick the OpenAI-compatible endpoint; Claude Code picks the Anthropic-compatible one (generating `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`)
-- **Balance monitoring** — Matches official balance APIs by Base URL domain (DeepSeek / Moonshot / Kimi); custom platforms pointing at official domains work too, multi-endpoint fallback, one-click refresh for all keys
+- **Balance monitoring** — Matches official balance APIs by Base URL domain (DeepSeek / Moonshot / Kimi / Zhipu); custom platforms pointing at official domains work too, multi-endpoint fallback, one-click refresh for all keys
 - **Expiry management** — Automatic expiring (within 30 days) / expired status detection with kanban badges
 - **Proxy auto-detection** — Endpoints unreachable by direct connection (e.g. overseas relay stations) automatically route through the system or environment-variable proxy (CONNECT tunnel); requests carry a coding-tool User-Agent to pass relay-side client fingerprinting
 - **Zero dependencies** — Pure Node.js standard library. Run right after `git clone`, no `npm install` needed
@@ -59,7 +59,7 @@ cd app
 npm test
 ```
 
-95 tests cover encryption, storage (both backends), API integration, adapters (platform catalog and balance domain matching), proxying, and the start script.
+96 tests cover encryption, storage (both backends), API integration, adapters (platform catalog and balance domain matching), proxying, and the start script.
 
 ## Project Layout
 

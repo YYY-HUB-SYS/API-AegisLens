@@ -68,6 +68,7 @@ test('API 集成：完整业务流程', async () => {
     assert.strictEqual(ds.supportsBalance, true);
     assert.strictEqual(plat.data.platforms.length, CATALOG.platforms.length, '平台目录数据驱动加载');
     assert.strictEqual(plat.data.platforms.find(p => p.id === 'moonshot').supportsBalance, true);
+    assert.strictEqual(plat.data.platforms.find(p => p.id === 'zhipu').supportsBalance, true);
     assert.strictEqual(plat.data.platforms.find(p => p.id === 'siliconflow').supportsBalance, false, 'SiliconFlow 余额接口已官方下线');
     assert.strictEqual(plat.data.platforms.find(p => p.id === 'openai').supportsBalance, false);
 
@@ -368,6 +369,11 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
         data: { available_balance: '12.34' }
       }), { status: 200 }));
     }
+    if (u.includes('/api/biz/account/query-customer-account-report')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        code: 200, data: { balance: 99.5 }
+      }), { status: 200 }));
+    }
     return Promise.resolve(new Response('{}', { status: 404 }));
   };
   const { server, base } = await startServer(f);
@@ -378,6 +384,13 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     });
     assert.strictEqual(r.status, 201);
     assert.strictEqual(r.data.key.balance.status, 'pending', '自定义平台命中已知域名应为待查询');
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', customName: '智谱中转', key: 'sk-custom-zp-001',
+      endpoints: [{ url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }]
+    });
+    const zpId = r.data.key.id;
+    assert.strictEqual(r.data.key.balance.status, 'pending', '自定义平台指向智谱域名应为待查询');
 
     r = await call(base, 'POST', '/api/keys', { platform: 'moonshot', key: 'sk-ms-000000001' });
     const msId = r.data.key.id;
@@ -399,7 +412,7 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     assert.strictEqual(r.data.key.balance.status, 'pending');
 
     r = await call(base, 'POST', '/api/refresh-balances');
-    assert.strictEqual(r.data.updated, 3, '命中已知域名的三个密钥都应更新');
+    assert.strictEqual(r.data.updated, 4, '命中已知域名的四个密钥都应更新');
     assert.strictEqual(r.data.failed, 0);
     assert.strictEqual(urls.filter(u => u.includes('/user/balance')).length, 2, '网关端点不应发起余额请求');
     const byId = {};
@@ -407,6 +420,7 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     assert.strictEqual(byId[multiId].balance.value, 66.6);
     assert.strictEqual(byId[multiId].balance.status, 'ok');
     assert.strictEqual(byId[msId].balance.value, 12.34, 'Moonshot 余额解析');
+    assert.strictEqual(byId[zpId].balance.value, 99.5, '智谱余额解析（自定义平台）');
     assert.strictEqual(byId[sfId].balance.status, 'unsupported', 'SiliconFlow 密钥不被查询');
     const customKey = r.data.keys.find(k => k.platform === 'custom');
     assert.strictEqual(customKey.balance.value, 66.6, '自定义平台指向官方域名同样可查');

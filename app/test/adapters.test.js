@@ -141,6 +141,19 @@ test('fetchBalance：SiliconFlow 余额接口已下线，不发起查询', async
   assert.strictEqual(bal, null, '/v1/user/info 于 2026-08-14 官方下线，替代接口未发布');
 });
 
+test('fetchBalance：智谱（bigmodel.cn）余额解析', async () => {
+  let captured = null;
+  const f = (url) => {
+    captured = String(url);
+    return Promise.resolve(res({ code: 200, msg: '操作成功', data: { balance: 99.2273858, rechargeAmount: 100, giveAmount: 0 } }));
+  };
+  const bal = await adapters.fetchBalance('zhipu', { url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(captured, 'https://open.bigmodel.cn/api/biz/account/query-customer-account-report', 'path 应基于域名根构造');
+  assert.strictEqual(bal.value, 99.2273858);
+  const balCustom = await adapters.fetchBalance('custom', { url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(balCustom.value, 99.2273858, '自定义平台指向智谱域名同样可查');
+});
+
 test('fetchBalanceForKey：跳过未命中端点，用命中的端点查询', async () => {
   const urls = [];
   const f = (url) => {
@@ -179,6 +192,8 @@ test('supportsBalanceUrl：按域名判定余额可查性', () => {
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.cn/v1'), true);
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.ai/v1'), true);
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.kimi.com/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://open.bigmodel.cn/api/paas/v4'), true, '智谱余额可查');
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.z.ai/api/paas/v4'), false, '国际版 z.ai 未验证，不登记');
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), false, 'SiliconFlow 余额接口已下线');
   assert.strictEqual(adapters.supportsBalanceUrl('https://gw.example.com/v1'), false);
   assert.strictEqual(adapters.supportsBalanceUrl('https://fake-deepseek.com.evil.io'), false, '域名后缀伪装不应命中');
@@ -194,6 +209,7 @@ test('平台目录：数据驱动加载，supportsBalance 由端点域名推导'
   assert.strictEqual(adapters.PLATFORMS.deepseek.endpoints.length, 2);
   assert.strictEqual(adapters.PLATFORMS.deepseek.supportsBalance, true);
   assert.strictEqual(adapters.PLATFORMS.moonshot.supportsBalance, true);
+  assert.strictEqual(adapters.PLATFORMS.zhipu.supportsBalance, true, '智谱由端点域名自动推导为可查');
   assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, false, 'SiliconFlow 余额接口已下线');
   assert.strictEqual(adapters.PLATFORMS.volcark.supportsBalance, false);
   assert.strictEqual(adapters.PLATFORMS.openai.supportsBalance, false);
