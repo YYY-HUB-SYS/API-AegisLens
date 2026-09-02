@@ -1,5 +1,6 @@
 @echo off
 chcp 65001 >nul
+rem 本文件必须保存为 UTF-8（无 BOM）+ CRLF 行尾；中文只能出现在 chcp 65001 之后
 cd /d "%~dp0"
 where node >nul 2>nul
 if errorlevel 1 (
@@ -7,6 +8,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-start "AI Key Manager" cmd /k node server.js
+rem start 打开的新控制台不继承本窗口代码页，需在子窗口内重新切换 UTF-8
+start "AI Key Manager" cmd /k "chcp 65001 >nul & node server.js"
 timeout /t 2 /nobreak >nul
 start "" http://127.0.0.1:37700
