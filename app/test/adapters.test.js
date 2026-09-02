@@ -111,9 +111,100 @@ test('fetchBalance：DeepSeek 余额解析（CNY）', async () => {
   assert.strictEqual(bal.status, 'ok');
 });
 
-test('fetchBalance：非 DeepSeek 平台返回 null（不支持）', async () => {
+test('fetchBalance：未知余额域名返回 null（不支持）', async () => {
   const bal = await adapters.fetchBalance('openai', { url: 'https://api.openai.com/v1', style: 'openai' }, 'sk-x', { fetchImpl: async () => res({}) });
   assert.strictEqual(bal, null);
+});
+
+test('fetchBalance：自定义平台指向 DeepSeek 域名同样可查', async () => {
+  const f = () => Promise.resolve(res({ balance_infos: [{ currency: 'CNY', total_balance: '1.23' }] }));
+  const bal = await adapters.fetchBalance('custom', { url: 'https://api.deepseek.com', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(bal.value, 1.23);
+});
+
+test('fetchBalance：Moonshot / Kimi 余额解析', async () => {
+  let captured = null;
+  const f = (url) => {
+    captured = String(url);
+    return Promise.resolve(res({ data: { available_balance: '12.34' } }));
+  };
+  const bal = await adapters.fetchBalance('moonshot', { url: 'https://api.moonshot.cn/v1', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(captured, 'https://api.moonshot.cn/v1/users/me/balance', 'path 应基于域名根构造');
+  assert.strictEqual(bal.value, 12.34);
+
+  const balAi = await adapters.fetchBalance('moonshot', { url: 'https://api.moonshot.ai/v1', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(balAi.value, 12.34, 'moonshot.ai 域名同样命中');
+});
+
+test('fetchBalance：SiliconFlow 余额解析', async () => {
+  let captured = null;
+  const f = (url) => {
+    captured = String(url);
+    return Promise.resolve(res({ data: { totalBalance: '56.78' } }));
+  };
+  const bal = await adapters.fetchBalance('siliconflow', { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(captured, 'https://api.siliconflow.cn/v1/user/info');
+  assert.strictEqual(bal.value, 56.78);
+});
+
+test('fetchBalanceForKey：跳过未命中端点，用命中的端点查询', async () => {
+  const urls = [];
+  const f = (url) => {
+    urls.push(String(url));
+    return Promise.resolve(res({ balance_infos: [{ currency: 'CNY', total_balance: '9.99' }] }));
+  };
+  const bal = await adapters.fetchBalanceForKey('deepseek', [
+    { url: 'https://gw.example.com/v1', style: 'openai' },
+    { url: 'https://api.deepseek.com', style: 'openai' }
+  ], 'sk-x', { fetchImpl: f });
+  assert.deepStrictEqual(urls, ['https://api.deepseek.com/user/balance'], '只应请求命中域名的端点');
+  assert.strictEqual(bal.value, 9.99);
+});
+
+test('fetchBalanceForKey：全部端点未命中域名时返回 null', async () => {
+  const bal = await adapters.fetchBalanceForKey('openai', [
+    { url: 'https://api.openai.com/v1', style: 'openai' }
+  ], 'sk-x', { fetchImpl: async () => res({}) });
+  assert.strictEqual(bal, null);
+});
+
+test('fetchBalanceForKey：多个命中端点全部失败时抛出错误', async () => {
+  const f = () => Promise.resolve(res({}, 401));
+  await assert.rejects(
+    () => adapters.fetchBalanceForKey('deepseek', [
+      { url: 'https://api.deepseek.com', style: 'openai' },
+      { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+    ], 'sk-bad', { fetchImpl: f }),
+    /401/
+  );
+});
+
+test('supportsBalanceUrl：按域名判定余额可查性', () => {
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.deepseek.com'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.deepseek.com/anthropic'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.cn/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.ai/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.kimi.com/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.com/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://gw.example.com/v1'), false);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://fake-deepseek.com.evil.io'), false, '域名后缀伪装不应命中');
+});
+
+test('平台目录：数据驱动加载，supportsBalance 由端点域名推导', () => {
+  const CATALOG = require('../src/platform-catalog.json');
+  CATALOG.platforms.forEach(p => {
+    assert.ok(adapters.PLATFORMS[p.id], '目录平台都应加载: ' + p.id);
+    assert.ok(adapters.PLATFORMS[p.id].name);
+    assert.ok(Array.isArray(adapters.PLATFORMS[p.id].endpoints));
+  });
+  assert.strictEqual(adapters.PLATFORMS.deepseek.endpoints.length, 2);
+  assert.strictEqual(adapters.PLATFORMS.deepseek.supportsBalance, true);
+  assert.strictEqual(adapters.PLATFORMS.moonshot.supportsBalance, true);
+  assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, true);
+  assert.strictEqual(adapters.PLATFORMS.volcark.supportsBalance, false);
+  assert.strictEqual(adapters.PLATFORMS.openai.supportsBalance, false);
+  assert.strictEqual(adapters.PLATFORMS.custom.endpoints.length, 0);
 });
 
 test('testKey：通过 / 失败场景', async () => {

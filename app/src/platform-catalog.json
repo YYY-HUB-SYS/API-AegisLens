@@ -1,0 +1,148 @@
+{
+  "platforms": [
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "color": "#22A5F7",
+      "defaultModel": "deepseek-chat",
+      "endpoints": [
+        { "url": "https://api.deepseek.com", "style": "openai" },
+        { "url": "https://api.deepseek.com/anthropic", "style": "anthropic" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "zhipu",
+      "name": "智谱 AI",
+      "color": "#3859FF",
+      "defaultModel": "glm-5.3-flash",
+      "endpoints": [
+        { "url": "https://open.bigmodel.cn/api/paas/v4", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "siliconflow",
+      "name": "硅基流动 SiliconFlow",
+      "color": "#7C5CFF",
+      "defaultModel": "deepseek-ai/DeepSeek-V4-Flash",
+      "endpoints": [
+        { "url": "https://api.siliconflow.cn/v1", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "volcark",
+      "name": "火山方舟",
+      "color": "#0F6FDE",
+      "defaultModel": "doubao-seed-2.0-mini",
+      "endpoints": [
+        { "url": "https://ark.cn-beijing.volces.com/api/v3", "style": "openai" },
+        { "url": "https://ark.cn-beijing.volces.com/api/compatible", "style": "anthropic" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "volcark-plan",
+      "name": "火山方舟 Agent Plan",
+      "color": "#0B5CC4",
+      "defaultModel": "ark-code-latest",
+      "endpoints": [
+        { "url": "https://ark.cn-beijing.volces.com/api/plan/v3", "style": "openai" },
+        { "url": "https://ark.cn-beijing.volces.com/api/plan", "style": "anthropic" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot (Kimi)",
+      "color": "#F87454",
+      "defaultModel": "moonshot-v1-8k",
+      "endpoints": [
+        { "url": "https://api.moonshot.cn/v1", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "stepfun",
+      "name": "阶跃星辰 StepFun",
+      "color": "#2F6BFF",
+      "defaultModel": "step-3.7-flash",
+      "endpoints": [
+        { "url": "https://api.stepfun.com/v1", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "sensenova",
+      "name": "商汤日日新 SenseNova",
+      "color": "#0DA5AA",
+      "defaultModel": "sensenova-6.8-flash-lite",
+      "endpoints": [
+        { "url": "https://token.sensenova.cn/v1", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "longcat",
+      "name": "美团 LongCat",
+      "color": "#E8A200",
+      "defaultModel": "LongCat-2.0",
+      "endpoints": [
+        { "url": "https://api.longcat.chat/openai", "style": "openai" }
+      ],
+      "currency": "CNY",
+      "auth": "bearer"
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "color": "#4B3FE3",
+      "defaultModel": "gpt-4o",
+      "endpoints": [
+        { "url": "https://api.openai.com/v1", "style": "openai" }
+      ],
+      "currency": "USD",
+      "auth": "bearer"
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "color": "#D97757",
+      "defaultModel": "claude-sonnet-4-5",
+      "endpoints": [
+        { "url": "https://api.anthropic.com", "style": "anthropic" }
+      ],
+      "currency": "USD",
+      "auth": "anthropic"
+    },
+    {
+      "id": "nvidia",
+      "name": "NVIDIA NIM",
+      "color": "#76B900",
+      "defaultModel": "nvidia/nemotron-3-super-120b-a12b",
+      "endpoints": [
+        { "url": "https://integrate.api.nvidia.com/v1", "style": "openai" }
+      ],
+      "currency": "USD",
+      "auth": "bearer"
+    },
+    {
+      "id": "custom",
+      "name": "自定义平台",
+      "color": "#8A8FA8",
+      "defaultModel": "",
+      "endpoints": [],
+      "currency": "CNY",
+      "auth": "bearer"
+    }
+  ]
+}

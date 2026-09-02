@@ -153,7 +153,9 @@ async function routeApi(req, res, ctx) {
       model: str(b.model) || plat.defaultModel,
       reg: str(b.reg),
       exp: str(b.exp),
-      balanceStatus: plat.supportsBalance ? 'pending' : 'unsupported'
+      balanceStatus: endpoints.some(function (e) { return adapters.supportsBalanceUrl(e.url); })
+        ? 'pending'
+        : 'unsupported'
     });
     return json(res, 201, { key: rec });
   }
@@ -202,6 +204,16 @@ async function routeApi(req, res, ctx) {
     });
     if (dup) throw bad(409, '该平台下已存在同名密钥');
     const rec = storage.updateKey(id, patch);
+    /* 端点变更可能改变余额可查性：支持↔不支持切换时重置余额，避免旧值误导 */
+    if (patch.endpoints !== undefined) {
+      const supported = (rec.endpoints || []).some(function (e) { return adapters.supportsBalanceUrl(e.url); });
+      const wasSupported = rec.balance.status !== 'unsupported';
+      if (supported !== wasSupported) {
+        return json(res, 200, {
+          key: storage.saveBalance(id, { value: null, status: supported ? 'pending' : 'unsupported' })
+        });
+      }
+    }
     return json(res, 200, { key: rec });
   }
 
@@ -338,10 +350,10 @@ async function routeApi(req, res, ctx) {
     let failed = 0;
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      const plat = platOf(k.platform);
-      if (!plat || !plat.supportsBalance) continue;
+      const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
+      if (!eps.some(function (e) { return adapters.supportsBalanceUrl(e.url); })) continue;
       try {
-        const bal = await adapters.fetchBalance(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
+        const bal = await adapters.fetchBalanceForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
         if (bal) {
           storage.saveBalance(k.id, bal);
           updated++;

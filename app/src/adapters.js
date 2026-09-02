@@ -5,42 +5,81 @@ const tls = require('node:tls');
 const config = require('./config');
 
 const PROXY_URL = config.proxy;
+const CATALOG = require('./platform-catalog.json');
 
-const PLATFORMS = {
-  deepseek: {
-    id: 'deepseek', name: 'DeepSeek', color: '#22A5F7',
-    defaultBase: 'https://api.deepseek.com', defaultModel: 'deepseek-chat',
-    endpoints: [
-      { url: 'https://api.deepseek.com', style: 'openai' },
-      { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
-    ],
-    currency: 'CNY', supportsBalance: true, auth: 'bearer'
+/* 余额接口按「端点域名」匹配：密钥任一端点命中已知域名即可查询余额，
+   与平台是否内置无关——自定义平台指向官方域名时同样生效。
+   path 相对域名根路径构造，避免用户 Base URL 带不带 /v1 造成偏差 */
+const BALANCE_APIS = [
+  {
+    re: /(^|\.)deepseek\.com$/i,
+    path: '/user/balance',
+    parse: function (body) {
+      const infos = (body && Array.isArray(body.balance_infos)) ? body.balance_infos : [];
+      const cny = infos.find(function (x) { return x.currency === 'CNY'; }) || infos[0];
+      if (!cny || cny.total_balance == null) {
+        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
+      }
+      return { value: parseFloat(cny.total_balance), status: 'ok' };
+    }
   },
-  openai: {
-    id: 'openai', name: 'OpenAI', color: '#4B3FE3',
-    defaultBase: 'https://api.openai.com/v1', defaultModel: 'gpt-4o',
-    endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }],
-    currency: 'USD', supportsBalance: false, auth: 'bearer'
+  {
+    re: /(^|\.)moonshot\.(cn|ai)$|(^|\.)kimi\.(com|ai)$/i,
+    path: '/v1/users/me/balance',
+    parse: function (body) {
+      const d = body && body.data;
+      if (!d || d.available_balance == null) {
+        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
+      }
+      return { value: Number(d.available_balance), status: 'ok' };
+    }
   },
-  anthropic: {
-    id: 'anthropic', name: 'Anthropic', color: '#D97757',
-    defaultBase: 'https://api.anthropic.com', defaultModel: 'claude-sonnet-4-5',
-    endpoints: [{ url: 'https://api.anthropic.com', style: 'anthropic' }],
-    currency: 'USD', supportsBalance: false, auth: 'anthropic'
-  },
-  moonshot: {
-    id: 'moonshot', name: 'Moonshot (Kimi)', color: '#F87454',
-    defaultBase: 'https://api.moonshot.cn/v1', defaultModel: 'moonshot-v1-8k',
-    endpoints: [{ url: 'https://api.moonshot.cn/v1', style: 'openai' }],
-    currency: 'CNY', supportsBalance: false, auth: 'bearer'
-  },
-  custom: {
-    id: 'custom', name: '自定义平台', color: '#8A8FA8',
-    defaultBase: '', defaultModel: '',
-    endpoints: [],
-    currency: 'CNY', supportsBalance: false, auth: 'bearer'
+  {
+    re: /(^|\.)siliconflow\.(cn|com)$/i,
+    path: '/v1/user/info',
+    parse: function (body) {
+      const d = body && body.data;
+      const v = d && (d.totalBalance != null ? d.totalBalance : d.balance);
+      if (v == null) {
+        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
+      }
+      return { value: parseFloat(v), status: 'ok' };
+    }
   }
-};
+];
+
+function hostOf(u) {
+  try { return new URL(String(u)).hostname; } catch (e) { return null; }
+}
+
+function matchBalanceApi(url) {
+  const h = hostOf(url);
+  if (!h) return null;
+  for (let i = 0; i < BALANCE_APIS.length; i++) {
+    if (BALANCE_APIS[i].re.test(h)) return BALANCE_APIS[i];
+  }
+  return null;
+}
+
+/* 平台目录数据驱动：新增平台只需在 platform-catalog.json 增加条目，
+   supportsBalance 由余额域名匹配自动推导 */
+const PLATFORMS = {};
+CATALOG.platforms.forEach(function (p) {
+  const endpoints = (p.endpoints || []).map(function (e) {
+    return { url: e.url, style: e.style };
+  });
+  PLATFORMS[p.id] = {
+    id: p.id,
+    name: p.name,
+    color: p.color,
+    defaultBase: endpoints.length ? endpoints[0].url : '',
+    defaultModel: p.defaultModel || '',
+    endpoints: endpoints,
+    currency: p.currency || 'CNY',
+    supportsBalance: endpoints.some(function (e) { return !!matchBalanceApi(e.url); }),
+    auth: p.auth || 'bearer'
+  };
+});
 
 function fail(httpStatus, message, code) {
   const e = new Error(message);
@@ -365,18 +404,37 @@ async function testKey(platform, ep, key, opts) {
 }
 
 async function fetchBalance(platform, ep, key, opts) {
-  if (platform !== 'deepseek') return null;
   const style = (ep && ep.style) || inferStyle(platform);
   const url = (ep && ep.url) || '';
-  const res = await requestJson(trimBase(url) + '/user/balance', authHeaders(style, key), opts);
+  const api = matchBalanceApi(url);
+  if (!api) return null;
+  let origin;
+  try { origin = new URL(url).origin; } catch (e) { return null; }
+  const res = await requestJson(origin + api.path, authHeaders(style, key), opts);
   if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
-  const infos = (res.body && Array.isArray(res.body.balance_infos)) ? res.body.balance_infos : [];
-  const cny = infos.find(function (x) { return x.currency === 'CNY'; }) || infos[0];
-  if (!cny || cny.total_balance == null) {
-    throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
-  }
-  return { value: parseFloat(cny.total_balance), status: 'ok' };
+  return api.parse(res.body);
 }
+
+/* 遍历密钥全部端点，用首个命中已知余额域名的端点查询；
+   多个端点都命中时依次尝试，全部失败才抛最后一个错误 */
+async function fetchBalanceForKey(platform, endpoints, key, opts) {
+  let lastError = null;
+  const eps = endpoints || [];
+  for (let i = 0; i < eps.length; i++) {
+    const ep = eps[i] || {};
+    if (!matchBalanceApi(ep.url)) continue;
+    try {
+      const bal = await fetchBalance(platform, ep, key, opts);
+      if (bal) return bal;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+function supportsBalanceUrl(url) { return !!matchBalanceApi(url); }
 
 function mergeModels(prev, fetched) {
   const prevById = {};
@@ -413,6 +471,7 @@ module.exports = {
   fetchModels: fetchModels,
   testKey: testKey,
   fetchBalance: fetchBalance,
+  fetchBalanceForKey: fetchBalanceForKey,
   mergeModels: mergeModels,
   lookupMeta: lookupMeta,
   modelsUrl: modelsUrl,
@@ -423,5 +482,6 @@ module.exports = {
   normalizeEndpoints: normalizeEndpoints,
   primaryEndpoint: primaryEndpoint,
   proxyFetch: proxyFetch,
-  effectiveFetch: effectiveFetch
+  effectiveFetch: effectiveFetch,
+  supportsBalanceUrl: supportsBalanceUrl
 };

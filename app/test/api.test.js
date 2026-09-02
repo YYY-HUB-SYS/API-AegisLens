@@ -6,6 +6,7 @@ const path = require('node:path');
 const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
+const CATALOG = require('../src/platform-catalog.json');
 
 function mockFetch(url, opts) {
   const u = String(url);
@@ -13,6 +14,16 @@ function mockFetch(url, opts) {
     return Promise.resolve(new Response(JSON.stringify({
       is_available: true,
       balance_infos: [{ currency: 'CNY', total_balance: '88.50' }]
+    }), { status: 200 }));
+  }
+  if (u.includes('/v1/users/me/balance')) {
+    return Promise.resolve(new Response(JSON.stringify({
+      data: { available_balance: '12.34' }
+    }), { status: 200 }));
+  }
+  if (u.includes('/v1/user/info')) {
+    return Promise.resolve(new Response(JSON.stringify({
+      data: { totalBalance: '56.78' }
     }), { status: 200 }));
   }
   if (u.includes('/models')) {
@@ -60,7 +71,10 @@ test('API 集成：完整业务流程', async () => {
     assert.strictEqual(plat.status, 200);
     const ds = plat.data.platforms.find(p => p.id === 'deepseek');
     assert.strictEqual(ds.supportsBalance, true);
-    assert.strictEqual(plat.data.platforms.length, 5);
+    assert.strictEqual(plat.data.platforms.length, CATALOG.platforms.length, '平台目录数据驱动加载');
+    assert.strictEqual(plat.data.platforms.find(p => p.id === 'moonshot').supportsBalance, true);
+    assert.strictEqual(plat.data.platforms.find(p => p.id === 'siliconflow').supportsBalance, true);
+    assert.strictEqual(plat.data.platforms.find(p => p.id === 'openai').supportsBalance, false);
 
     const idxRes = await fetch(base + '/');
     assert.strictEqual(idxRes.status, 200);
@@ -339,6 +353,92 @@ test('API 集成：方舟 Agent Plan 拉取模型返回官方内置目录', asyn
     const saved = r.data.keys.find(k => k.id === id);
     assert.strictEqual(saved.modelsFetched, true);
     assert.strictEqual(saved.models.length, fetchedCount, '内置目录应已入库');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：余额按端点域名匹配（自定义平台与多端点回退）', async () => {
+  const urls = [];
+  const f = (url) => {
+    const u = String(url);
+    urls.push(u);
+    if (u.includes('/user/balance')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        balance_infos: [{ currency: 'CNY', total_balance: '66.60' }]
+      }), { status: 200 }));
+    }
+    if (u.includes('/v1/users/me/balance')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        data: { available_balance: '12.34' }
+      }), { status: 200 }));
+    }
+    if (u.includes('/v1/user/info')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        data: { totalBalance: '56.78' }
+      }), { status: 200 }));
+    }
+    return Promise.resolve(new Response('{}', { status: 404 }));
+  };
+  const { server, base } = await startServer(f);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', customName: 'DS 中转', key: 'sk-custom-ds-001',
+      endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 201);
+    assert.strictEqual(r.data.key.balance.status, 'pending', '自定义平台命中已知域名应为待查询');
+
+    r = await call(base, 'POST', '/api/keys', { platform: 'moonshot', key: 'sk-ms-000000001' });
+    const msId = r.data.key.id;
+    assert.strictEqual(r.data.key.balance.status, 'pending');
+    r = await call(base, 'POST', '/api/keys', { platform: 'siliconflow', key: 'sk-sf-000000002' });
+    const sfId = r.data.key.id;
+    assert.strictEqual(r.data.key.balance.status, 'pending');
+
+    r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-multi-ep-0007',
+      endpoints: [
+        { url: 'https://gw.example.com/v1', style: 'openai' },
+        { url: 'https://api.deepseek.com', style: 'openai' }
+      ]
+    });
+    const multiId = r.data.key.id;
+    assert.strictEqual(r.data.key.balance.status, 'pending');
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    assert.strictEqual(r.data.updated, 4, '命中已知域名的四个密钥都应更新');
+    assert.strictEqual(r.data.failed, 0);
+    assert.strictEqual(urls.filter(u => u.includes('/user/balance')).length, 2, '网关端点不应发起余额请求');
+    const byId = {};
+    r.data.keys.forEach(k => { byId[k.id] = k; });
+    assert.strictEqual(byId[multiId].balance.value, 66.6);
+    assert.strictEqual(byId[multiId].balance.status, 'ok');
+    assert.strictEqual(byId[msId].balance.value, 12.34, 'Moonshot 余额解析');
+    assert.strictEqual(byId[sfId].balance.value, 56.78, 'SiliconFlow 余额解析');
+    const customKey = r.data.keys.find(k => k.platform === 'custom');
+    assert.strictEqual(customKey.balance.value, 66.6, '自定义平台指向官方域名同样可查');
+
+    r = await call(base, 'PUT', '/api/keys/' + multiId, {
+      endpoints: [{ url: 'https://other.example.com/v1', style: 'openai' }]
+    });
+    assert.strictEqual(r.data.key.balance.status, 'unsupported', '端点改离官方域名应重置为不支持');
+    assert.strictEqual(r.data.key.balance.value, null);
+
+    r = await call(base, 'PUT', '/api/keys/' + multiId, {
+      endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }]
+    });
+    assert.strictEqual(r.data.key.balance.status, 'pending', '端点改回官方域名应重置为待查询');
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    r = await call(base, 'PUT', '/api/keys/' + multiId, {
+      endpoints: [
+        { url: 'https://api.deepseek.com', style: 'openai' },
+        { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+      ]
+    });
+    assert.strictEqual(r.data.key.balance.status, 'ok', '支持状态未变时应保留余额');
+    assert.strictEqual(r.data.key.balance.value, 66.6);
   } finally {
     server.close();
   }
