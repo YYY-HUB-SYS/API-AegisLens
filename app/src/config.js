@@ -1,5 +1,6 @@
 const os = require('node:os');
 const path = require('node:path');
+const { execSync } = require('node:child_process');
 
 const dataDir = process.env.AKM_DATA_DIR
   ? path.resolve(process.env.AKM_DATA_DIR)
@@ -7,4 +8,53 @@ const dataDir = process.env.AKM_DATA_DIR
 
 const port = Number(process.env.AKM_PORT || 37700);
 
-module.exports = { dataDir, port };
+function normalizeProxyUrl(raw) {
+  let v = String(raw).trim();
+  if (!v) return null;
+  if (/^(off|none|direct|0|false)$/i.test(v)) return null;
+  if (!/^https?:\/\//i.test(v)) v = 'http://' + v;
+  return v;
+}
+
+function readRegValue(name) {
+  try {
+    const out = execSync(
+      'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings" /v ' + name,
+      { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }
+    );
+    const m = out.match(new RegExp(name + '\\s+REG_[A-Z_]+\\s+(\\S+)'));
+    return m ? m[1] : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/* 代理优先级：AKM_PROXY（off/none 禁用）> HTTPS_PROXY 等环境变量 > Windows 系统代理注册表 > 直连。
+   Agent Router 等境外中转站必须走代理才可达，而 Node 的 fetch 不读系统代理，故自动检测。 */
+function resolveProxy() {
+  const explicit = process.env.AKM_PROXY;
+  if (explicit !== undefined) return normalizeProxyUrl(explicit);
+
+  const env = process.env.HTTPS_PROXY || process.env.https_proxy
+    || process.env.HTTP_PROXY || process.env.http_proxy;
+  if (env) return normalizeProxyUrl(env);
+
+  if (process.platform === 'win32') {
+    const enabled = readRegValue('ProxyEnable');
+    if (enabled === '0x1') {
+      const server = readRegValue('ProxyServer');
+      if (server) {
+        // 可能是 "127.0.0.1:7897" 或 "http=a:80;https=b:80;ftp=c:21" 分协议格式
+        const parts = String(server).split(';');
+        const httpsPart = parts.find(function (p) { return /^https=/i.test(p); });
+        const candidate = httpsPart ? httpsPart.replace(/^https=/i, '') : parts[0];
+        if (candidate && candidate.trim()) return normalizeProxyUrl(candidate.trim());
+      }
+    }
+  }
+  return null;
+}
+
+const proxy = resolveProxy();
+
+module.exports = { dataDir, port, proxy, resolveProxy };

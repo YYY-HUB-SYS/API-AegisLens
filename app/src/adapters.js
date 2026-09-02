@@ -1,4 +1,10 @@
 const META_MODELS = require('./meta-models.json');
+const http = require('node:http');
+const https = require('node:https');
+const tls = require('node:tls');
+const config = require('./config');
+
+const PROXY_URL = config.proxy;
 
 const PLATFORMS = {
   deepseek: {
@@ -50,8 +56,88 @@ function platformError(status) {
   return '平台返回 HTTP ' + status;
 }
 
+/* Node 的 fetch 不读系统代理（NODE_USE_ENV_PROXY 需 Node 24+），
+   检测到代理配置时对 https 目标走 HTTP CONNECT 隧道；
+   接口与 fetch 子集兼容（status / ok / text()） */
+function proxyFetch(urlStr, init, proxyUrl) {
+  return new Promise(function (resolve, reject) {
+    const u = new URL(urlStr);
+    const proxy = new URL(proxyUrl || PROXY_URL);
+    const target = u.hostname + ':443';
+    const connectReq = http.request({
+      host: proxy.hostname,
+      port: Number(proxy.port) || 80,
+      method: 'CONNECT',
+      path: target,
+      headers: { Host: target }
+    });
+    connectReq.setTimeout(8000, function () {
+      connectReq.destroy(fail(502, '代理 ' + proxy.host + ' 连接超时：请确认代理软件正在运行，或设置 AKM_PROXY=off 强制直连', 'PROXY_TIMEOUT'));
+    });
+    connectReq.on('connect', function (res, socket) {
+      if (res.statusCode !== 200) {
+        socket.destroy();
+        reject(fail(502, '代理 ' + proxy.host + ' 拒绝建立隧道（HTTP ' + res.statusCode + '）', 'PROXY_REFUSED'));
+        return;
+      }
+      const tlsSock = tls.connect({ socket: socket, servername: u.hostname });
+      tlsSock.once('secureConnect', function () {
+        const headers = Object.assign({}, init && init.headers);
+        if (init && init.body !== undefined) {
+          headers['Content-Length'] = String(Buffer.byteLength(String(init.body)));
+        }
+        const req = https.request({
+          host: u.hostname,
+          port: 443,
+          path: u.pathname + u.search,
+          method: (init && init.method) || 'GET',
+          headers: headers,
+          agent: false,
+          createConnection: function () { return tlsSock; },
+          signal: init && init.signal
+        }, function (res) {
+          const chunks = [];
+          res.on('data', function (c) { chunks.push(c); });
+          res.on('end', function () {
+            resolve({
+              status: res.statusCode,
+              ok: res.statusCode >= 200 && res.statusCode < 300,
+              text: function () {
+                return Promise.resolve(Buffer.concat(chunks).toString('utf8'));
+              }
+            });
+          });
+        });
+        req.on('error', function (e) {
+          if (init && init.signal && init.signal.aborted) {
+            reject(fail(504, '请求超时，请检查网络或 Base URL', 'TIMEOUT'));
+          } else if (e.code === 'ERR_TLS_CERT_ALTNAME_INVALID' || e.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || e.code === 'SELF_SIGNED_CERT_IN_CHAIN') {
+            reject(fail(502, '目标站点证书校验失败：' + u.hostname, 'TLS'));
+          } else {
+            reject(fail(502, '经代理请求 ' + u.hostname + ' 失败：' + (e.message || String(e)), 'NETWORK'));
+          }
+        });
+        if (init && init.body !== undefined) req.write(init.body);
+        req.end();
+      });
+      tlsSock.once('error', function (e) {
+        reject(fail(502, '经代理与 ' + u.hostname + ' 的 TLS 握手失败：' + (e.message || String(e)), 'TLS'));
+      });
+    });
+    connectReq.on('error', function (e) {
+      reject(fail(502, '无法连接代理 ' + proxy.host + '：请确认代理软件正在运行，或设置 AKM_PROXY=off 强制直连', 'PROXY_UNREACHABLE'));
+    });
+    connectReq.end();
+  });
+}
+
+function effectiveFetch(url, init) {
+  if (PROXY_URL && /^https:\/\//i.test(String(url))) return proxyFetch(url, init);
+  return fetch(url, init);
+}
+
 async function requestJson(url, headers, opts) {
-  const f = (opts && opts.fetchImpl) || fetch;
+  const f = (opts && opts.fetchImpl) || effectiveFetch;
   const timeoutMs = (opts && opts.timeoutMs) || 10000;
   const ctrl = new AbortController();
   const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
@@ -336,5 +422,7 @@ module.exports = {
   isKnownStyle: isKnownStyle,
   defaultEndpoints: defaultEndpoints,
   normalizeEndpoints: normalizeEndpoints,
-  primaryEndpoint: primaryEndpoint
+  primaryEndpoint: primaryEndpoint,
+  proxyFetch: proxyFetch,
+  effectiveFetch: effectiveFetch
 };

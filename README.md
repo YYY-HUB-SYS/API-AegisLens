@@ -38,6 +38,7 @@ npm start
 |---|---|---|
 | `AKM_PORT` | `37700` | 服务监听端口（仅 127.0.0.1） |
 | `AKM_DATA_DIR` | `~/.ai-key-manager` | 数据目录（加密存储与主密钥） |
+| `AKM_PROXY` | 自动检测 | 外发请求代理。默认依次检测 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量与 Windows 系统代理；设为 `off` 强制直连，或设为 `http://127.0.0.1:7897` 显式指定 |
 
 ## 使用流程
 
