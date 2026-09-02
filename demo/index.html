@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Key Manager · 交互演示</title>
+<style>
+  :root {
+    --bg: #F5F6FA;
+    --panel: #FFFFFF;
+    --ink: #1A1D33;
+    --muted: #6B7089;
+    --rule: #E3E5F0;
+    --accent: #4B3FE3;
+    --accent-deep: #372BC7;
+    --accent-soft: rgba(75, 63, 227, 0.08);
+    --ok: #0E9E63;
+    --ok-bg: rgba(29, 201, 129, 0.14);
+    --warn: #B07A06;
+    --warn-bg: rgba(239, 170, 23, 0.16);
+    --exp: #C2261B;
+    --exp-bg: rgba(232, 70, 58, 0.13);
+    --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'Courier New', monospace;
+    --sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(26, 29, 51, 0.05), 0 4px 16px rgba(26, 29, 51, 0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule);
+    padding: 0.65rem 1.4rem;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.02rem; letter-spacing: -0.01em; }
+  .brand-mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), #7B6CF0);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 0.8rem; font-family: var(--mono); font-weight: 700;
+  }
+  .brand .demo-tag {
+    font-size: 0.68rem; font-weight: 700; color: var(--accent);
+    background: var(--accent-soft); border-radius: 999px; padding: 0.1rem 0.5rem;
+    font-family: var(--sans); margin-left: 0.2rem;
+  }
+  .topbar .spacer { flex: 1; }
+
+  .btn {
+    border: 1px solid var(--rule); background: var(--panel); color: var(--ink);
+    border-radius: 8px; padding: 0.42rem 0.9rem; font-size: 0.86rem; font-weight: 600;
+    transition: border-color 0.15s, background 0.15s, transform 0.1s;
+    display: inline-flex; align-items: center; gap: 0.35rem;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-deep); }
+  .btn.small { padding: 0.22rem 0.6rem; font-size: 0.78rem; border-radius: 7px; }
+  .btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+  .btn.ghost:hover { color: var(--ink); background: var(--accent-soft); }
+  .btn.danger-confirm { background: var(--exp); border-color: var(--exp); color: #fff; }
+  .btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+  .spin {
+    width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid rgba(75, 63, 227, 0.25); border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- 统计条 ---------- */
+  .stats {
+    max-width: 1180px; margin: 1.4rem auto 0; padding: 0 1.4rem;
+    display: flex; gap: 2.2rem; flex-wrap: wrap; align-items: baseline;
+  }
+  .stat { display: flex; align-items: baseline; gap: 0.5rem; }
+  .stat .num {
+    font-family: var(--mono); font-size: 1.7rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+  }
+  .stat .lbl { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+  .stat.ok .num { color: var(--ok); }
+  .stat.warn .num { color: var(--warn); }
+  .stat.exp .num { color: var(--exp); }
+
+  /* ---------- 看板 ---------- */
+  .board { max-width: 1180px; margin: 0 auto; padding: 1.2rem 1.4rem 4rem; }
+  .platform-group { margin-top: 1.6rem; }
+  .group-head {
+    display: flex; align-items: center; gap: 0.55rem;
+    font-weight: 800; font-size: 0.92rem; margin-bottom: 0.7rem;
+  }
+  .group-count { font-size: 0.74rem; color: var(--muted); font-weight: 700; background: var(--bg); border-radius: 999px; padding: 0.05rem 0.5rem; }
+
+  .keycard {
+    background: var(--panel); border: 1px solid var(--rule); border-radius: var(--radius);
+    box-shadow: var(--shadow); margin-bottom: 0.7rem; overflow: hidden;
+    animation: cardIn 0.28s ease both;
+  }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .kc-main { padding: 0.85rem 1.05rem 0.7rem; }
+  .kc-l1 { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+  .kname {
+    font-size: 0.8rem; font-weight: 700; color: var(--accent);
+    background: var(--accent-soft); border-radius: 999px; padding: 0.1rem 0.6rem;
+  }
+  .plat { font-weight: 700; font-size: 0.95rem; }
+  .plat-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 0.35rem; }
+  .st { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 0.09rem 0.55rem; }
+  .st.ok { color: var(--ok); background: var(--ok-bg); }
+  .st.warn { color: var(--warn); background: var(--warn-bg); }
+  .st.exp { color: var(--exp); background: var(--exp-bg); }
+  .meta { font-size: 0.79rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .kc-actions { margin-left: auto; display: flex; gap: 0.25rem; }
+
+  .kc-l2 { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-top: 0.6rem; }
+  .param {
+    font-family: var(--mono); font-size: 0.8rem;
+    background: #F2F2F8; border: 1px solid var(--rule); border-radius: 7px;
+    padding: 0.22rem 0.6rem; display: inline-flex; align-items: center; gap: 0.45rem;
+    max-width: 100%; transition: border-color 0.15s, background 0.15s;
+  }
+  .param:hover { border-color: var(--accent); }
+  .param .val {
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px;
+  }
+  .param.copied { border-color: var(--ok); background: rgba(29, 201, 129, 0.09); }
+  .copy-btn {
+    border: none; background: transparent; color: var(--muted);
+    font-size: 0.72rem; font-weight: 700; font-family: var(--sans);
+    padding: 0.1rem 0.3rem; border-radius: 5px; flex-shrink: 0;
+  }
+  .copy-btn:hover { color: var(--accent); background: var(--accent-soft); }
+  .copy-btn.done { color: var(--ok); }
+  .eye-btn {
+    border: none; background: transparent; color: var(--muted); border-radius: 6px;
+    padding: 0.25rem 0.35rem; display: inline-flex; align-items: center;
+  }
+  .eye-btn:hover { color: var(--ink); background: var(--accent-soft); }
+  .eye-btn svg { width: 15px; height: 15px; }
+
+  .kc-more { margin-left: auto; display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+  /* ---------- 模型目录抽屉 ---------- */
+  .drawer {
+    max-height: 0; overflow: hidden; transition: max-height 0.3s ease;
+    border-top: 1px solid transparent;
+  }
+  .drawer.open { max-height: 640px; border-top-color: var(--rule); }
+  .drawer-inner { padding: 0.8rem 1.05rem 1rem; background: #FAFAFE; }
+  .drawer-toolbar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .drawer-title { font-size: 0.82rem; font-weight: 800; }
+  .model-list { display: flex; flex-direction: column; gap: 0.4rem; }
+  .model-item {
+    display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 8px;
+    padding: 0.42rem 0.75rem;
+  }
+  .model-item.default { border-color: var(--accent); background: var(--accent-soft); }
+  .mid { font-family: var(--mono); font-size: 0.82rem; font-weight: 600; min-width: 170px; }
+  .mspec { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .mspec b { color: var(--ink); font-weight: 600; }
+  .m-tag {
+    font-size: 0.68rem; font-weight: 700; border-radius: 999px; padding: 0.06rem 0.5rem;
+    background: var(--bg); color: var(--muted); border: 1px solid var(--rule);
+  }
+  .m-tag.api { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+  .model-item .btn { margin-left: auto; }
+
+  /* ---------- 空状态 ---------- */
+  .empty {
+    text-align: center; padding: 4rem 1rem; color: var(--muted);
+    border: 1.5px dashed var(--rule); border-radius: var(--radius); margin-top: 2rem;
+  }
+  .empty h3 { color: var(--ink); margin-bottom: 0.4rem; }
+  .empty .btn { margin-top: 1rem; }
+
+  /* ---------- Modal ---------- */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(26, 29, 51, 0.42);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 6vh 1rem 2rem; z-index: 100; overflow-y: auto;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: var(--panel); border-radius: 14px; width: 640px; max-width: 100%;
+    box-shadow: 0 18px 60px rgba(26, 29, 51, 0.25);
+    animation: modalIn 0.22s ease both;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1rem 1.3rem 0.8rem; border-bottom: 1px solid var(--rule);
+  }
+  .modal-head h3 { font-size: 1.02rem; letter-spacing: -0.01em; }
+  .modal-body { padding: 1.1rem 1.3rem 1.3rem; }
+  .modal-close { border: none; background: transparent; font-size: 1.25rem; color: var(--muted); line-height: 1; padding: 0.2rem 0.4rem; border-radius: 6px; }
+  .modal-close:hover { color: var(--ink); background: var(--accent-soft); }
+
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1rem; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 0.3rem; }
+  .field label { font-size: 0.8rem; font-weight: 700; }
+  .field label .req { color: var(--exp); }
+  .field label .hint { font-weight: 500; color: var(--muted); font-size: 0.72rem; margin-left: 0.3rem; }
+  .field input, .field select {
+    border: 1px solid var(--rule); border-radius: 8px; padding: 0.5rem 0.7rem;
+    font-size: 0.88rem; font-family: inherit; background: #fff; color: var(--ink);
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--accent-soft); }
+  .field input.mono { font-family: var(--mono); font-size: 0.82rem; }
+  .field .err-msg { font-size: 0.74rem; color: var(--exp); display: none; }
+  .field.error input { border-color: var(--exp); }
+  .field.error .err-msg { display: block; }
+  .modal-foot { display: flex; gap: 0.6rem; align-items: center; margin-top: 1.2rem; }
+  .modal-foot .note { font-size: 0.76rem; color: var(--muted); margin-left: auto; }
+
+  /* ---------- 配置生成 ---------- */
+  .config-key-label { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+  .seg { display: inline-flex; background: var(--bg); border: 1px solid var(--rule); border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg .opt {
+    border: none; background: transparent; border-radius: 7px;
+    padding: 0.3rem 0.85rem; font-size: 0.8rem; font-weight: 700; color: var(--muted);
+    transition: background 0.15s, color 0.15s;
+  }
+  .seg .opt.on { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(26,29,51,0.1); }
+  .config-pre {
+    font-family: var(--mono); font-size: 0.8rem; line-height: 1.65;
+    background: #17192E; color: #D7DAEC; border-radius: 10px;
+    padding: 1rem 1.15rem; overflow-x: auto; white-space: pre;
+    margin: 0.8rem 0; tab-size: 2;
+  }
+  .config-pre .cmt { color: #6E7392; }
+  .config-pre .k { color: #8F9DFF; }
+  .config-pre .hl { color: #5EE6A8; }
+  .config-note { font-size: 0.76rem; color: var(--muted); }
+
+  /* ---------- Toast ---------- */
+  .toasts { position: fixed; top: 4.2rem; right: 1.2rem; z-index: 200; display: flex; flex-direction: column; gap: 0.5rem; }
+  .toast {
+    background: var(--ink); color: #fff; border-radius: 9px;
+    padding: 0.55rem 0.95rem; font-size: 0.82rem; font-weight: 600;
+    box-shadow: 0 8px 24px rgba(26,29,51,0.3);
+    display: flex; align-items: center; gap: 0.5rem;
+    animation: toastIn 0.25s ease both;
+  }
+  .toast.ok::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #2BD98D; }
+  .toast.warn::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #F5B21B; }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+  .toast.hide { animation: toastOut 0.25s ease both; }
+  @keyframes toastOut { to { opacity: 0; transform: translateX(16px); } }
+
+  footer.foot {
+    max-width: 1180px; margin: 0 auto; padding: 0 1.4rem 2.5rem;
+    color: var(--muted); font-size: 0.76rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+  }
+
+  @media (max-width: 720px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .stats { gap: 1.3rem; }
+    .kc-actions { margin-left: 0; width: 100%; }
+    .mid { min-width: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">K</span>
+    AI Key Manager
+    <span class="demo-tag">交互演示 · 模拟数据</span>
+  </div>
+  <div class="spacer"></div>
+  <button class="btn" id="btn-refresh-all">
+    <span class="spin" id="refresh-spin" style="display:none"></span>
+    刷新余额
+  </button>
+  <button class="btn ghost" id="btn-reset" title="恢复预置演示数据">重置演示</button>
+  <button class="btn primary" id="btn-add">+ 新增密钥</button>
+</header>
+
+<div class="stats" id="stats"></div>
+
+<main class="board" id="board"></main>
+
+<footer class="foot">
+  <span>本页为产品 Demo：所有数据为浏览器本地模拟（localStorage 持久化），不包含真实后端。</span>
+  <span>操作流程：新增密钥 → 看板管理 → 拉取模型 → 生成 Agent 配置。</span>
+</footer>
+
+<!-- 新增 / 编辑密钥 -->
+<div class="overlay" id="overlay-form">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="form-title">
+    <div class="modal-head">
+      <h3 id="form-title">新增密钥</h3>
+      <button class="modal-close" data-close="overlay-form" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="key-form" novalidate>
+        <div class="form-grid">
+          <div class="field">
+            <label for="f-platform">平台</label>
+            <select id="f-platform"></select>
+          </div>
+          <div class="field" id="field-name">
+            <label for="f-name">Key 名称 <span class="hint">留空自动生成</span></label>
+            <input id="f-name" type="text" placeholder="如：主力 Key / 测试号" autocomplete="off">
+            <span class="err-msg" id="name-err">该平台下已存在同名密钥</span>
+          </div>
+          <div class="field full" id="field-custom-name" style="display:none">
+            <label for="f-custom-name">自定义平台名称</label>
+            <input id="f-custom-name" type="text" placeholder="如：硅基流动 SiliconFlow">
+          </div>
+          <div class="field full" id="field-key">
+            <label for="f-key">API Key <span class="req">*</span></label>
+            <input id="f-key" type="text" class="mono" placeholder="sk-xxxxxxxxxxxxxxxxxxxx" autocomplete="off" required>
+            <span class="err-msg" id="key-err">API Key 为必填项</span>
+          </div>
+          <div class="field">
+            <label for="f-base">Base URL</label>
+            <input id="f-base" type="text" class="mono" placeholder="https://api.example.com/v1">
+          </div>
+          <div class="field">
+            <label for="f-model">默认模型</label>
+            <input id="f-model" type="text" class="mono" placeholder="deepseek-chat">
+          </div>
+          <div class="field">
+            <label for="f-reg">注册时间 <span class="hint">可选</span></label>
+            <input id="f-reg" type="date">
+          </div>
+          <div class="field">
+            <label for="f-exp">有效期至 <span class="hint">可选</span></label>
+            <input id="f-exp" type="date">
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button type="submit" class="btn primary" id="btn-save">保存密钥</button>
+          <button type="button" class="btn" data-close="overlay-form">取消</button>
+          <span class="note">保存后密钥加密存储于本地（Demo 中为模拟）</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- 生成 Agent 配置 -->
+<div class="overlay" id="overlay-config">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="config-title">
+    <div class="modal-head">
+      <h3 id="config-title">生成 Agent 配置</h3>
+      <button class="modal-close" data-close="overlay-config" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="config-key-label" id="config-key-label"></div>
+      <div class="seg" id="seg-tool">
+        <button type="button" class="opt on" data-tool="dify">Dify</button>
+        <button type="button" class="opt" data-tool="n8n">n8n</button>
+        <button type="button" class="opt" data-tool="env">.env</button>
+      </div>
+      <pre class="config-pre" id="config-pre"></pre>
+      <div class="modal-foot" style="margin-top:0.6rem">
+        <button class="btn primary" id="btn-copy-config">复制整段配置</button>
+        <span class="config-note" id="config-note"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ================= 平台注册表与模拟数据 ================= */
+
+  var PLATFORMS = {
+    deepseek: {
+      name: 'DeepSeek', color: '#22A5F7',
+      base: 'https://api.deepseek.com', model: 'deepseek-chat', currency: '¥',
+      models: [
+        { id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta' },
+        { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta' },
+        { id: 'deepseek-v3', ctx: 131072, out: 16384, src: 'meta' }
+      ]
+    },
+    openai: {
+      name: 'OpenAI', color: '#4B3FE3',
+      base: 'https://api.openai.com/v1', model: 'gpt-4o', currency: '$',
+      models: [
+        { id: 'gpt-4o', ctx: 128000, out: 16384, src: 'meta' },
+        { id: 'gpt-4o-mini', ctx: 128000, out: 16384, src: 'meta' },
+        { id: 'o3-mini', ctx: 200000, out: 100000, src: 'meta' }
+      ]
+    },
+    anthropic: {
+      name: 'Anthropic', color: '#D97757',
+      base: 'https://api.anthropic.com', model: 'claude-sonnet-4-5', currency: '$',
+      models: [
+        { id: 'claude-sonnet-4-5', ctx: 200000, out: 64000, src: 'api' },
+        { id: 'claude-opus-4-1', ctx: 200000, out: 32000, src: 'api' },
+        { id: 'claude-haiku-4-5', ctx: 200000, out: 32000, src: 'api' }
+      ]
+    },
+    moonshot: {
+      name: 'Moonshot (Kimi)', color: '#F87454',
+      base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k', currency: '¥',
+      models: [
+        { id: 'moonshot-v1-8k', ctx: 8192, out: 4096, src: 'meta' },
+        { id: 'moonshot-v1-32k', ctx: 32768, out: 8192, src: 'meta' },
+        { id: 'kimi-k2-0905-preview', ctx: 262144, out: 16384, src: 'meta' }
+      ]
+    },
+    custom: {
+      name: '自定义平台', color: '#8A8FA8',
+      base: '', model: '', currency: '¥',
+      models: [
+        { id: '自定义模型需手动填写', ctx: null, out: null, src: 'meta' }
+      ]
+    }
+  };
+
+  var LS_KEY = 'ai-key-manager-demo-v1';
+
+  function fmtDate(d) {
+    var t = new Date(d);
+    var m = String(t.getMonth() + 1).padStart(2, '0');
+    var day = String(t.getDate()).padStart(2, '0');
+    return t.getFullYear() + '-' + m + '-' + day;
+  }
+  function daysFromToday(d) {
+    if (!d) return Infinity;
+    return Math.round((new Date(d) - new Date()) / 86400000);
+  }
+  function maskKey(k) {
+    if (!k || k.length <= 8) return k || '';
+    return k.slice(0, 3) + '••••••••••••' + k.slice(-4);
+  }
+
+  function seedData() {
+    var t = new Date();
+    return {
+      nextId: 6,
+      keys: [
+        {
+          id: 1, name: '主力 Key', platform: 'deepseek',
+          key: 'sk-8f2ac41d5b9e7c03a6d4f2a', base: 'https://api.deepseek.com', model: 'deepseek-chat',
+          reg: '2025-06-18', exp: fmtDate(t.getTime() + 400 * 86400000),
+          balance: { value: 12.35, status: 'ok' }, models: null, revealed: false
+        },
+        {
+          id: 2, name: '测试号', platform: 'deepseek',
+          key: 'sk-3b7e9d2f6a1c84b05e7f9c3d', base: 'https://api.deepseek.com', model: 'deepseek-reasoner',
+          reg: '2025-11-02', exp: fmtDate(t.getTime() + 120 * 86400000),
+          balance: { value: null, status: 'pending' }, models: null, revealed: false
+        },
+        {
+          id: 3, name: '测试号', platform: 'openai',
+          key: 'sk-9d1c3e5a7b2f4086c1e8d1c', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini',
+          reg: '2025-09-01', exp: fmtDate(t.getTime() + 365 * 86400000),
+          balance: { value: 8.42, status: 'ok' }, models: null, revealed: false
+        },
+        {
+          id: 4, name: '体验金', platform: 'moonshot',
+          key: 'sk-7a3e2c9f4d8b1056e2f9a3e', base: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k',
+          reg: '2025-12-05', exp: fmtDate(t.getTime() + 9 * 86400000),
+          balance: { value: null, status: 'pending' }, models: null, revealed: false
+        },
+        {
+          id: 5, name: '旧账号', platform: 'anthropic',
+          key: 'sk-ant-5c2f8e1a9b3d7604c8e2f1a', base: 'https://api.anthropic.com', model: 'claude-haiku-4-5',
+          reg: '2025-02-14', exp: fmtDate(t.getTime() - 30 * 86400000),
+          balance: { value: 0.00, status: 'ok' }, models: null, revealed: false
+        }
+      ]
+    };
+  }
+
+  var db;
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) { db = JSON.parse(raw); return; }
+    } catch (e) { /* 忽略损坏数据 */ }
+    db = seedData();
+    save();
+  }
+  function save() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(db)); } catch (e) { /* 隐私模式忽略 */ }
+  }
+
+  /* ================= 状态计算 ================= */
+
+  function keyStatus(k) {
+    var d = daysFromToday(k.exp);
+    if (d < 0) return 'exp';
+    if (d <= 30) return 'warn';
+    return 'ok';
+  }
+  var ST_LABEL = { ok: '有效', warn: '临期', exp: '已过期' };
+
+  function balanceText(k) {
+    var p = PLATFORMS[k.platform];
+    var cur = p ? p.currency : '¥';
+    if (k.balance.status === 'pending') return '待查询';
+    if (k.balance.status === 'fail') return '查询失败';
+    return cur + Number(k.balance.value).toFixed(2);
+  }
+
+  /* ================= 渲染 ================= */
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function render() {
+    var board = document.getElementById('board');
+    if (!db.keys.length) {
+      board.innerHTML =
+        '<div class="empty">' +
+        '<h3>还没有任何密钥</h3>' +
+        '<p>把你的第一枚 API Key 录入进来，之后在看板统一管理余额、有效期与配置参数。</p>' +
+        '<button class="btn primary" onclick="document.getElementById(\'btn-add\').click()">+ 新增第一个密钥</button>' +
+        '</div>';
+      renderStats();
+      return;
+    }
+
+    var groups = {};
+    db.keys.forEach(function (k) {
+      var label = k.platform === 'custom' ? (k.customName || '自定义平台') : PLATFORMS[k.platform].name;
+      (groups[label] = groups[label] || []).push(k);
+    });
+
+    var html = '';
+    Object.keys(groups).forEach(function (label) {
+      var arr = groups[label];
+      var color = arr[0].platform === 'custom' ? PLATFORMS.custom.color : PLATFORMS[arr[0].platform].color;
+      html += '<section class="platform-group">' +
+        '<div class="group-head"><span class="plat-dot" style="background:' + color + '"></span>' +
+        esc(label) + ' <span class="group-count">' + arr.length + ' 个密钥</span></div>';
+      arr.forEach(function (k) { html += renderCard(k); });
+      html += '</section>';
+    });
+    board.innerHTML = html;
+    renderStats();
+  }
+
+  function renderCard(k) {
+    var p = PLATFORMS[k.platform] || PLATFORMS.custom;
+    var st = keyStatus(k);
+    var keyShown = k.revealed ? esc(k.key) : esc(maskKey(k.key));
+    var drawerOpen = k.drawerOpen ? ' open' : '';
+    var drawerBody = k.drawerOpen ? renderDrawer(k) : '';
+
+    var modelsBtnLabel = k.models ? '模型 ' + k.models.length : '模型目录';
+
+    return (
+      '<article class="keycard" data-id="' + k.id + '">' +
+        '<div class="kc-main">' +
+          '<div class="kc-l1">' +
+            '<span class="plat"><span class="plat-dot" style="background:' + p.color + '"></span>' + esc(k.platform === 'custom' ? (k.customName || '自定义平台') : p.name) + '</span>' +
+            '<span class="kname">' + esc(k.name) + '</span>' +
+            '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
+            '<span class="meta">余额 ' + esc(balanceText(k)) + '</span>' +
+            (k.reg ? '<span class="meta">注册 ' + esc(k.reg) + '</span>' : '') +
+            (k.exp ? '<span class="meta">有效期至 ' + esc(k.exp) + '</span>' : '<span class="meta">长期有效</span>') +
+            '<span class="kc-actions">' +
+              '<button class="btn ghost small" data-act="edit">编辑</button>' +
+              '<button class="btn ghost small" data-act="del">删除</button>' +
+            '</span>' +
+          '</div>' +
+          '<div class="kc-l2">' +
+            '<span class="param" data-copy="' + esc(k.key) + '">' +
+              '<span class="val">' + keyShown + '</span>' +
+              '<button class="copy-btn" data-act="copy" title="复制密钥">复制</button>' +
+            '</span>' +
+            '<button class="eye-btn" data-act="reveal" title="显示 / 隐藏明文">' +
+              (k.revealed
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>') +
+            '</button>' +
+            '<span class="param" data-copy="' + esc(k.base) + '">' +
+              '<span class="val">' + esc(k.base) + '</span>' +
+              '<button class="copy-btn" data-act="copy" title="复制 Base URL">复制</button>' +
+            '</span>' +
+            '<span class="param" data-copy="' + esc(k.model) + '">' +
+              '<span class="val">' + esc(k.model) + '</span>' +
+              '<button class="copy-btn" data-act="copy" title="复制模型名">复制</button>' +
+            '</span>' +
+            '<span class="kc-more">' +
+              '<button class="btn small" data-act="toggle-models">' + esc(modelsBtnLabel) + '</button>' +
+              '<button class="btn primary small" data-act="config">生成配置</button>' +
+            '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="drawer' + drawerOpen + '" data-drawer="' + k.id + '">' + drawerBody + '</div>' +
+      '</article>'
+    );
+  }
+
+  function renderDrawer(k) {
+    var head =
+      '<div class="drawer-inner">' +
+        '<div class="drawer-toolbar">' +
+          '<span class="drawer-title">模型目录</span>' +
+          '<span class="meta">来源：平台接口 + 本地元数据库</span>' +
+          '<span class="spacer" style="flex:1"></span>' +
+          '<button class="btn small" data-act="fetch-models">重新拉取</button>' +
+        '</div>';
+
+    if (k.modelsLoading) {
+      return head + '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台模型列表接口…</p></div>';
+    }
+    if (!k.models) {
+      return head +
+        '<p class="meta" style="margin-bottom:0.6rem">尚未拉取，点击下方按钮模拟调用平台模型接口。</p>' +
+        '<button class="btn primary small" data-act="fetch-models">拉取模型</button></div>';
+    }
+    var rows = k.models.map(function (m) {
+      var isDefault = m.id === k.model;
+      return (
+        '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
+          '<span class="mid">' + esc(m.id) + '</span>' +
+          '<span class="mspec">上下文 <b>' + (m.ctx ? (m.ctx >= 1024 ? Math.round(m.ctx / 1024) + 'K' : m.ctx) : '未知') + '</b></span>' +
+          '<span class="mspec">最大输出 <b>' + (m.out ? (m.out >= 1024 ? Math.round(m.out / 1024) + 'K' : m.out) : '未知') + '</b></span>' +
+          '<span class="m-tag' + (m.src === 'api' ? ' api' : '') + '">' + (m.src === 'api' ? '平台接口' : '元数据库') + '</span>' +
+          (isDefault
+            ? '<button class="btn small" disabled>当前默认</button>'
+            : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
+        '</div>'
+      );
+    }).join('');
+    return head + '<div class="model-list">' + rows + '</div></div>';
+  }
+
+  function renderStats() {
+    var total = db.keys.length;
+    var platforms = {};
+    var ok = 0, warn = 0, exp = 0;
+    db.keys.forEach(function (k) {
+      platforms[k.platform === 'custom' ? (k.customName || 'custom') : k.platform] = 1;
+      var s = keyStatus(k);
+      if (s === 'ok') ok++; else if (s === 'warn') warn++; else exp++;
+    });
+    document.getElementById('stats').innerHTML =
+      stat(total, '全部密钥') + stat(Object.keys(platforms).length, '接入平台') +
+      stat(ok, '有效', 'ok') + stat(warn, '临期', 'warn') + stat(exp, '已过期', 'exp');
+  }
+  function stat(num, lbl, cls) {
+    return '<div class="stat' + (cls ? ' ' + cls : '') + '"><span class="num">' + num + '</span><span class="lbl">' + lbl + '</span></div>';
+  }
+
+  /* ================= Toast ================= */
+
+  function toast(msg, type) {
+    var box = document.getElementById('toasts');
+    var el = document.createElement('div');
+    el.className = 'toast ' + (type || 'ok');
+    el.textContent = msg;
+    box.appendChild(el);
+    setTimeout(function () {
+      el.classList.add('hide');
+      setTimeout(function () { el.remove(); }, 300);
+    }, 2200);
+  }
+
+  /* ================= 复制 ================= */
+
+  function copyText(text, done) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, done);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch (e) { /* 演示环境忽略 */ }
+      ta.remove(); done();
+    }
+  }
+
+  /* ================= 看板交互（事件委托） ================= */
+
+  function findKey(id) {
+    for (var i = 0; i < db.keys.length; i++) if (db.keys[i].id === id) return db.keys[i];
+    return null;
+  }
+
+  document.getElementById('board').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    var card = ev.target.closest('.keycard');
+    var k = card ? findKey(Number(card.dataset.id)) : null;
+    if (!k) return;
+    var act = btn.dataset.act;
+
+    if (act === 'copy') {
+      var param = btn.closest('.param');
+      copyText(param.dataset.copy, function () {
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        btn.classList.add('done');
+        param.classList.add('copied');
+        setTimeout(function () {
+          btn.textContent = old;
+          btn.classList.remove('done');
+          param.classList.remove('copied');
+        }, 1200);
+      });
+      return;
+    }
+    if (act === 'reveal') {
+      k.revealed = !k.revealed;
+      save(); render();
+      return;
+    }
+    if (act === 'edit') { openForm(k); return; }
+    if (act === 'del') {
+      if (btn.dataset.armed === '1') {
+        db.keys = db.keys.filter(function (x) { return x.id !== k.id; });
+        save(); render();
+        toast('已删除「' + k.name + '」');
+      } else {
+        btn.dataset.armed = '1';
+        btn.textContent = '确认删除？';
+        btn.classList.add('danger-confirm');
+        setTimeout(function () {
+          if (!btn.isConnected) return;
+          btn.dataset.armed = '';
+          btn.textContent = '删除';
+          btn.classList.remove('danger-confirm');
+        }, 3000);
+      }
+      return;
+    }
+    if (act === 'toggle-models') {
+      k.drawerOpen = !k.drawerOpen;
+      save(); render();
+      return;
+    }
+    if (act === 'fetch-models') {
+      fetchModels(k);
+      return;
+    }
+    if (act === 'set-model') {
+      k.model = btn.dataset.model;
+      save(); render();
+      toast('默认模型已设为 ' + k.model);
+      return;
+    }
+    if (act === 'config') { openConfig(k); return; }
+  });
+
+  /* ================= 模型拉取（模拟） ================= */
+
+  function fetchModels(k) {
+    k.modelsLoading = true;
+    k.drawerOpen = true;
+    render();
+    setTimeout(function () {
+      k.modelsLoading = false;
+      var p = PLATFORMS[k.platform];
+      if (k.platform === 'custom') {
+        k.models = [{ id: k.model || 'custom-model', ctx: null, out: null, src: 'meta' }];
+        toast('自定义平台：模型参数需手动补充', 'warn');
+      } else {
+        k.models = (p.models || []).map(function (m) { return { id: m.id, ctx: m.ctx, out: m.out, src: m.src }; });
+        toast('已拉取 ' + k.models.length + ' 个模型（' + p.name + '）');
+      }
+      save(); render();
+    }, 900);
+  }
+
+  /* ================= 新增 / 编辑表单 ================= */
+
+  var editingId = null;
+
+  var fPlatform = document.getElementById('f-platform');
+  var fName = document.getElementById('f-name');
+  var fCustomName = document.getElementById('f-custom-name');
+  var fKey = document.getElementById('f-key');
+  var fBase = document.getElementById('f-base');
+  var fModel = document.getElementById('f-model');
+  var fReg = document.getElementById('f-reg');
+  var fExp = document.getElementById('f-exp');
+
+  (function initPlatformSelect() {
+    var html = '';
+    Object.keys(PLATFORMS).forEach(function (id) {
+      html += '<option value="' + id + '">' + PLATFORMS[id].name + '</option>';
+    });
+    fPlatform.innerHTML = html;
+  })();
+
+  fPlatform.addEventListener('change', function () {
+    var p = PLATFORMS[fPlatform.value];
+    fBase.value = p.base;
+    fModel.value = p.model;
+    document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
+    if (fPlatform.value === 'custom') fCustomName.focus();
+  });
+
+  function openForm(k) {
+    editingId = k ? k.id : null;
+    document.getElementById('form-title').textContent = k ? '编辑密钥' : '新增密钥';
+    document.getElementById('btn-save').textContent = k ? '保存修改' : '保存密钥';
+    fPlatform.value = k ? k.platform : 'deepseek';
+    fName.value = k ? k.name : '';
+    fCustomName.value = k && k.customName ? k.customName : '';
+    fKey.value = k ? k.key : '';
+    fBase.value = k ? k.base : PLATFORMS[fPlatform.value].base;
+    fModel.value = k ? k.model : PLATFORMS[fPlatform.value].model;
+    fReg.value = k && k.reg ? k.reg : '';
+    fExp.value = k && k.exp ? k.exp : '';
+    document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
+    clearErrors();
+    openOverlay('overlay-form');
+    if (!k) fPlatform.focus();
+  }
+
+  function clearErrors() {
+    ['field-name', 'field-key'].forEach(function (id) { document.getElementById(id).classList.remove('error'); });
+  }
+
+  document.getElementById('key-form').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    clearErrors();
+
+    var platform = fPlatform.value;
+    var name = fName.value.trim();
+    var keyValue = fKey.value.trim();
+    var customName = fCustomName.value.trim();
+
+    if (!keyValue) {
+      document.getElementById('field-key').classList.add('error');
+      fKey.focus();
+      return;
+    }
+    var finalName = name || autoName(platform, customName, keyValue);
+
+    var dup = db.keys.some(function (x) {
+      return x.id !== editingId &&
+        x.platform === platform &&
+        (platform === 'custom' ? (x.customName || '') === customName : true) &&
+        x.name === finalName;
+    });
+    if (name && dup) {
+      document.getElementById('field-name').classList.add('error');
+      fName.focus();
+      return;
+    }
+
+    if (editingId) {
+      var k = findKey(editingId);
+      k.name = finalName; k.platform = platform; k.key = keyValue;
+      k.customName = platform === 'custom' ? (customName || '自定义平台') : '';
+      k.base = fBase.value.trim() || PLATFORMS[platform].base;
+      k.model = fModel.value.trim();
+      k.reg = fReg.value; k.exp = fExp.value;
+      if (k.model === '' || k.models) { /* 模型变更后目录仍可参考 */ }
+      toast('密钥「' + finalName + '」已更新');
+    } else {
+      db.keys.push({
+        id: db.nextId++,
+        name: finalName, platform: platform,
+        customName: platform === 'custom' ? (customName || '自定义平台') : '',
+        key: keyValue,
+        base: fBase.value.trim() || PLATFORMS[platform].base,
+        model: fModel.value.trim(),
+        reg: fReg.value, exp: fExp.value,
+        balance: { value: null, status: 'pending' },
+        models: null, revealed: false
+      });
+      toast('密钥「' + finalName + '」已保存，余额待刷新');
+    }
+    save(); render();
+    closeOverlay('overlay-form');
+  });
+
+  function autoName(platform, customName, keyValue) {
+    var label = platform === 'custom' ? (customName || '自定义平台') : PLATFORMS[platform].name;
+    var tail = keyValue.length >= 4 ? keyValue.slice(-4) : keyValue;
+    return label + '-' + tail;
+  }
+
+  /* ================= 配置生成 ================= */
+
+  var configKeyRef = null;
+  var configTool = 'dify';
+
+  function openConfig(k) {
+    configKeyRef = k.id;
+    document.getElementById('config-key-label').innerHTML =
+      '<span class="plat"><span class="plat-dot" style="background:' + (PLATFORMS[k.platform] || PLATFORMS.custom).color + '"></span></span>' +
+      '<b>' + esc(k.platform === 'custom' ? (k.customName || '自定义平台') : PLATFORMS[k.platform].name) + ' · ' + esc(k.name) + '</b>' +
+      '<span class="meta">配置参数取自该密钥的默认模型</span>';
+    openOverlay('overlay-config');
+    renderConfig();
+  }
+
+  function currentModelMeta(k) {
+    if (!k.models) return null;
+    for (var i = 0; i < k.models.length; i++) {
+      if (k.models[i].id === k.model) return k.models[i];
+    }
+    return null;
+  }
+
+  function buildConfig(k, tool) {
+    var provider = (k.platform === 'custom'
+      ? (k.customName || 'custom')
+      : PLATFORMS[k.platform].name).toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    var meta = currentModelMeta(k);
+    var U = provider.toUpperCase();
+    var lines;
+
+    if (tool === 'dify') {
+      lines = ['# Dify 模型供应商环境变量',
+        'DIFY_LLM_PROVIDER=' + provider,
+        'DIFY_' + U + '_API_KEY=' + k.key,
+        'DIFY_' + U + '_API_BASE=' + k.base,
+        'DIFY_' + U + '_MODEL=' + k.model];
+      if (meta && meta.ctx) lines.push('DIFY_' + U + '_CONTEXT_WINDOW=' + meta.ctx);
+      if (meta && meta.out) lines.push('DIFY_' + U + '_MAX_OUTPUT=' + meta.out);
+    } else if (tool === 'n8n') {
+      lines = ['# n8n OpenAI 兼容凭证',
+        'provider: ' + provider,
+        'apiKey: ' + k.key,
+        'baseUrl: ' + k.base,
+        'model: ' + k.model];
+      if (meta && meta.out) lines.push('maxOutputTokens: ' + meta.out);
+      if (meta && meta.ctx) lines.push('contextWindow: ' + meta.ctx);
+    } else {
+      lines = [U + '_API_KEY=' + k.key,
+        U + '_API_BASE=' + k.base,
+        U + '_MODEL=' + k.model];
+      if (meta && meta.ctx) lines.push(U + '_CONTEXT_WINDOW=' + meta.ctx);
+      if (meta && meta.out) lines.push(U + '_MAX_OUTPUT=' + meta.out);
+    }
+    return lines.join('\n');
+  }
+
+  function highlightConfig(text) {
+    return esc(text).split('\n').map(function (line) {
+      if (/^#/.test(line)) return '<span class="cmt">' + line + '</span>';
+      var m = line.match(/^([A-Z_]+)=([\s\S]*)$/);
+      if (m) return '<span class="k">' + m[1] + '</span>=<span class="hl">' + m[2] + '</span>';
+      m = line.match(/^([a-zA-Z]+):\s?([\s\S]*)$/);
+      if (m) return '<span class="k">' + m[1] + '</span>: <span class="hl">' + m[2] + '</span>';
+      return line;
+    }).join('\n');
+  }
+
+  function renderConfig() {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var meta = currentModelMeta(k);
+    document.getElementById('config-pre').innerHTML = highlightConfig(buildConfig(k, configTool));
+    document.getElementById('config-note').textContent = meta && meta.ctx
+      ? '已带入上下文 ' + (meta.ctx >= 1024 ? Math.round(meta.ctx / 1024) + 'K' : meta.ctx) + ' 与最大输出 ' + (meta.out >= 1024 ? Math.round(meta.out / 1024) + 'K' : meta.out)
+      : '提示：先在卡片中「拉取模型」，配置可自动带入上下文与最大输出';
+  }
+
+  document.getElementById('seg-tool').addEventListener('click', function (ev) {
+    var opt = ev.target.closest('.opt');
+    if (!opt) return;
+    this.querySelectorAll('.opt').forEach(function (o) { o.classList.remove('on'); });
+    opt.classList.add('on');
+    configTool = opt.dataset.tool;
+    renderConfig();
+  });
+
+  document.getElementById('btn-copy-config').addEventListener('click', function () {
+    var k = findKey(configKeyRef);
+    if (!k) return;
+    var btn = this;
+    copyText(buildConfig(k, configTool), function () {
+      var old = btn.textContent;
+      btn.textContent = '已复制';
+      setTimeout(function () { btn.textContent = old; }, 1200);
+      toast('配置已复制到剪贴板');
+    });
+  });
+
+  /* ================= 余额刷新（模拟） ================= */
+
+  document.getElementById('btn-refresh-all').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    document.getElementById('refresh-spin').style.display = '';
+    setTimeout(function () {
+      var changed = 0;
+      db.keys.forEach(function (k) {
+        var p = PLATFORMS[k.platform] || PLATFORMS.custom;
+        if (k.balance.status === 'pending' || k.balance.status === 'ok') {
+          var base = k.balance.value == null
+            ? (Math.random() * 20 + 1)
+            : Math.max(0, k.balance.value + (Math.random() - 0.55) * 1.2);
+          k.balance = { value: Math.round(base * 100) / 100, status: 'ok' };
+          changed++;
+        }
+      });
+      save(); render();
+      btn.disabled = false;
+      document.getElementById('refresh-spin').style.display = 'none';
+      toast('余额刷新完成，更新 ' + changed + ' 个密钥（' + (PLATFORMS.deepseek.currency) + ' / $ 按平台）');
+    }, 1000);
+  });
+
+  /* ================= 顶部操作 ================= */
+
+  document.getElementById('btn-add').addEventListener('click', function () { openForm(null); });
+
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    db = seedData();
+    save(); render();
+    toast('已恢复预置演示数据');
+  });
+
+  /* ================= Modal 通用 ================= */
+
+  function openOverlay(id) {
+    document.getElementById(id).classList.add('show');
+  }
+  function closeOverlay(id) {
+    document.getElementById(id).classList.remove('show');
+  }
+
+  document.querySelectorAll('[data-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () { closeOverlay(btn.dataset.close); });
+  });
+  document.querySelectorAll('.overlay').forEach(function (ov) {
+    ov.addEventListener('mousedown', function (ev) {
+      if (ev.target === ov) closeOverlay(ov.id);
+    });
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape') {
+      document.querySelectorAll('.overlay.show').forEach(function (ov) { ov.classList.remove('show'); });
+    }
+  });
+
+  /* ================= 启动 ================= */
+
+  load();
+  render();
+})();
+</script>
+</body>
+</html>
