@@ -419,6 +419,51 @@
       color: #fff;
     }
 
+    /* Demo: model catalog */
+    .demo-models { display: flex; flex-direction: column; gap: 0.7rem; }
+    .model-list { display: flex; flex-direction: column; gap: 0.45rem; }
+    .model-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      background: #fff;
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 0.55rem 0.85rem;
+    }
+    .model-item .mid {
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      font-weight: 700;
+      min-width: 150px;
+    }
+    .model-item .m-cap {
+      font-size: 0.76rem;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 0.12rem 0.55rem;
+      background: rgba(34, 165, 247, 0.12);
+      color: #1c6fd6;
+    }
+    .model-item .m-out {
+      font-size: 0.76rem;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 0.12rem 0.55rem;
+      background: rgba(29, 201, 129, 0.14);
+      color: #0e9e63;
+    }
+    .model-item .m-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--muted);
+      background: rgba(107, 110, 123, 0.12);
+      border-radius: 999px;
+      padding: 0.1rem 0.5rem;
+      margin-left: auto;
+    }
+
     /* === Mermaid === */
     .diagram { margin: 1.4rem 0; text-align: center; }
     .diagram figcaption {
@@ -457,11 +502,11 @@
 
     <!-- ============ COVER ============ -->
     <header class="cover">
-      <span class="tagline">Product Design Document · v0.1</span>
+      <span class="tagline">Product Design Document · v0.2</span>
       <h1>AI Key Manager<span class="grad"> 产品设计文档</span></h1>
       <p class="subtitle">一款本地优先的 AI 密钥管理工具：一次录入，全盘掌握，随处可用。本文档梳理产品整体方向与主要功能范围。</p>
       <div class="meta">
-        <span>文档版本 <b>v0.1</b></span>
+        <span>文档版本 <b>v0.2</b></span>
         <span>产品形态 <b>本地 Web 服务</b></span>
         <span>目标平台 <b>国内外 AI 平台</b></span>
         <span>更新日期 <b>2026-09-02</b></span>
@@ -661,7 +706,7 @@ flowchart LR
       <!-- ============ 6 功能总览 ============ -->
       <section id="feature-map">
         <h2><span class="idx">06</span>功能模块总览</h2>
-        <p>产品共规划 6 大功能模块。MVP 阶段全部进入 P0 优先级，后续版本按 P1 / P2 迭代增强。</p>
+        <p>产品共规划 7 大功能模块。MVP 阶段全部进入 P0 优先级，后续版本按 P1 / P2 迭代增强。</p>
         <div class="table-wrap">
           <table>
             <thead>
@@ -699,10 +744,16 @@ flowchart LR
                 <td>11</td>
               </tr>
               <tr>
+                <td>模型目录与自动拉取</td>
+                <td><span class="badge p0">P0</span></td>
+                <td>自动拉取模型列表，展示上下文与最大输出</td>
+                <td>12</td>
+              </tr>
+              <tr>
                 <td>系统与安全设置</td>
                 <td><span class="badge p0">P0</span></td>
                 <td>本地服务、加密存储、托盘常驻</td>
-                <td>12</td>
+                <td>13</td>
               </tr>
             </tbody>
           </table>
@@ -910,7 +961,9 @@ flowchart LR
 DIFY_LLM_PROVIDER=deepseek
 <span class="val">DIFY_DEEPSEEK_API_KEY</span>=sk-8f2ac41d5b9e7c03a6d4f2a
 <span class="val">DIFY_DEEPSEEK_API_BASE</span>=https://api.deepseek.com
-<span class="val">DIFY_DEEPSEEK_MODEL</span>=deepseek-chat</pre>
+<span class="val">DIFY_DEEPSEEK_MODEL</span>=deepseek-chat
+<span class="val">DIFY_DEEPSEEK_CONTEXT_WINDOW</span>=65536
+<span class="val">DIFY_DEEPSEEK_MAX_OUTPUT</span>=8192</pre>
               <div class="demo-toolbar">
                 <button class="btn primary small" id="btn-copy-config">复制配置</button>
                 <span class="meta">演示仅展示模板效果，实际按目标工具格式生成</span>
@@ -923,7 +976,7 @@ DIFY_LLM_PROVIDER=deepseek
         <p>配置生成以弹窗或独立面板呈现：上方为本地 Agent 工具选择（分段控件），中部为实时生成的配置代码片段（等宽字体、语法着色），下方为复制与关闭操作。</p>
 
         <h4>业务逻辑</h4>
-        <p>用户在密钥卡片点击「生成配置」，系统弹出配置生成面板。面板按目标工具类型（首版支持 1-2 种，如 Dify 与 .env 模板）套用对应模板，将当前密钥的平台、Key、base URL、默认模型代入生成完整配置片段。用户切换工具类型时配置实时重算。生成的配置以「复制到剪贴板」为主要出口，并支持保存为文件（后续版本）。</p>
+        <p>用户在密钥卡片点击「生成配置」，系统弹出配置生成面板。面板按目标工具类型（首版支持 1-2 种，如 Dify 与 .env 模板）套用对应模板，将当前密钥的平台、Key、base URL、默认模型代入生成完整配置片段。若模型目录中已拉取该模型的上下文长度与最大输出，则一并代入（如 <code>MAX_TOKENS</code>、<code>CONTEXT_WINDOW</code>），免去用户在工具中手动填写。用户切换工具类型时配置实时重算。生成的配置以「复制到剪贴板」为主要出口，并支持保存为文件（后续版本）。</p>
 
         <h4>字段规则</h4>
         <div class="table-wrap">
@@ -1017,9 +1070,85 @@ DIFY_LLM_PROVIDER=deepseek
         </div>
       </section>
 
-      <!-- ============ 12 系统与安全 ============ -->
+      <!-- ============ 12 模型目录与自动拉取 ============ -->
+      <section id="module-models">
+        <h2><span class="idx">12</span>核心功能 · 模型目录与自动拉取</h2>
+
+        <div class="proto">
+          <div class="proto-head">交互原型 · 自动拉取模型列表</div>
+          <div class="proto-body">
+            <div class="demo-models" id="demo-models">
+              <div class="demo-toolbar">
+                <strong>选择密钥后自动拉取</strong>
+                <span class="chip">DeepSeek · sk-••••••••••••4f2a</span>
+                <span class="spacer"></span>
+                <button class="btn primary small" id="btn-fetch-models">拉取模型</button>
+              </div>
+              <div class="model-list">
+                <div class="model-item">
+                  <span class="mid">deepseek-chat</span>
+                  <span class="m-cap">上下文 64K</span>
+                  <span class="m-out">最大输出 8K</span>
+                  <span class="m-tag">元数据库</span>
+                </div>
+                <div class="model-item">
+                  <span class="mid">deepseek-reasoner</span>
+                  <span class="m-cap">上下文 64K</span>
+                  <span class="m-out">最大输出 8K</span>
+                  <span class="m-tag">元数据库</span>
+                </div>
+                <div class="model-item">
+                  <span class="mid">deepseek-v3</span>
+                  <span class="m-cap">上下文 128K</span>
+                  <span class="m-out">最大输出 16K</span>
+                  <span class="m-tag">元数据库</span>
+                </div>
+              </div>
+              <div class="demo-toolbar">
+                <span class="meta" id="model-hint">点击「拉取模型」模拟调用平台模型接口</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h4>页面布局</h4>
+        <p>模型拉取功能内嵌于密钥看板与新增密钥表单中。用户选择某个密钥后，卡片下方展开「模型目录」区域：顶部为操作条（当前密钥标识、拉取按钮），中部为模型列表，每个模型一行展示模型 ID、上下文长度、最大输出与数据来源标签。</p>
+
+        <h4>业务逻辑</h4>
+        <p>用户选择某家平台的密钥后，系统自动调用该平台适配器的模型列表接口，拉取可用模型 ID。拉取完成后，系统将每个模型 ID 与本地内置的<strong>模型元数据库</strong>匹配，补充上下文长度与最大输出两项参数；若平台接口本身返回这些参数（如 Anthropic、Gemini），则以接口数据为准。未在元数据库中命中的模型，标记为「未知」，允许用户手动填写后保存，供后续使用。模型列表可手动刷新，刷新失败时保留上次成功结果并提示。</p>
+
+        <h4>字段规则</h4>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>字段</th><th>来源</th><th>说明</th><th>默认</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>模型 ID</td><td>平台接口</td><td>模型唯一标识</td><td>—</td></tr>
+              <tr><td>上下文长度</td><td>接口 / 元数据库</td><td>如 64K / 128K</td><td>未知</td></tr>
+              <tr><td>最大输出</td><td>接口 / 元数据库</td><td>如 8K / 16K tokens</td><td>未知</td></tr>
+              <tr><td>数据来源</td><td>系统标记</td><td>接口 / 元数据库 / 手动</td><td>元数据库</td></tr>
+              <tr><td>默认模型</td><td>用户设置</td><td>该密钥的默认模型，配置生成时优先带入</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h4>边界与异常</h4>
+        <ul>
+          <li>平台接口只返回模型 ID、不返回上下文与最大输出时，由本地元数据库补充；两者都缺失时显示「未知」并允许手动填写。</li>
+          <li>拉取失败（网络异常、Key 无效）时，保留上次成功结果并给出重试入口，不阻塞看板其他操作。</li>
+          <li>元数据库需随平台模型更新而维护，作为产品内置数据随版本发布，支持手动导入更新。</li>
+        </ul>
+
+        <div class="callout">
+          <span class="label">设计要点</span>
+          上下文与最大输出是许多本地 Agent 工具配置时的必填参数。自动拉取 + 元数据库补充，能让「选择模型」直接带出完整参数，避免用户逐个工具手动填写。
+        </div>
+      </section>
+
+      <!-- ============ 13 系统与安全 ============ -->
       <section id="module-security">
-        <h2><span class="idx">12</span>核心功能 · 系统与安全设置</h2>
+        <h2><span class="idx">13</span>核心功能 · 系统与安全设置</h2>
         <h4>本地服务与托盘</h4>
         <p>产品以常驻托盘应用运行：系统启动时可选自启，托盘图标提供「打开看板」「刷新余额」「退出」快捷操作。托盘进程承载本地 Web 服务，监听本机回环地址（默认 127.0.0.1），浏览器通过该地址访问看板。</p>
         <h4>数据安全</h4>
@@ -1045,9 +1174,9 @@ DIFY_LLM_PROVIDER=deepseek
         </div>
       </section>
 
-      <!-- ============ 13 版本规划 ============ -->
+      <!-- ============ 14 版本规划 ============ -->
       <section id="roadmap">
-        <h2><span class="idx">13</span>版本规划</h2>
+        <h2><span class="idx">14</span>版本规划</h2>
         <p>产品从 MVP 起步，按「核心闭环 → 实用增强 → 协作增值」三阶段演进。每阶段聚焦解决一个层次的用户问题，避免一次铺开。</p>
         <div class="table-wrap">
           <table>
@@ -1058,7 +1187,7 @@ DIFY_LLM_PROVIDER=deepseek
               <tr>
                 <td><span class="badge p0">MVP</span></td>
                 <td>核心闭环</td>
-                <td>密钥看板、密钥管理、参数复制与配置生成、余额与有效期监控、平台适配器（含自定义平台）、系统与安全设置</td>
+                <td>密钥看板、密钥管理、参数复制与配置生成、余额与有效期监控、模型目录与自动拉取、平台适配器（含自定义平台）、系统与安全设置</td>
                 <td>存得全、看得清、一键用</td>
               </tr>
               <tr>
@@ -1078,15 +1207,16 @@ DIFY_LLM_PROVIDER=deepseek
         </div>
       </section>
 
-      <!-- ============ 14 关键决策与待确认 ============ -->
+      <!-- ============ 15 关键决策与待确认 ============ -->
       <section id="decisions">
-        <h2><span class="idx">14</span>关键决策与待确认事项</h2>
+        <h2><span class="idx">15</span>关键决策与待确认事项</h2>
         <h4>已确认的决策</h4>
         <ul>
           <li>产品形态为<strong>本地 Web 服务</strong>，浏览器访问，托盘常驻。</li>
           <li>同时支持<strong>国内与海外平台</strong>，采用可插拔平台适配器。</li>
           <li>复制采用<strong>参数级独立复制</strong>（因为一键复制整段仍需手动粘贴），配置级整段复制用于生成 Agent 配置。</li>
           <li>MVP 不做云端同步、团队协作、用量统计等联网依赖较强的功能。</li>
+          <li>模型信息采用<strong>平台接口拉取 + 本地元数据库补充</strong>双源方案，保证上下文与最大输出在多数平台可用。</li>
         </ul>
         <h4>待确认事项</h4>
         <div class="table-wrap">
@@ -1120,7 +1250,7 @@ DIFY_LLM_PROVIDER=deepseek
     <footer>
       <div class="sources">
         <h2>说明</h2>
-        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档初稿（v0.1），基于与产品负责人（用户）的多轮需求沟通整理。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
+        <p style="font-size:0.85rem">本文档为 AI Key Manager 产品设计文档（v0.2），基于与产品负责人（用户）的多轮需求沟通整理。v0.2 新增「模型目录与自动拉取」模块。标注 [To be confirmed] 与 [Assumption] 的条目为待确认或推断内容，后续迭代确认后更新。</p>
       </div>
     </footer>
 
@@ -1133,6 +1263,26 @@ DIFY_LLM_PROVIDER=deepseek
     if (window.mermaid) {
       mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'loose' });
     }
+
+    // Demo: fetch models (mock)
+    document.getElementById('btn-fetch-models').addEventListener('click', function() {
+      var btn = this;
+      var hint = document.getElementById('model-hint');
+      var old = btn.textContent;
+      btn.textContent = '拉取中…';
+      btn.disabled = true;
+      hint.textContent = '正在调用 DeepSeek 模型接口…';
+      setTimeout(function() {
+        btn.textContent = '已拉取';
+        btn.classList.add('copied');
+        hint.textContent = '拉取成功：返回 3 个模型，上下文与最大输出已由元数据库补充';
+        setTimeout(function() {
+          btn.textContent = old;
+          btn.classList.remove('copied');
+          btn.disabled = false;
+        }, 1200);
+      }, 900);
+    });
 
     // Demo: copy buttons (dashboard)
     document.querySelectorAll('.btn-copy').forEach(function(btn) {
@@ -1198,13 +1348,10 @@ DIFY_LLM_PROVIDER=deepseek
 
     // Demo: config generator
     var configs = {
-      dify: '# Dify 模型供应商环境变量\nDIFY_LLM_PROVIDER=deepseek\nDIFY_DEEPSEEK_API_KEY=sk-8f2ac41d5b9e7c03a6d4f2a\nDIFY_DEEPSEEK_API_BASE=https://api.deepseek.com\nDIFY_DEEPSEEK_MODEL=deepseek-chat',
-      n8n: '# n8n OpenAI 兼容凭证\nprovider: deepseek\napiKey: sk-8f2ac41d5b9e7c03a6d4f2a\nbaseUrl: https://api.deepseek.com\nmodel: deepseek-chat',
-      env: 'DEEPSEEK_API_KEY=sk-8f2ac41d5b9e7c03a6d4f2a\nDEEPSEEK_API_BASE=https://api.deepseek.com\nDEEPSEEK_MODEL=deepseek-chat'
+      dify: '# Dify 模型供应商环境变量\nDIFY_LLM_PROVIDER=deepseek\nDIFY_DEEPSEEK_API_KEY=sk-8f2ac41d5b9e7c03a6d4f2a\nDIFY_DEEPSEEK_API_BASE=https://api.deepseek.com\nDIFY_DEEPSEEK_MODEL=deepseek-chat\nDIFY_DEEPSEEK_CONTEXT_WINDOW=65536\nDIFY_DEEPSEEK_MAX_OUTPUT=8192',
+      n8n: '# n8n OpenAI 兼容凭证\nprovider: deepseek\napiKey: sk-8f2ac41d5b9e7c03a6d4f2a\nbaseUrl: https://api.deepseek.com\nmodel: deepseek-chat\nmaxOutputTokens: 8192\ncontextWindow: 65536',
+      env: 'DEEPSEEK_API_KEY=sk-8f2ac41d5b9e7c03a6d4f2a\nDEEPSEEK_API_BASE=https://api.deepseek.com\nDEEPSEEK_MODEL=deepseek-chat\nDEEPSEEK_CONTEXT_WINDOW=65536\nDEEPSEEK_MAX_OUTPUT=8192'
     };
-    var colors = { dify: ['# Dify 模型供应商环境变量', 'DIFY_LLM_PROVIDER', 'DIFY_DEEPSEEK_API_KEY', 'DIFY_DEEPSEEK_API_BASE', 'DIFY_DEEPSEEK_MODEL'],
-                   n8n: ['# n8n OpenAI 兼容凭证', 'provider', 'apiKey', 'baseUrl', 'model'],
-                   env: ['', 'DEEPSEEK_API_KEY', 'DEEPSEEK_API_BASE', 'DEEPSEEK_MODEL'] };
     document.querySelectorAll('#seg-tool .opt').forEach(function(opt) {
       opt.addEventListener('click', function() {
         document.querySelectorAll('#seg-tool .opt').forEach(function(o) { o.classList.remove('on'); });
@@ -1214,9 +1361,11 @@ DIFY_LLM_PROVIDER=deepseek
         var lines = configs[tool].split('\n');
         pre.innerHTML = lines.map(function(line) {
           var c = line.match(/^#/);
-          var kv = line.match(/^([A-Z_]+)=(.*)$/) || line.match(/^([a-zA-Z]+):\s?(.*)$/);
+          var envKv = line.match(/^([A-Z_]+)=(.*)$/);
+          var yamlKv = line.match(/^([a-zA-Z]+):\s?(.*)$/);
           if (c) return '<span class="cmt">' + line + '</span>';
-          if (kv) return '<span class="val">' + kv[1] + '</span>=' + kv[2];
+          if (envKv) return '<span class="val">' + envKv[1] + '</span>=' + envKv[2];
+          if (yamlKv) return '<span class="val">' + yamlKv[1] + '</span>: ' + yamlKv[2];
           return line;
         }).join('\n');
       });
