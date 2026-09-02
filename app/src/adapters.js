@@ -56,7 +56,12 @@ async function requestJson(url, headers, opts) {
   const ctrl = new AbortController();
   const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs);
   try {
-    const res = await f(url, { headers: headers, signal: ctrl.signal });
+    const init = { headers: headers, signal: ctrl.signal };
+    if (opts && opts.method) {
+      init.method = opts.method;
+      if (opts.body !== undefined) init.body = opts.body;
+    }
+    const res = await f(url, init);
     const text = await res.text();
     let body = null;
     try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
@@ -136,7 +141,12 @@ async function fetchModels(platform, ep, key, opts) {
     throw fail(400, '「' + style + '」为自定义兼容模式，暂不支持自动拉取模型列表：请使用 OpenAI / Anthropic 兼容地址，或手动添加模型', 'UNSUPPORTED_STYLE');
   }
   const res = await requestJson(modelsUrl(style, url), authHeaders(style, key), opts);
-  if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw fail(502, '模型列表接口不存在（HTTP 404）：该地址可能不支持 /models，请检查 Base URL 是否正确，或手动添加模型', '404');
+    }
+    throw fail(502, platformError(res.status), String(res.status));
+  }
   const list = (res.body && Array.isArray(res.body.data)) ? res.body.data : [];
   const models = [];
   for (let i = 0; i < list.length; i++) {
@@ -154,6 +164,54 @@ async function fetchModels(platform, ep, key, opts) {
   return models;
 }
 
+function chatProbePath(style) {
+  return style === 'anthropic' ? '/v1/messages' : '/chat/completions';
+}
+
+/* 仅凭错误体是否提到 model 判断鉴权已通过（如 UnsupportedModel / model_not_found），
+   而路径不存在的 404（如 Invalid URL）不含 model 字样，仍按地址错误处理 */
+function modelErrorOf(body) {
+  if (!body || typeof body !== 'object') return false;
+  const err = body.error && typeof body.error === 'object' ? body.error : body;
+  const hay = [err.code, err.message, body.code, body.message].filter(Boolean).join(' ');
+  return /model/i.test(hay);
+}
+
+/* 部分 OpenAI 兼容端点（如火山方舟 Agent Plan）未实现 /models 列表接口，
+   回退用不存在的模型名 POST 对话接口做鉴权探测：401/403 = 密钥无效，
+   模型类错误 = 请求已通过鉴权，密钥可用；不产生实际推理与计费 */
+async function chatAuthFallback(style, base, key, opts, t0) {
+  const path = chatProbePath(style);
+  const headers = Object.assign(authHeaders(style, key), { 'Content-Type': 'application/json' });
+  const body = JSON.stringify({
+    model: '__key_probe__',
+    max_tokens: 1,
+    messages: [{ role: 'user', content: 'ping' }]
+  });
+  let res;
+  try {
+    res = await requestJson(trimBase(base) + path, headers, {
+      fetchImpl: opts && opts.fetchImpl,
+      timeoutMs: opts && opts.timeoutMs,
+      method: 'POST',
+      body: body
+    });
+  } catch (e) {
+    return { status: 'fail', code: e.code || 'ERROR', msg: e.message };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { status: 'fail', code: String(res.status), msg: platformError(res.status) };
+  }
+  if (res.status === 200 || modelErrorOf(res.body)) {
+    return {
+      status: 'pass',
+      latency: Date.now() - t0,
+      msg: '该端点未提供模型列表接口，已通过 POST ' + path + ' 鉴权探测确认密钥可用'
+    };
+  }
+  return { status: 'fail', code: String(res.status), msg: platformError(res.status) };
+}
+
 async function testKey(platform, ep, key, opts) {
   const style = (ep && ep.style) || inferStyle(platform);
   const url = (ep && ep.url) || '';
@@ -168,7 +226,8 @@ async function testKey(platform, ep, key, opts) {
     await fetchModels(platform, ep, key, opts);
     return { status: 'pass', latency: Date.now() - t0, msg: 'GET ' + modelsUrl(style, url) + ' 返回正常，密钥可用' };
   } catch (e) {
-    return { status: 'fail', code: e.code || 'ERROR', msg: e.message };
+    if (e.code !== '404') return { status: 'fail', code: e.code || 'ERROR', msg: e.message };
+    return chatAuthFallback(style, url, key, opts, t0);
   }
 }
 

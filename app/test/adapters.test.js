@@ -138,6 +138,53 @@ test('testKey：通过 / 失败场景', async () => {
   assert.strictEqual(customStyle.code, 'UNSUPPORTED_STYLE');
 });
 
+test('testKey：/models 404 时回退 chat/completions 鉴权探测（火山方舟 Agent Plan 场景）', async () => {
+  const calls = [];
+  const f = (url, opts) => {
+    const u = String(url);
+    calls.push({ url: u, method: opts.method || 'GET', body: opts.body });
+    if (u.endsWith('/models')) return Promise.resolve(res({}, 404));
+    return Promise.resolve(res({
+      error: { code: 'UnsupportedModel', message: 'The requested model does not support the agent plan feature' }
+    }, 404));
+  };
+  const t = await adapters.testKey('custom', { url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }, 'sk-ark', { fetchImpl: f });
+  assert.strictEqual(t.status, 'pass', JSON.stringify(t));
+  assert.ok(t.msg.includes('chat/completions'));
+  assert.strictEqual(calls.length, 2, '应先 GET /models 再 POST 对话接口');
+  assert.strictEqual(calls[0].method, 'GET');
+  assert.strictEqual(calls[1].method, 'POST');
+  assert.ok(calls[1].url.endsWith('/chat/completions'));
+  assert.ok(calls[1].body.includes('"max_tokens":1'), '探测请求限制 1 token');
+});
+
+test('testKey：/models 404 且探测返回 401 时判定密钥无效', async () => {
+  const f = (url) => String(url).endsWith('/models')
+    ? Promise.resolve(res({}, 404))
+    : Promise.resolve(res({ error: { message: 'the API key is missing or invalid' } }, 401));
+  const t = await adapters.testKey('custom', { url: 'https://x.example.com/v1', style: 'openai' }, 'sk-bad', { fetchImpl: f });
+  assert.strictEqual(t.status, 'fail');
+  assert.strictEqual(t.code, '401');
+  assert.ok(t.msg.includes('密钥无效'));
+});
+
+test('testKey：/models 404 且探测 404 无模型特征时仍报地址错误', async () => {
+  const f = () => Promise.resolve(res({ error: { message: 'Invalid URL (POST /chat/completions)' } }, 404));
+  const t = await adapters.testKey('custom', { url: 'https://api.example.com', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(t.status, 'fail');
+  assert.strictEqual(t.code, '404');
+  assert.ok(t.msg.includes('Base URL'));
+});
+
+test('testKey：anthropic 风格 /v1/models 404 时回退 /v1/messages 探测', async () => {
+  const f = (url) => String(url).endsWith('/v1/models')
+    ? Promise.resolve(res({}, 404))
+    : Promise.resolve(res({ type: 'error', error: { type: 'not_found_error', message: 'model: __key_probe__ not found' } }, 404));
+  const t = await adapters.testKey('custom', { url: 'https://gw.example.com', style: 'anthropic' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(t.status, 'pass', JSON.stringify(t));
+  assert.ok(t.msg.includes('/v1/messages'));
+});
+
 test('normalizeEndpoints：默认端点、上限与过滤', () => {
   const def = adapters.normalizeEndpoints('deepseek', undefined);
   assert.deepStrictEqual(def, [

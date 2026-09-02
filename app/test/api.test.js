@@ -282,6 +282,35 @@ test('API 集成：测试与拉取使用首个端点', async () => {
   }
 });
 
+test('API 集成：无 /models 端点时测试回退鉴权探测（火山方舟 Agent Plan）', async () => {
+  const f = (url) => {
+    const u = String(url);
+    if (u.includes('/models')) return Promise.resolve(new Response('', { status: 404 }));
+    return Promise.resolve(new Response(JSON.stringify({
+      error: { code: 'UnsupportedModel', message: 'The requested model does not support the agent plan feature' }
+    }), { status: 404 }));
+  };
+  const { server, base } = await startServer(f);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', customName: '火山方舟', key: 'sk-ark-plan-0001',
+      endpoints: [{ url: 'https://ark.cn-beijing.volces.com/api/plan/v3', style: 'openai' }]
+    });
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/test');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.test.status, 'pass', JSON.stringify(r.data.test));
+    assert.ok(r.data.test.msg.includes('chat/completions'), '通过消息应说明回退探测方式');
+
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.status, 502);
+    assert.ok(r.data.error.includes('手动添加模型'), '拉取失败应引导手动添加模型');
+  } finally {
+    server.close();
+  }
+});
+
 test('API 校验：非法请求体与非 JSON', async () => {
   const { server, base } = await startServer(mockFetch);
   try {
