@@ -9,7 +9,9 @@ const CATALOG = require('./platform-catalog.json');
 
 /* 余额接口按「端点域名」匹配：密钥任一端点命中已知域名即可查询余额，
    与平台是否内置无关——自定义平台指向官方域名时同样生效。
-   path 相对域名根路径构造，避免用户 Base URL 带不带 /v1 造成偏差 */
+   path 相对域名根路径构造，避免用户 Base URL 带不带 /v1 造成偏差。
+   SiliconFlow 的 /v1/user/info 已于 2026-08-14 官方下线（410），替代接口未发布，
+   官方公布后在此重新登记即可 */
 const BALANCE_APIS = [
   {
     re: /(^|\.)deepseek\.com$/i,
@@ -32,18 +34,6 @@ const BALANCE_APIS = [
         throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
       }
       return { value: Number(d.available_balance), status: 'ok' };
-    }
-  },
-  {
-    re: /(^|\.)siliconflow\.(cn|com)$/i,
-    path: '/v1/user/info',
-    parse: function (body) {
-      const d = body && body.data;
-      const v = d && (d.totalBalance != null ? d.totalBalance : d.balance);
-      if (v == null) {
-        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
-      }
-      return { value: parseFloat(v), status: 'ok' };
     }
   }
 ];

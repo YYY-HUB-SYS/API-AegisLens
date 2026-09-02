@@ -136,15 +136,9 @@ test('fetchBalance：Moonshot / Kimi 余额解析', async () => {
   assert.strictEqual(balAi.value, 12.34, 'moonshot.ai 域名同样命中');
 });
 
-test('fetchBalance：SiliconFlow 余额解析', async () => {
-  let captured = null;
-  const f = (url) => {
-    captured = String(url);
-    return Promise.resolve(res({ data: { totalBalance: '56.78' } }));
-  };
-  const bal = await adapters.fetchBalance('siliconflow', { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, 'sk-x', { fetchImpl: f });
-  assert.strictEqual(captured, 'https://api.siliconflow.cn/v1/user/info');
-  assert.strictEqual(bal.value, 56.78);
+test('fetchBalance：SiliconFlow 余额接口已下线，不发起查询', async () => {
+  const bal = await adapters.fetchBalance('siliconflow', { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, 'sk-x', { fetchImpl: async () => res({}) });
+  assert.strictEqual(bal, null, '/v1/user/info 于 2026-08-14 官方下线，替代接口未发布');
 });
 
 test('fetchBalanceForKey：跳过未命中端点，用命中的端点查询', async () => {
@@ -185,8 +179,7 @@ test('supportsBalanceUrl：按域名判定余额可查性', () => {
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.cn/v1'), true);
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.moonshot.ai/v1'), true);
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.kimi.com/v1'), true);
-  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), true);
-  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.com/v1'), true);
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), false, 'SiliconFlow 余额接口已下线');
   assert.strictEqual(adapters.supportsBalanceUrl('https://gw.example.com/v1'), false);
   assert.strictEqual(adapters.supportsBalanceUrl('https://fake-deepseek.com.evil.io'), false, '域名后缀伪装不应命中');
 });
@@ -201,7 +194,7 @@ test('平台目录：数据驱动加载，supportsBalance 由端点域名推导'
   assert.strictEqual(adapters.PLATFORMS.deepseek.endpoints.length, 2);
   assert.strictEqual(adapters.PLATFORMS.deepseek.supportsBalance, true);
   assert.strictEqual(adapters.PLATFORMS.moonshot.supportsBalance, true);
-  assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, true);
+  assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, false, 'SiliconFlow 余额接口已下线');
   assert.strictEqual(adapters.PLATFORMS.volcark.supportsBalance, false);
   assert.strictEqual(adapters.PLATFORMS.openai.supportsBalance, false);
   assert.strictEqual(adapters.PLATFORMS.custom.endpoints.length, 0);

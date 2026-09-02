@@ -21,11 +21,6 @@ function mockFetch(url, opts) {
       data: { available_balance: '12.34' }
     }), { status: 200 }));
   }
-  if (u.includes('/v1/user/info')) {
-    return Promise.resolve(new Response(JSON.stringify({
-      data: { totalBalance: '56.78' }
-    }), { status: 200 }));
-  }
   if (u.includes('/models')) {
     return Promise.resolve(new Response(JSON.stringify({
       data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }]
@@ -73,7 +68,7 @@ test('API 集成：完整业务流程', async () => {
     assert.strictEqual(ds.supportsBalance, true);
     assert.strictEqual(plat.data.platforms.length, CATALOG.platforms.length, '平台目录数据驱动加载');
     assert.strictEqual(plat.data.platforms.find(p => p.id === 'moonshot').supportsBalance, true);
-    assert.strictEqual(plat.data.platforms.find(p => p.id === 'siliconflow').supportsBalance, true);
+    assert.strictEqual(plat.data.platforms.find(p => p.id === 'siliconflow').supportsBalance, false, 'SiliconFlow 余额接口已官方下线');
     assert.strictEqual(plat.data.platforms.find(p => p.id === 'openai').supportsBalance, false);
 
     const idxRes = await fetch(base + '/');
@@ -373,11 +368,6 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
         data: { available_balance: '12.34' }
       }), { status: 200 }));
     }
-    if (u.includes('/v1/user/info')) {
-      return Promise.resolve(new Response(JSON.stringify({
-        data: { totalBalance: '56.78' }
-      }), { status: 200 }));
-    }
     return Promise.resolve(new Response('{}', { status: 404 }));
   };
   const { server, base } = await startServer(f);
@@ -392,9 +382,11 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     r = await call(base, 'POST', '/api/keys', { platform: 'moonshot', key: 'sk-ms-000000001' });
     const msId = r.data.key.id;
     assert.strictEqual(r.data.key.balance.status, 'pending');
+
+    /* SiliconFlow 余额接口已官方下线：命中其域名也不应发起查询 */
     r = await call(base, 'POST', '/api/keys', { platform: 'siliconflow', key: 'sk-sf-000000002' });
     const sfId = r.data.key.id;
-    assert.strictEqual(r.data.key.balance.status, 'pending');
+    assert.strictEqual(r.data.key.balance.status, 'unsupported');
 
     r = await call(base, 'POST', '/api/keys', {
       platform: 'deepseek', key: 'sk-multi-ep-0007',
@@ -407,7 +399,7 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     assert.strictEqual(r.data.key.balance.status, 'pending');
 
     r = await call(base, 'POST', '/api/refresh-balances');
-    assert.strictEqual(r.data.updated, 4, '命中已知域名的四个密钥都应更新');
+    assert.strictEqual(r.data.updated, 3, '命中已知域名的三个密钥都应更新');
     assert.strictEqual(r.data.failed, 0);
     assert.strictEqual(urls.filter(u => u.includes('/user/balance')).length, 2, '网关端点不应发起余额请求');
     const byId = {};
@@ -415,7 +407,7 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     assert.strictEqual(byId[multiId].balance.value, 66.6);
     assert.strictEqual(byId[multiId].balance.status, 'ok');
     assert.strictEqual(byId[msId].balance.value, 12.34, 'Moonshot 余额解析');
-    assert.strictEqual(byId[sfId].balance.value, 56.78, 'SiliconFlow 余额解析');
+    assert.strictEqual(byId[sfId].balance.status, 'unsupported', 'SiliconFlow 密钥不被查询');
     const customKey = r.data.keys.find(k => k.platform === 'custom');
     assert.strictEqual(customKey.balance.value, 66.6, '自定义平台指向官方域名同样可查');
 
@@ -439,6 +431,45 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
     });
     assert.strictEqual(r.data.key.balance.status, 'ok', '支持状态未变时应保留余额');
     assert.strictEqual(r.data.key.balance.value, 66.6);
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：余额刷新自愈——无匹配端点的遗留状态归位为不支持', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-heal-'));
+  const mk = loadOrCreateMasterKey(dir);
+  const storage = createStore(dir, mk, { backend: 'json' });
+  storage.createKey({
+    name: '遗留密钥', platform: 'custom', customName: '旧平台', key: 'sk-stale-0009',
+    endpoints: [{ url: 'https://api.siliconflow.cn/v1', style: 'openai' }],
+    balanceStatus: 'fail'
+  });
+  storage.createKey({
+    name: '正常密钥', platform: 'deepseek', customName: '', key: 'sk-fresh-0010',
+    endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }],
+    balanceStatus: 'pending'
+  });
+  const server = createApp({
+    storage: storage,
+    fetchImpl: (url) => Promise.resolve(new Response(JSON.stringify({
+      balance_infos: [{ currency: 'CNY', total_balance: '5.00' }]
+    }), { status: 200 })),
+    publicDir: path.join(__dirname, '..', 'public'),
+    version: 'test'
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const base = 'http://127.0.0.1:' + server.address().port;
+  try {
+    const r = await call(base, 'POST', '/api/refresh-balances');
+    assert.strictEqual(r.data.updated, 1);
+    assert.strictEqual(r.data.failed, 0);
+    const stale = r.data.keys.find(k => k.name === '遗留密钥');
+    assert.strictEqual(stale.balance.status, 'unsupported', '遗留 fail 状态应自愈为不支持');
+    assert.strictEqual(stale.balance.value, null);
+    const fresh = r.data.keys.find(k => k.name === '正常密钥');
+    assert.strictEqual(fresh.balance.status, 'ok');
+    assert.strictEqual(fresh.balance.value, 5);
   } finally {
     server.close();
   }

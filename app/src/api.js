@@ -351,7 +351,13 @@ async function routeApi(req, res, ctx) {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
-      if (!eps.some(function (e) { return adapters.supportsBalanceUrl(e.url); })) continue;
+      if (!eps.some(function (e) { return adapters.supportsBalanceUrl(e.url); })) {
+        /* 自愈：无匹配端点但状态遗留为 fail/ok/pending（如平台余额接口下线）时归位 */
+        if (k.balance.status !== 'unsupported') {
+          storage.saveBalance(k.id, { value: null, status: 'unsupported' });
+        }
+        continue;
+      }
       try {
         const bal = await adapters.fetchBalanceForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
         if (bal) {
