@@ -281,6 +281,16 @@
     padding: 5px 16px; font-size: 12.5px; font-weight: 700; color: var(--sub); cursor: pointer;
   }
   .seg button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .filter-bar { display: flex; gap: 6px; padding: 0 0 12px; flex-wrap: wrap; }
+  .filter-bar button {
+    border: 1px solid var(--rule); background: #fff; border-radius: 999px;
+    padding: 5px 16px; font-size: 12.5px; font-weight: 700; color: var(--sub); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-bar button:hover { border-color: var(--accent); color: var(--accent); }
+  .filter-bar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filter-bar .count { font-weight: 400; opacity: 0.7; }
   .config-pre {
     background: #171A26; color: #E7E9F4; border-radius: 10px; padding: 14px 16px;
     font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
@@ -327,6 +337,7 @@
   </header>
 
   <div class="stats" id="stats"></div>
+  <div class="filter-bar" id="filter-bar"></div>
   <main class="board" id="board"></main>
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
@@ -428,7 +439,7 @@
 
   /* ================= 状态（服务端数据 + 界面瞬态） ================= */
 
-  var state = { keys: [], platforms: {}, meta: null };
+  var state = { keys: [], platforms: {}, meta: null, filter: 'all' };
   var ui = {
     revealed: {}, drawerOpen: {}, editingNote: {}, editingSupp: {},
     manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {}
@@ -565,6 +576,7 @@
 
   function render() {
     renderStats();
+    renderFilterTabs();
     renderBoard();
   }
 
@@ -586,14 +598,41 @@
       '<div class="stat"><span class="num" style="color:var(--warn)">' + warn + '</span><span class="lbl">临期</span></div>' +
       '<div class="stat"><span class="num" style="color:var(--exp)">' + exp + '</span><span class="lbl">过期/停用</span></div>';
     document.getElementById('stats').innerHTML = html;
-    document.getElementById('empty').style.display = total ? 'none' : '';
-    document.getElementById('board').style.display = total ? '' : 'none';
+  }
+
+  function renderFilterTabs() {
+    var counts = { all: state.keys.length, ok: 0, warn: 0, exp: 0 };
+    state.keys.forEach(function (k) {
+      var st = keyStatus(k);
+      if (st === 'ok') counts.ok++;
+      else if (st === 'warn') counts.warn++;
+      else if (st === 'exp' || st === 'revoked') counts.exp++;
+    });
+    var tabs = [
+      { key: 'all', label: '全部', count: counts.all },
+      { key: 'ok', label: '有效', count: counts.ok },
+      { key: 'warn', label: '临期', count: counts.warn },
+      { key: 'exp', label: '过期/停用', count: counts.exp }
+    ];
+    document.getElementById('filter-bar').innerHTML = tabs.map(function (t) {
+      return '<button data-filter="' + t.key + '"' +
+        (state.filter === t.key ? ' class="active"' : '') + '>' +
+        esc(t.label) + ' <span class="count">' + t.count + '</span></button>';
+    }).join('');
   }
 
   function renderBoard() {
+    var filteredKeys = state.keys;
+    if (state.filter !== 'all') {
+      filteredKeys = state.keys.filter(function (k) {
+        var st = keyStatus(k);
+        if (state.filter === 'exp') return st === 'exp' || st === 'revoked';
+        return st === state.filter;
+      });
+    }
     var groups = [];
     var byLabel = {};
-    state.keys.forEach(function (k) {
+    filteredKeys.forEach(function (k) {
       var label = platLabel(k);
       if (!byLabel[label]) {
         byLabel[label] = { label: label, color: P(k.platform).color, keys: [] };
@@ -605,6 +644,19 @@
       return '<section class="group"><div class="group-title">' + esc(g.label) + '</div>' +
         g.keys.map(renderCard).join('') + '</section>';
     }).join('');
+    if (filteredKeys.length === 0) {
+      if (state.keys.length === 0) {
+        document.getElementById('empty').style.display = '';
+        document.getElementById('empty').innerHTML = '<h3>还没有任何密钥</h3><p>点右上角「+ 新增密钥」，把散落各处的 AI API Key 收拢到这里统一管理。</p>';
+      } else {
+        document.getElementById('empty').style.display = '';
+        document.getElementById('empty').innerHTML = '<h3>没有匹配的密钥</h3><p>当前筛选条件下没有密钥，试试切换其他标签。</p>';
+      }
+      document.getElementById('board').style.display = 'none';
+    } else {
+      document.getElementById('empty').style.display = 'none';
+      document.getElementById('board').style.display = '';
+    }
   }
 
   function renderCard(k) {
@@ -1371,6 +1423,15 @@
       setTimeout(function () { btn.textContent = old; }, 1200);
       toast('配置已复制到剪贴板', 'ok');
     });
+  });
+
+  /* ================= 筛选标签 ================= */
+
+  document.getElementById('filter-bar').addEventListener('click', function (ev) {
+    var btn = ev.target.closest('[data-filter]');
+    if (!btn) return;
+    state.filter = btn.dataset.filter;
+    render();
   });
 
   /* ================= 余额刷新 ================= */

@@ -5,6 +5,11 @@ const path = require('node:path');
 
 const batPath = path.join(__dirname, '..', 'workbench.bat');
 const jsonPath = path.join(__dirname, '..', 'workbench.json');
+const homepagePath = path.join(__dirname, '..', 'public', 'index.html');
+
+function readHomepage() {
+  return fs.readFileSync(homepagePath, 'utf8');
+}
 
 function readBat() {
   const buf = fs.readFileSync(batPath);
@@ -83,4 +88,29 @@ test('workbench.json：端口/地址与 start.bat 手动入口保持一致', () 
     startBat.includes(String(p.ports[0])),
     '两个启动入口应指向同一端口'
   );
+});
+
+test('工作台页面：包含筛选标签栏（filter-bar）', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('id="filter-bar"'), '应包含 filter-bar 容器');
+  assert.ok(html.includes('class="filter-bar"'), 'filter-bar 应有 filter-bar class');
+  assert.ok(html.includes('data-filter='), 'JS 应使用 data-filter 属性生成筛选标签');
+  assert.ok(html.includes("key: 'all'"), 'JS 应定义「全部」筛选项');
+  assert.ok(html.includes("key: 'ok'"), 'JS 应定义「有效」筛选项');
+  assert.ok(html.includes("key: 'warn'"), 'JS 应定义「临期」筛选项');
+  assert.ok(html.includes("key: 'exp'"), 'JS 应定义「过期/停用」筛选项');
+});
+
+test('工作台页面：筛选 JS 状态变量与渲染函数', () => {
+  const html = readHomepage();
+  assert.ok(html.includes("filter: 'all'"), 'JS 初始状态应设 filter 为 all');
+  assert.ok(html.includes('function renderFilterTabs'), '应定义 renderFilterTabs 函数');
+  assert.ok(html.includes('renderFilterTabs()'), 'render 函数应调用 renderFilterTabs');
+});
+
+test('工作台页面：筛选 CSS 样式已定义', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('.filter-bar'), 'CSS 应定义 .filter-bar 样式');
+  assert.ok(html.includes('.filter-bar button'), 'CSS 应定义 .filter-bar button 样式');
+  assert.ok(html.includes('.filter-bar button.active'), 'CSS 应定义 .filter-bar .active 样式');
 });
