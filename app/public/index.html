@@ -312,6 +312,36 @@
   .toast.ok { background: #0B7A55; }
   @keyframes slidein { from { transform: translateX(20px); opacity: 0; } }
 
+  /* ---------- 导出 / 导入 ---------- */
+  .export-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px;
+    margin-bottom: 6px; cursor: pointer; transition: background 0.12s;
+  }
+  .export-item:hover { background: var(--accent-soft); }
+  .export-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .export-select-all {
+    display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    border-bottom: 1px solid var(--rule); margin-bottom: 8px; font-weight: 700; font-size: 13px;
+  }
+  .export-select-all input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  .export-count { font-size: 12px; color: var(--sub); font-weight: 400; margin-left: auto; }
+  .export-list { max-height: 50vh; overflow-y: auto; }
+  .import-grid { max-height: 50vh; overflow-y: auto; }
+  .import-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; margin-bottom: 6px;
+  }
+  .import-result { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+  .import-result .ir-item {
+    background: var(--accent-soft); border-radius: 8px; padding: 8px 14px; text-align: center; min-width: 80px;
+  }
+  .import-result .ir-item .num { font-size: 22px; font-weight: 800; color: var(--accent); }
+  .import-result .ir-item .lbl { font-size: 12px; color: var(--sub); }
+  .import-result .ir-item.skipped .num { color: var(--warn); }
+  .import-detail { font-size: 12px; color: var(--sub); margin-top: 8px; line-height: 1.7; }
+  .import-detail b { color: var(--ink); }
+
   @media (max-width: 900px) {
     .form-grid { grid-template-columns: 1fr; }
     .form-grid .span2 { grid-column: span 1; }
@@ -331,6 +361,8 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button class="btn" id="btn-export">导出</button>
+      <button class="btn" id="btn-import">导入</button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
       <button class="btn primary" id="btn-add">+ 新增密钥</button>
     </div>
@@ -432,6 +464,39 @@
 </div>
 
 <div class="toasts" id="toasts"></div>
+
+<!-- 导出 -->
+<div class="overlay" id="overlay-export">
+  <div class="modal">
+    <h3>导出密钥</h3>
+    <p class="sub">选择要导出的密钥，仅导出选中项。导出文件为 JSON 格式，可在另一台电脑导入恢复。</p>
+    <div class="export-select-all">
+      <input type="checkbox" id="export-select-all" checked>
+      <label for="export-select-all">全选</label>
+      <span class="export-count" id="export-count"></span>
+    </div>
+    <div class="export-list" id="export-list"></div>
+    <div class="btn-row">
+      <button class="btn" data-close="overlay-export">取消</button>
+      <button class="btn primary" id="btn-export-confirm">导出选中 <span id="export-selected-count"></span></button>
+    </div>
+  </div>
+</div>
+
+<!-- 导入 -->
+<div class="overlay" id="overlay-import">
+  <div class="modal">
+    <h3>导入密钥</h3>
+    <p class="sub" id="import-sub">请选择要导入的 JSON 文件。</p>
+    <div id="import-body"></div>
+    <div class="btn-row" id="import-actions">
+      <button class="btn" data-close="overlay-import">取消</button>
+      <button class="btn primary" id="btn-import-exec">选择文件</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".json" style="display:none">
 
 <script>
 (function () {
@@ -1457,6 +1522,170 @@
   /* ================= 顶部操作 ================= */
 
   document.getElementById('btn-add').addEventListener('click', function () { openForm(null); });
+
+  /* ================= 导出 / 导入 ================= */
+
+  document.getElementById('btn-export').addEventListener('click', function () {
+    renderExportList();
+    openOverlay('overlay-export');
+  });
+
+  function renderExportList() {
+    var list = document.getElementById('export-list');
+    list.innerHTML = state.keys.map(function (k) {
+      var p = P(k.platform);
+      return '<label class="export-item">' +
+        '<input type="checkbox" class="export-cb" data-id="' + k.id + '" checked>' +
+        '<span class="plat-dot" style="background:' + p.color + '"></span>' +
+        '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(k.name) + '</span>' +
+        '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
+      '</label>';
+    }).join('');
+    updateExportCount();
+  }
+
+  function updateExportCount() {
+    var total = state.keys.length;
+    var checked = document.querySelectorAll('.export-cb:checked').length;
+    document.getElementById('export-count').textContent = '已选 ' + checked + ' / ' + total;
+    document.getElementById('export-selected-count').textContent = checked ? '（' + checked + ' 项）' : '';
+  }
+
+  document.getElementById('export-list').addEventListener('change', function (ev) {
+    if (ev.target.classList.contains('export-cb')) updateExportCount();
+  });
+
+  document.getElementById('export-select-all').addEventListener('change', function () {
+    document.querySelectorAll('.export-cb').forEach(function (cb) {
+      cb.checked = document.getElementById('export-select-all').checked;
+    });
+    updateExportCount();
+  });
+
+  document.getElementById('btn-export-confirm').addEventListener('click', function () {
+    var selectedIds = {};
+    document.querySelectorAll('.export-cb:checked').forEach(function (cb) {
+      selectedIds[Number(cb.dataset.id)] = true;
+    });
+    var selected = state.keys.filter(function (k) { return selectedIds[k.id]; });
+    if (!selected.length) { toast('请至少选择一个密钥', 'warn'); return; }
+    var exportData = {
+      type: 'ai-key-manager-export',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      keys: selected.map(function (k) {
+        return {
+          name: k.name,
+          platform: k.platform,
+          customName: k.customName,
+          key: k.key,
+          endpoints: k.endpoints,
+          model: k.model,
+          reg: k.reg,
+          exp: k.exp,
+          authNote: k.authNote,
+          models: k.models,
+          assigned: k.assigned
+        };
+      })
+    };
+    var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-key-manager-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    closeOverlay('overlay-export');
+    toast('已导出 ' + selected.length + ' 个密钥', 'ok');
+  });
+
+  document.getElementById('btn-import').addEventListener('click', function () {
+    document.getElementById('import-body').innerHTML = '';
+    document.getElementById('import-sub').textContent = '请选择要导入的 JSON 文件。';
+    document.getElementById('btn-import-exec').textContent = '选择文件';
+    document.getElementById('btn-import-exec').style.display = '';
+    document.getElementById('btn-import-exec').dataset.phase = 'select';
+    openOverlay('overlay-import');
+    document.getElementById('file-input').value = '';
+  });
+
+  document.getElementById('btn-import-exec').addEventListener('click', function () {
+    var phase = this.dataset.phase;
+    if (phase === 'select') {
+      document.getElementById('file-input').click();
+    } else if (phase === 'confirm') {
+      doImport();
+    }
+  });
+
+  document.getElementById('file-input').addEventListener('change', function (ev) {
+    var file = ev.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var data = JSON.parse(e.target.result);
+        if (data.type !== 'ai-key-manager-export' || !Array.isArray(data.keys)) {
+          toast('文件格式不正确，请选择有效的导出文件', 'warn');
+          return;
+        }
+        var keys = data.keys;
+        document.getElementById('import-sub').textContent = '共 ' + keys.length + ' 个密钥，同名密钥将自动跳过。';
+        document.getElementById('import-body').innerHTML = '<div class="import-grid">' +
+          keys.map(function (k) {
+            var p = state.platforms[k.platform] || { name: k.platform, color: '#8A8FA8' };
+            return '<div class="import-item">' +
+              '<span class="plat-dot" style="background:' + p.color + '"></span>' +
+              '<span class="kname">' + esc(p.name) + ' · ' + esc(k.name || '') + '</span>' +
+              '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
+            '</div>';
+          }).join('') + '</div>';
+        document.getElementById('btn-import-exec').textContent = '确认导入';
+        document.getElementById('btn-import-exec').dataset.phase = 'confirm';
+        document.getElementById('btn-import-exec').dataset.importData = JSON.stringify(data);
+      } catch (err) {
+        toast('文件解析失败：' + err.message, 'warn');
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  function doImport() {
+    var btn = document.getElementById('btn-import-exec');
+    var data = JSON.parse(btn.dataset.importData || '{}');
+    var keys = data.keys || [];
+    if (!keys.length) { toast('没有可导入的密钥', 'warn'); return; }
+    btn.disabled = true;
+    btn.textContent = '导入中…';
+    api('POST', '/import', { keys: keys }).then(function (result) {
+      var html = '<div class="import-result">' +
+        '<div class="ir-item"><div class="num">' + result.imported + '</div><div class="lbl">已导入</div></div>' +
+        (result.skipped > 0 ? '<div class="ir-item skipped"><div class="num">' + result.skipped + '</div><div class="lbl">已跳过</div></div>' : '') +
+      '</div>';
+      if (result.skippedDetails && result.skippedDetails.length) {
+        html += '<div class="import-detail">跳过原因：' +
+          result.skippedDetails.map(function (s) {
+            return '<b>' + esc(s.name) + '</b>（' + esc(s.reason) + '）';
+          }).join('；') + '</div>';
+      }
+      document.getElementById('import-sub').textContent = '导入完成';
+      document.getElementById('import-body').innerHTML = html;
+      document.getElementById('btn-import-exec').style.display = 'none';
+      // 刷新本地数据
+      api('GET', '/keys').then(function (r) {
+        state.keys = r.keys || [];
+        render();
+      }).catch(function () {});
+      toast('已导入 ' + result.imported + ' 个密钥', result.skipped > 0 ? 'warn' : 'ok');
+    }).catch(function (e) {
+      toast('导入失败：' + e.message, 'warn');
+      btn.disabled = false;
+      btn.textContent = '确认导入';
+    });
+  }
 
   /* ================= Modal 通用 ================= */
 

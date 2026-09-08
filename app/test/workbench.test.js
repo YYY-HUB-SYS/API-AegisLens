@@ -114,3 +114,51 @@ test('工作台页面：筛选 CSS 样式已定义', () => {
   assert.ok(html.includes('.filter-bar button'), 'CSS 应定义 .filter-bar button 样式');
   assert.ok(html.includes('.filter-bar button.active'), 'CSS 应定义 .filter-bar .active 样式');
 });
+
+test('工作台页面：导出/导入按钮存在', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('id="btn-export"'), '应包含导出按钮');
+  assert.ok(html.includes('id="btn-import"'), '应包含导入按钮');
+  assert.ok(html.includes('导出'), '导出按钮应有文字');
+  assert.ok(html.includes('导入'), '导入按钮应有文字');
+});
+
+test('工作台页面：导出弹窗结构完整', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('id="overlay-export"'), '应包含导出弹窗');
+  assert.ok(html.includes('id="export-select-all"'), '导出弹窗应有全选复选框');
+  assert.ok(html.includes('id="export-list"'), '导出弹窗应有密钥列表容器');
+  assert.ok(html.includes('id="btn-export-confirm"'), '导出弹窗应有确认按钮');
+  assert.ok(html.includes('class="export-cb"'), '导出列表项应有复选框');
+});
+
+test('工作台页面：导入弹窗结构完整', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('id="overlay-import"'), '应包含导入弹窗');
+  assert.ok(html.includes('id="import-sub"'), '导入弹窗应有说明文字');
+  assert.ok(html.includes('id="import-body"'), '导入弹窗应有内容容器');
+  assert.ok(html.includes('id="btn-import-exec"'), '导入弹窗应有执行按钮');
+  assert.ok(html.includes('id="file-input"'), '应包含隐藏的文件输入');
+  assert.ok(html.includes('accept=".json"'), '文件输入应限定 JSON 格式');
+});
+
+test('工作台页面：导出/导入 JS 逻辑存在', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('renderExportList'), '应定义 renderExportList 函数');
+  assert.ok(html.includes('updateExportCount'), '应定义 updateExportCount 函数');
+  assert.ok(html.includes('doImport'), '应定义 doImport 函数');
+  assert.ok(html.includes('ai-key-manager-export'), '导出格式标识应定义');
+  assert.ok(html.includes('POST\', \'/import\''), '导入应调用 POST /api/import');
+  assert.ok(html.includes('GET\', \'/keys\''), '导入后应刷新密钥列表');
+});
+
+test('工作台页面：导出/导入 CSS 样式已定义', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('.export-item'), 'CSS 应定义 .export-item 样式');
+  assert.ok(html.includes('.export-select-all'), 'CSS 应定义 .export-select-all 样式');
+  assert.ok(html.includes('.export-list'), 'CSS 应定义 .export-list 样式');
+  assert.ok(html.includes('.import-grid'), 'CSS 应定义 .import-grid 样式');
+  assert.ok(html.includes('.import-item'), 'CSS 应定义 .import-item 样式');
+  assert.ok(html.includes('.import-result'), 'CSS 应定义 .import-result 样式');
+  assert.ok(html.includes('.import-detail'), 'CSS 应定义 .import-detail 样式');
+});

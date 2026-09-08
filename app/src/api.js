@@ -380,6 +380,73 @@ async function routeApi(req, res, ctx) {
     return json(res, 200, { keys: storage.listKeys(), updated: updated, failed: failed });
   }
 
+  if (req.method === 'POST' && path === '/api/import') {
+    const b = await readBody(req);
+    const keys = Array.isArray(b.keys) ? b.keys : [];
+    if (!keys.length) throw bad(400, '请提供要导入的密钥列表');
+    const imported = [];
+    const skipped = [];
+    for (const item of keys) {
+      try {
+        const platform = str(item.platform);
+        const plat = platOf(platform);
+        if (!plat) { skipped.push({ name: item.name || '', reason: '未知平台：' + platform }); continue; }
+        const keyValue = str(item.key);
+        if (!keyValue) { skipped.push({ name: item.name || '', reason: '缺少 API Key' }); continue; }
+        const customName = platform === 'custom' ? (str(item.customName) || '自定义平台') : '';
+        const name = str(item.name) || autoName(platform, customName, keyValue);
+        const dup = storage.listKeys().some(function (x) {
+          return x.platform === platform
+            && (platform === 'custom' ? x.customName === customName : true)
+            && x.name === name;
+        });
+        if (dup) { skipped.push({ name: name, reason: '该平台下已存在同名密钥' }); continue; }
+        let endpoints;
+        try {
+          const raw = item.endpoints !== undefined
+            ? item.endpoints
+            : (item.base !== undefined ? [{ url: item.base, style: adapters.inferStyle(platform) }] : undefined);
+          endpoints = adapters.normalizeEndpoints(platform, raw);
+        } catch (e) {
+          skipped.push({ name: name, reason: '端点格式错误：' + e.message });
+          continue;
+        }
+        const rec = storage.createKey({
+          name: name,
+          platform: platform,
+          customName: customName,
+          key: keyValue,
+          endpoints: endpoints,
+          model: str(item.model) || plat.defaultModel,
+          reg: str(item.reg),
+          exp: str(item.exp),
+          authNote: authNoteOf(item.authNote),
+          balanceStatus: endpoints.some(function (e) { return adapters.supportsBalanceUrl(e.url); })
+            ? 'pending'
+            : 'unsupported'
+        });
+        if (Array.isArray(item.models) && item.models.length) {
+          storage.replaceModels(rec.id, item.models);
+        }
+        if (Array.isArray(item.assigned) && item.assigned.length) {
+          item.assigned.forEach(function (t) {
+            try { storage.addAssigned(rec.id, String(t).trim()); } catch (e) { /* 跳过重复 */ }
+          });
+        }
+        imported.push(storage.getKey(rec.id));
+      } catch (e) {
+        skipped.push({ name: item.name || '', reason: e.message });
+      }
+    }
+    return json(res, 200, {
+      imported: imported.length,
+      skipped: skipped.length,
+      skippedDetails: skipped,
+      total: keys.length,
+      keys: imported
+    });
+  }
+
   return json(res, 404, { error: '接口不存在' });
 }
 

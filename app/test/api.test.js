@@ -549,3 +549,88 @@ test('API 校验：非法请求体与非 JSON', async () => {
     server.close();
   }
 });
+
+test('API 集成：批量导入密钥', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    /* 先创建一个密钥，用于测试重名跳过 */
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-existing-0001', name: '现存密钥'
+    });
+    assert.strictEqual(r.status, 201);
+
+    /* 批量导入：混合新密钥、重名密钥、无效密钥 */
+    const importData = {
+      keys: [
+        {
+          name: '新密钥A',
+          platform: 'deepseek',
+          key: 'sk-import-new-a-1111',
+          model: 'deepseek-chat',
+          reg: '2026-01-01',
+          exp: '2027-01-01',
+          endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }],
+          authNote: '测试导入',
+          models: [{ id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta' }],
+          assigned: ['Dify', 'n8n']
+        },
+        {
+          name: '现存密钥',
+          platform: 'deepseek',
+          key: 'sk-import-dup-2222'
+        },
+        {
+          name: '新密钥B',
+          platform: 'openai',
+          key: 'sk-import-new-b-3333',
+          endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }]
+        },
+        {
+          name: '无效密钥',
+          platform: 'notexist',
+          key: 'sk-bad-4444'
+        }
+      ]
+    };
+
+    r = await call(base, 'POST', '/api/import', importData);
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.imported, 2, '应成功导入 2 个新密钥');
+    assert.strictEqual(r.data.skipped, 2, '应跳过 2 个（重名 + 无效平台）');
+    assert.strictEqual(r.data.total, 4);
+
+    /* 验证导入的密钥数据完整 */
+    const newA = r.data.keys.find(k => k.name === '新密钥A');
+    assert.ok(newA, '新密钥A 应在返回列表中');
+    assert.strictEqual(newA.platform, 'deepseek');
+    assert.strictEqual(newA.model, 'deepseek-chat');
+    assert.strictEqual(newA.reg, '2026-01-01');
+    assert.strictEqual(newA.exp, '2027-01-01');
+    assert.strictEqual(newA.authNote, '测试导入');
+    assert.strictEqual(newA.models.length, 1, '模型应被导入');
+    assert.ok(newA.assigned.includes('Dify'), '配置去向应被导入');
+    assert.ok(newA.assigned.includes('n8n'), '配置去向应被导入');
+
+    /* 验证跳过详情 */
+    const skippedNames = r.data.skippedDetails.map(s => s.name);
+    assert.ok(skippedNames.includes('现存密钥'), '应报告重名密钥被跳过');
+    assert.ok(skippedNames.includes('无效密钥'), '应报告无效平台密钥被跳过');
+
+    /* 验证总密钥数 */
+    r = await call(base, 'GET', '/api/keys');
+    assert.strictEqual(r.data.keys.length, 3, '原 1 个 + 新导入 2 个 = 3 个');
+  } finally {
+    server.close();
+  }
+});
+
+test('API 集成：导入空列表应被拒绝', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    let r = await call(base, 'POST', '/api/import', { keys: [] });
+    assert.strictEqual(r.status, 400);
+    assert.ok(r.data.error.includes('密钥列表'));
+  } finally {
+    server.close();
+  }
+});
