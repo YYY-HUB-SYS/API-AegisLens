@@ -313,7 +313,8 @@ test('matchModel：多段路径前缀模糊匹配（如 siliconflow/Qwen/Qwen2.5
   var idx = enrich.buildIndex(cnData.CN_MODELS);
 
   var hit = enrich.matchModel(idx, 'siliconflow/Qwen/Qwen2.5-32B-Instruct');
-  assert.strictEqual(hit, null, 'Qwen2.5-32B-Instruct 不在 CN 数据库中');
+  assert.ok(hit, 'Qwen2.5-32B-Instruct 已在 CN 数据库中');
+  assert.strictEqual(hit.ctx, 131072);
 
   hit = enrich.matchModel(idx, 'siliconflow/step-1o-turbo-vision');
   assert.ok(hit, '带 siliconflow 前缀的 step 模型应匹配到数据库');
@@ -324,7 +325,8 @@ test('matchModel：多段路径前缀模糊匹配（如 siliconflow/Qwen/Qwen2.5
   assert.strictEqual(hit.ctx, 32768);
 
   hit = enrich.matchModel(idx, 'nvidia/google/codegemma-7b');
-  assert.strictEqual(hit, null, 'nvidia 前缀的 google 模型不在 CN 数据库中');
+  assert.ok(hit, 'nvidia 前缀的 codegemma-7b 已在 CN 数据库中');
+  assert.strictEqual(hit.ctx, 8192);
 });
 
 test('matchModel：UUID 前缀 + 国内模型名联合匹配', () => {
