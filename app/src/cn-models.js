@@ -235,7 +235,40 @@ var CN_MODELS = [
   { id: 'veoaifree-web/veo', ctx: 512, out: 512 },
   { id: 'veo-free/veo', ctx: 512, out: 512 },
   { id: 'veoaifree-web/seedance', ctx: 512, out: 512 },
-  { id: 'veo-free/seedance', ctx: 512, out: 512 }
+  { id: 'veo-free/seedance', ctx: 512, out: 512 },
+
+  { id: 'Tongyi-MAI/Z-Image-Turbo', ctx: 512, out: 512 },
+  { id: 'Tongyi-MAI/Z-Image', ctx: 512, out: 512 },
+  { id: 'baidu/ERNIE-Image-Turbo', ctx: 512, out: 512 },
+  { id: 'Qwen/Qwen3-VL-Reranker-8B', ctx: 32768, out: 8192 },
+  { id: 'Qwen/Qwen3-Omni-30B-A3B-Captioner', ctx: 32768, out: 8192 },
+  { id: 'Qwen/Qwen3-ASR-1.7B', ctx: 8192, out: 4096 },
+  { id: 'Qwen/Qwen3-Reranker-8B', ctx: 32768, out: 8192 },
+  { id: 'Qwen/Qwen2.5-14B-Instruct', ctx: 131072, out: 32768 },
+  { id: 'inclusionAI/Ling-mini-2.0', ctx: 262144, out: 32768 },
+  { id: 'Wan-AI/Wan2.2-I2V-A14B', ctx: 512, out: 512 },
+  { id: 'Wan-AI/Wan2.2-T2V-A14B', ctx: 512, out: 512 },
+  { id: 'fnlp/MOSS-TTSD-v0.5', ctx: 8192, out: 4096 },
+  { id: 'FunAudioLLM/CosyVoice2-0.5B', ctx: 8192, out: 4096 },
+  { id: 'FunAudioLLM/SenseVoiceSmall', ctx: 8192, out: 4096 },
+  { id: 'Kwai-Kolors/Kolors', ctx: 512, out: 512 },
+  { id: 'BAAI/bge-large-en-v1.5', ctx: 512, out: null },
+  { id: 'BAAI/bge-large-zh-v1.5', ctx: 512, out: null },
+  { id: 'LoRA/Qwen/Qwen2.5-14B-Instruct', ctx: 131072, out: 32768 },
+  { id: 'XingChenAGI/XingChenASR-V3.2-Ultra', ctx: 8192, out: 4096 },
+  { id: 'XingChenAGI/XingChenGSR-V1.0', ctx: 8192, out: 4096 },
+  { id: 'XingChenAGI/XingChenASR-Diarize-V3.0', ctx: 8192, out: 4096 },
+  { id: 'XingChenAGI/XingChenASR-V3.2', ctx: 8192, out: 4096 },
+
+  { id: 'nvidia/embed-qa-4', ctx: 512, out: null },
+  { id: 'nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1', ctx: 8192, out: null },
+  { id: 'nvidia/llama-3.2-nv-embedqa-1b-v1', ctx: 512, out: null },
+  { id: 'nvidia/nemotron-3-embed-1b', ctx: 8192, out: null },
+  { id: 'nvidia/nv-embedqa-mistral-7b-v2', ctx: 512, out: null },
+  { id: 'nvidia/nvclip', ctx: 512, out: null },
+  { id: 'nvidia/nv-embedqa-e5-v5', ctx: 512, out: null },
+  { id: 'nvidia/nv-rerankqa-mistral-4b-v3', ctx: 8192, out: null },
+  { id: 'snowflake/arctic-embed-l', ctx: 512, out: null }
 ];
 
 module.exports = { CN_MODELS: CN_MODELS };
