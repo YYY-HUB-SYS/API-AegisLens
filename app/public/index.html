@@ -812,7 +812,7 @@
 
   function renderDrawer(k) {
     var models = k.models || [];
-    var unknownCount = models.filter(function (m) { return m.ctx == null || m.out == null; }).length;
+    var unknownCount = models.filter(function (m) { return m.ctx == null; }).length;
     var enrichBtn = k.modelsFetched && unknownCount > 0
       ? '<button class="btn small" data-act="enrich-models"' + (ui.enriching[k.id] ? ' disabled' : '') + '>' + (ui.enriching[k.id] ? '检索中…' : '联网补全 ' + unknownCount + ' 项') + '</button>'
       : '';
@@ -859,7 +859,7 @@
           '<button class="btn small" data-act="cancel-note">取消</button>' +
         '</div>';
     }
-    var needSupp = m.ctx == null || m.out == null;
+    var needSupp = m.ctx == null;
     var suppBtn = (needSupp || m.src === 'manual')
       ? '<button class="btn ghost small supp-btn" data-act="supp-model" data-model="' + esc(m.id) + '">' + (needSupp ? '补充参数' : '编辑参数') + '</button>'
       : '';

@@ -79,7 +79,7 @@ function parseTokens(v, field) {
 }
 
 async function enrichUnknowns(models, fetchImpl) {
-  const unknowns = (models || []).filter(function (m) { return m.ctx == null || m.out == null; });
+  const unknowns = (models || []).filter(function (m) { return m.ctx == null; });
   if (!unknowns.length) return { enriched: 0, notFound: [], error: null };
   let found = {};
   let error = null;
@@ -92,7 +92,7 @@ async function enrichUnknowns(models, fetchImpl) {
   }
   const applied = enrich.applyToModels(models, found);
   const stillUnknown = applied.models.filter(function (m) {
-    return m.ctx == null || m.out == null;
+    return m.ctx == null;
   }).map(function (m) { return m.id; });
   return { enriched: applied.changed.length, notFound: stillUnknown, error: error, models: applied.models };
 }
@@ -243,7 +243,7 @@ async function routeApi(req, res, ctx) {
     const fetched = await adapters.fetchModels(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
     let merged = adapters.mergeModels(k.models, fetched);
     let enrichInfo = null;
-    if (merged.some(function (mm) { return mm.ctx == null || mm.out == null; })) {
+    if (merged.some(function (mm) { return mm.ctx == null; })) {
       enrichInfo = await enrichUnknowns(merged, fetchImpl);
       if (enrichInfo.models) merged = enrichInfo.models;
     }
@@ -260,7 +260,7 @@ async function routeApi(req, res, ctx) {
     const k = requireKey(m[1]);
     const b = await readBody(req).catch(function () { return {}; });
     const onlyId = str(b.modelId);
-    let targets = (k.models || []).filter(function (mm) { return mm.ctx == null || mm.out == null; });
+    let targets = (k.models || []).filter(function (mm) { return mm.ctx == null; });
     if (onlyId) targets = targets.filter(function (mm) { return mm.id === onlyId; });
     if (!targets.length) {
       return json(res, 200, {
@@ -291,7 +291,7 @@ async function routeApi(req, res, ctx) {
     });
     const rec = storage.getKey(k.id);
     const stillUnknown = (rec.models || []).filter(function (mm) {
-      return mm.ctx == null || mm.out == null;
+      return mm.ctx == null;
     }).map(function (mm) { return mm.id; });
     return json(res, 200, {
       models: rec.models,
