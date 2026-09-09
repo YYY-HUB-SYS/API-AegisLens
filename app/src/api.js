@@ -84,7 +84,7 @@ async function enrichUnknowns(models, fetchImpl) {
   let found = {};
   let error = null;
   try {
-    const r = await enrich.lookupOnline(unknowns.map(function (m) { return m.id; }), { fetchImpl: fetchImpl });
+    const r = await enrich.lookupOnline(unknowns.map(function (m) { return m.id; }), { fetchImpl: fetchImpl || adapters.effectiveFetch });
     found = r.found;
     error = r.error;
   } catch (e) {
@@ -271,7 +271,7 @@ async function routeApi(req, res, ctx) {
     let found = {};
     let error = null;
     try {
-      const r = await enrich.lookupOnline(targets.map(function (mm) { return mm.id; }), { fetchImpl: fetchImpl });
+      const r = await enrich.lookupOnline(targets.map(function (mm) { return mm.id; }), { fetchImpl: fetchImpl || adapters.effectiveFetch });
       found = r.found;
       error = r.error;
     } catch (e) {
