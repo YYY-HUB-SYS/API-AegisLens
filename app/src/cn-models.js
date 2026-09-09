@@ -31,7 +31,7 @@ var CN_MODELS = [
   { id: 'sensenova-u1.5-lite', ctx: 131072, out: 8192 },
 
   { id: 'doubao-seed-2-1-pro', ctx: 131072, out: 16384 },
-  { id: 'doubao-embedding-vision', ctx: 8192, out: null },
+  { id: 'doubao-embedding-vision', ctx: 131072, out: null },
 
   { id: 'dots3-note-prev', ctx: 131072, out: 16384 },
 
@@ -55,7 +55,10 @@ var CN_MODELS = [
   { id: 'doubao-seedance-2.0-fast', ctx: 8192, out: 4096 },
   { id: 'doubao-seedance-2.0-mini', ctx: 8192, out: 4096 },
   { id: 'doubao-seed-tts-2.0', ctx: 8192, out: 4096 },
-  { id: 'doubao-seed-asr-2.0', ctx: 8192, out: 4096 }
+  { id: 'doubao-seed-asr-2.0', ctx: 8192, out: 4096 },
+
+  { id: 'lingdt-3.0-flash', ctx: 262144, out: 32768 },
+  { id: 'ling-3.0-flash', ctx: 262144, out: 32768 }
 ];
 
 module.exports = { CN_MODELS: CN_MODELS };
