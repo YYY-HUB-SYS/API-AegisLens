@@ -265,3 +265,90 @@ test('API 集成：拉取自动联网补全 + enrich 端点 + 手动补充 + 断
     offline.server.close();
   }
 });
+
+/* ================= 新增：国内模型数据库 ================= */
+
+test('CN models：内置模型数据库覆盖国内平台模型', () => {
+  var cnData = require('../src/cn-models');
+  var idx = enrich.buildIndex(cnData.CN_MODELS);
+
+  var hit = enrich.matchModel(idx, 'step-1o-turbo-vision');
+  assert.ok(hit, 'step-1o-turbo-vision 应在内置数据库中');
+  assert.strictEqual(hit.ctx, 32768);
+
+  hit = enrich.matchModel(idx, 'glm-4-plus');
+  assert.ok(hit, 'glm-4-plus 应在内置数据库中');
+  assert.strictEqual(hit.ctx, 131072);
+
+  hit = enrich.matchModel(idx, 'sensenova-6.7-flash-lite');
+  assert.ok(hit, 'sensenova-6.7-flash-lite 应在内置数据库中');
+  assert.strictEqual(hit.ctx, 262144);
+
+  hit = enrich.matchModel(idx, 'dr-search-api');
+  assert.ok(hit, 'dr-search-api 应在内置数据库中');
+});
+
+test('stripUuidPrefix：剥离 openai-compatible-chat UUID 前缀', () => {
+  assert.strictEqual(
+    enrich.stripUuidPrefix('openai-compatible-chat-f618e47d-3d36-442b-b451-87b32f7e44a4/dots3-note-prev'),
+    'dots3-note-prev'
+  );
+  assert.strictEqual(
+    enrich.stripUuidPrefix('OpenAI-Compatible-Chat-abc12345-dead-beef-cafe-0123456789ab/glm-4-flash'),
+    'glm-4-flash'
+  );
+  assert.strictEqual(
+    enrich.stripUuidPrefix('step-1o-turbo-vision'),
+    'step-1o-turbo-vision',
+    '无前缀时保持不变'
+  );
+  assert.strictEqual(
+    enrich.stripUuidPrefix('openai-compatible-embedding-11111111-2222-3333-4444-555555555555/model-xyz'),
+    'model-xyz'
+  );
+});
+
+test('matchModel：多段路径前缀模糊匹配（如 siliconflow/Qwen/Qwen2.5-32B-Instruct）', () => {
+  var cnData = require('../src/cn-models');
+  var idx = enrich.buildIndex(cnData.CN_MODELS);
+
+  var hit = enrich.matchModel(idx, 'siliconflow/Qwen/Qwen2.5-32B-Instruct');
+  assert.strictEqual(hit, null, 'Qwen2.5-32B-Instruct 不在 CN 数据库中');
+
+  hit = enrich.matchModel(idx, 'siliconflow/step-1o-turbo-vision');
+  assert.ok(hit, '带 siliconflow 前缀的 step 模型应匹配到数据库');
+  assert.strictEqual(hit.ctx, 32768);
+
+  hit = enrich.matchModel(idx, 'sf/step-1o-turbo-vision');
+  assert.ok(hit, '带 sf 前缀的 step 模型应匹配');
+  assert.strictEqual(hit.ctx, 32768);
+
+  hit = enrich.matchModel(idx, 'nvidia/google/codegemma-7b');
+  assert.strictEqual(hit, null, 'nvidia 前缀的 google 模型不在 CN 数据库中');
+});
+
+test('matchModel：UUID 前缀 + 国内模型名联合匹配', () => {
+  var cnData = require('../src/cn-models');
+  var idx = enrich.buildIndex(cnData.CN_MODELS);
+
+  var q = 'openai-compatible-chat-f618e47d-3d36-442b-b451-87b32f7e44a4/dots3-note-prev';
+  var hit = enrich.matchModel(idx, q);
+  assert.ok(hit, '带 UUID 前缀的 dots3-note-prev 应匹配');
+  assert.strictEqual(hit.ctx, 131072);
+
+  q = 'openai-compatible-chat-4e2e1ffb-74b2-473a-a835-38caf619b255/glm-4-plus';
+  hit = enrich.matchModel(idx, q);
+  assert.ok(hit, '带 UUID 前缀的 glm-4-plus 应匹配');
+  assert.strictEqual(hit.ctx, 131072);
+});
+
+test('lookupOnline：国内模型即使所有在线源失败仍可匹配', async () => {
+  enrich.resetCache();
+  var f = function () { return Promise.reject(new Error('network down')); };
+  var r = await enrich.lookupOnline(['step-1o-turbo-vision', 'glm-4-flash', 'sensenova-u1-fast', 'dots3-note-prev'], { fetchImpl: f });
+  assert.strictEqual(r.found['step-1o-turbo-vision'].ctx, 32768, '断网时 step 模型应匹配内置数据库');
+  assert.strictEqual(r.found['glm-4-flash'].ctx, 131072, '断网时 glm-4-flash 应匹配');
+  assert.strictEqual(r.found['sensenova-u1-fast'].ctx, 131072, '断网时 sensenova-u1-fast 应匹配');
+  assert.strictEqual(r.found['dots3-note-prev'].ctx, 131072, '断网时 dots3-note-prev 应匹配');
+  assert.strictEqual(r.error, null, '本地数据库匹配时不应报联网失败');
+});

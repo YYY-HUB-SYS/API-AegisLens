@@ -1,3 +1,5 @@
+var cnData = require('./cn-models');
+
 const PROVIDERS = [
   {
     id: 'openrouter',
@@ -46,12 +48,29 @@ const cache = {};
 
 function resetCache() {
   Object.keys(cache).forEach(function (k) { delete cache[k]; });
+  _localIndex = null;
 }
 
 function norm(s) { return String(s || '').toLowerCase().trim(); }
 function stripVendor(s) { const i = s.indexOf('/'); return i >= 0 ? s.slice(i + 1) : s; }
 function stripSuffix(s) {
   return s.replace(/[-:](free|exp|experimental|preview|beta|alpha|latest|stable|batch)$/g, '');
+}
+
+var UUID_PREFIX_RE = /^openai-compatible-(?:chat|completion|embedding)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\//i;
+
+function stripUuidPrefix(s) {
+  return s.replace(UUID_PREFIX_RE, '');
+}
+
+function allSuffixes(s) {
+  var parts = s.split('/');
+  var result = [];
+  for (var i = 0; i < parts.length; i++) {
+    var joined = parts.slice(i).join('/');
+    if (joined) result.push(joined);
+  }
+  return result;
 }
 
 function buildIndex(entries) {
@@ -76,14 +95,33 @@ function matchModel(index, query) {
   const q = norm(query);
   if (!q) return null;
   if (index[q]) return index[q];
-  const stripped = stripSuffix(stripVendor(q));
-  if (stripped !== q && index[stripped]) return index[stripped];
+
+  const uuidStripped = norm(stripUuidPrefix(query));
+  if (uuidStripped !== q && index[uuidStripped]) return index[uuidStripped];
+
+  const variants = allSuffixes(q);
+  for (var i = 0; i < variants.length; i++) {
+    var v = norm(stripSuffix(variants[i]));
+    if (v !== q && index[v]) return index[v];
+  }
+
   let best = null;
   const keys = Object.keys(index);
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
     if (k.length < 6) continue;
     if ((q.includes(k) || k.includes(q)) && (!best || k.length > best.length)) best = k;
+  }
+  if (best) return index[best];
+
+  for (var j = 0; j < variants.length; j++) {
+    var seg = norm(variants[j]);
+    if (seg.length < 6) continue;
+    for (var m = 0; m < keys.length; m++) {
+      var key = keys[m];
+      if (key.length < 6) continue;
+      if ((seg.includes(key) || key.includes(seg)) && (!best || key.length > best.length)) best = key;
+    }
   }
   return best ? index[best] : null;
 }
@@ -112,6 +150,12 @@ async function fetchProvider(p, opts) {
   return index;
 }
 
+var _localIndex = null;
+function getLocalIndex() {
+  if (!_localIndex) _localIndex = buildIndex(cnData.CN_MODELS);
+  return _localIndex;
+}
+
 async function lookupOnline(ids, opts) {
   const results = {};
   const errors = [];
@@ -121,6 +165,7 @@ async function lookupOnline(ids, opts) {
       return null;
     });
   }));
+  catalogs.push(getLocalIndex());
   for (let i = 0; i < ids.length; i++) {
     const id = String(ids[i] || '').trim();
     if (!id) continue;
@@ -134,9 +179,11 @@ async function lookupOnline(ids, opts) {
       };
     }
   }
+  var onlineFailed = catalogs.slice(0, -1).every(function (c) { return !c; });
+  var hasResults = Object.keys(results).length > 0;
   return {
     found: results,
-    error: catalogs.every(function (c) { return !c; })
+    error: onlineFailed && !hasResults && catalogs.length > 1
       ? '联网检索失败（' + errors.join('；') + '）'
       : null
   };
@@ -162,5 +209,7 @@ module.exports = {
   matchModel: matchModel,
   buildIndex: buildIndex,
   resetCache: resetCache,
-  PROVIDERS: PROVIDERS
+  PROVIDERS: PROVIDERS,
+  stripUuidPrefix: stripUuidPrefix,
+  allSuffixes: allSuffixes
 };

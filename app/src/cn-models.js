@@ -1,0 +1,61 @@
+var CN_MODELS = [
+  { id: 'step-3.7-flash', ctx: 262144, out: 65536 },
+  { id: 'step-3.5-flash-2603', ctx: 262144, out: 65536 },
+  { id: 'step-3.5-flash', ctx: 262144, out: 65536 },
+  { id: 'step-2-mini', ctx: 32768, out: 16384 },
+  { id: 'step-2-16k', ctx: 16384, out: 8192 },
+  { id: 'step-2-16k-exp', ctx: 16384, out: 8192 },
+  { id: 'step-1-8k', ctx: 8192, out: 4096 },
+  { id: 'step-1-32k', ctx: 32768, out: 16384 },
+  { id: 'step-1-128k', ctx: 131072, out: 32768 },
+  { id: 'step-1-256k', ctx: 262144, out: 32768 },
+  { id: 'step-1o-turbo-vision', ctx: 32768, out: 16384 },
+  { id: 'step-1o-audio', ctx: 32768, out: 16384 },
+  { id: 'step-overture-preview', ctx: 131072, out: 16384 },
+  { id: 'step-gui', ctx: 131072, out: 16384 },
+  { id: 'dr-search-api', ctx: 131072, out: 8192 },
+  { id: 'search-image', ctx: 8192, out: 4096 },
+
+  { id: 'glm-4-plus', ctx: 131072, out: 4096 },
+  { id: 'glm-4-air-250414', ctx: 131072, out: 16384 },
+  { id: 'glm-4-airx', ctx: 131072, out: 16384 },
+  { id: 'glm-4-flashx-250414', ctx: 131072, out: 16384 },
+  { id: 'glm-4-flash-250414', ctx: 131072, out: 16384 },
+  { id: 'glm-4-flash', ctx: 131072, out: 16384 },
+  { id: 'glm-4', ctx: 131072, out: 4096 },
+  { id: 'glm-4-32b', ctx: 131072, out: 16384 },
+  { id: 'glm-4.6', ctx: 200000, out: 131072 },
+
+  { id: 'sensenova-6.7-flash-lite', ctx: 262144, out: 65536 },
+  { id: 'sensenova-u1-fast', ctx: 131072, out: 8192 },
+  { id: 'sensenova-u1.5-lite', ctx: 131072, out: 8192 },
+
+  { id: 'doubao-seed-2-1-pro', ctx: 131072, out: 16384 },
+  { id: 'doubao-embedding-vision', ctx: 8192, out: null },
+
+  { id: 'dots3-note-prev', ctx: 131072, out: 16384 },
+
+  { id: 'step-asr', ctx: 8192, out: 4096 },
+  { id: 'step-asr-1.1', ctx: 8192, out: 4096 },
+  { id: 'step-asr-1.1-stream', ctx: 8192, out: 4096 },
+  { id: 'stepaudio-2-asr-pro', ctx: 8192, out: 4096 },
+  { id: 'step-tts-mini', ctx: 8192, out: 4096 },
+  { id: 'step-tts-vivid', ctx: 8192, out: 4096 },
+  { id: 'step-audio-2', ctx: 8192, out: 4096 },
+  { id: 'step-audio-2-mini', ctx: 8192, out: 4096 },
+  { id: 'step-audio-2-think', ctx: 32768, out: 16384 },
+  { id: 'step-audio-r1.1', ctx: 32768, out: 16384 },
+  { id: 'stepaudio-2.5-chat', ctx: 32768, out: 16384 },
+  { id: 'stepaudio-2.5-realtime', ctx: 32768, out: 16384 },
+  { id: 'step-2x-large', ctx: 8192, out: 4096 },
+  { id: 'step-image-edit-2', ctx: 8192, out: 4096 },
+
+  { id: 'doubao-seedream-5.0-lite', ctx: 8192, out: 4096 },
+  { id: 'doubao-seedance-2.0', ctx: 8192, out: 4096 },
+  { id: 'doubao-seedance-2.0-fast', ctx: 8192, out: 4096 },
+  { id: 'doubao-seedance-2.0-mini', ctx: 8192, out: 4096 },
+  { id: 'doubao-seed-tts-2.0', ctx: 8192, out: 4096 },
+  { id: 'doubao-seed-asr-2.0', ctx: 8192, out: 4096 }
+];
+
+module.exports = { CN_MODELS: CN_MODELS };
