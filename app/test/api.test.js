@@ -113,7 +113,7 @@ test('API 集成：完整业务流程', async () => {
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.models.length, 2);
     const chat = r.data.models.find(m => m.id === 'deepseek-chat');
-    assert.strictEqual(chat.ctx, 65536, '元数据库应补齐上下文');
+    assert.strictEqual(chat.ctx, 131072, '元数据库应补齐上下文');
     assert.strictEqual(chat.src, 'meta');
 
     r = await call(base, 'POST', '/api/keys/' + k.id + '/models', {
@@ -571,7 +571,7 @@ test('API 集成：批量导入密钥', async () => {
           exp: '2027-01-01',
           endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }],
           authNote: '测试导入',
-          models: [{ id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta' }],
+          models: [{ id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'meta' }],
           assigned: ['Dify', 'n8n']
         },
         {

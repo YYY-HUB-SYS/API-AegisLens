@@ -458,8 +458,8 @@
       name: 'DeepSeek', color: '#22A5F7',
       base: 'https://api.deepseek.com', model: 'deepseek-chat', currency: '¥',
       models: [
-        { id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta' },
-        { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta' },
+        { id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'meta' },
+        { id: 'deepseek-reasoner', ctx: 131072, out: 8192, src: 'meta' },
         { id: 'deepseek-v3', ctx: 131072, out: 16384, src: 'meta' }
       ]
     },
@@ -529,8 +529,8 @@
           reg: '2025-06-18', exp: fmtDate(t.getTime() + 400 * 86400000),
           balance: { value: 12.35, status: 'ok' },
           models: [
-            { id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta', note: 'Dify · 客服机器人' },
-            { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta' },
+            { id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'meta', note: 'Dify · 客服机器人' },
+            { id: 'deepseek-reasoner', ctx: 131072, out: 8192, src: 'meta' },
             { id: 'deepseek-v3', ctx: 131072, out: 16384, src: 'meta', note: 'Cherry Studio · 日常' }
           ],
           assigned: ['Dify'],

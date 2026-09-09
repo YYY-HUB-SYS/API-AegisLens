@@ -19,7 +19,7 @@ test('fetchModels：OpenAI 风格响应解析 + 元数据库补参数', async ()
   assert.strictEqual(models.length, 2);
 
   const known = models.find(m => m.id === 'deepseek-chat');
-  assert.strictEqual(known.ctx, 65536);
+  assert.strictEqual(known.ctx, 131072);
   assert.strictEqual(known.out, 8192);
   assert.strictEqual(known.src, 'meta');
 
@@ -468,14 +468,14 @@ test('mergeModels：保留手动模型参数与备注，追加仅手动添加的
     { id: 'my-model', ctx: 999, out: 111, src: 'manual', note: 'n8n' }
   ];
   const fetched = [
-    { id: 'deepseek-chat', ctx: 65536, out: 8192, src: 'meta', note: null },
-    { id: 'deepseek-reasoner', ctx: 65536, out: 8192, src: 'meta', note: null }
+    { id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'meta', note: null },
+    { id: 'deepseek-reasoner', ctx: 131072, out: 8192, src: 'meta', note: null }
   ];
   const merged = adapters.mergeModels(prev, fetched);
   assert.strictEqual(merged.length, 3);
 
   const chat = merged.find(m => m.id === 'deepseek-chat');
-  assert.strictEqual(chat.ctx, 65536);
+  assert.strictEqual(chat.ctx, 131072);
   assert.strictEqual(chat.note, 'Dify · 客服', '拉取不应丢失备注');
 
   const mine = merged.find(m => m.id === 'my-model');

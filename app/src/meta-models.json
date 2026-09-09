@@ -1,8 +1,8 @@
 {
   "deepseek": {
-    "deepseek-chat": { "ctx": 65536, "out": 8192 },
-    "deepseek-reasoner": { "ctx": 65536, "out": 8192 },
-    "deepseek-v3*": { "ctx": 65536, "out": 8192 },
+    "deepseek-chat": { "ctx": 131072, "out": 8192 },
+    "deepseek-reasoner": { "ctx": 131072, "out": 8192 },
+    "deepseek-v3*": { "ctx": 131072, "out": 8192 },
     "deepseek-coder*": { "ctx": 131072, "out": 8192 }
   },
   "openai": {
