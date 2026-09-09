@@ -186,6 +186,28 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
+    upsertModels(id, models) {
+      const d = find(id);
+      if (!d) return null;
+      d.models = d.models || [];
+      models.forEach(function (m) {
+        let hit = null;
+        for (let i = 0; i < d.models.length; i++) {
+          if (d.models[i].id === m.id) { hit = d.models[i]; break; }
+        }
+        if (!hit) {
+          hit = { id: m.id, ctx: null, out: null, src: m.src || 'manual', note: null };
+          d.models.push(hit);
+        }
+        ['ctx', 'out', 'src', 'note'].forEach(function (f) {
+          if (m[f] !== undefined) hit[f] = m[f];
+        });
+      });
+      d.updatedAt = nowIso();
+      persist();
+      return toRec(d);
+    },
+
     addAssigned(id, tool) {
       const d = find(id);
       if (!d) return null;
@@ -219,7 +241,9 @@ function makeJsonStore(dataDir, masterKey) {
 /* ================= SQLite 后端（node:sqlite） ================= */
 
 function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
-  const db = new DatabaseSync(path.join(dataDir, 'keys.db'));
+  const dbPath = path.join(dataDir, 'keys.db');
+  console.log('  SQLite database path:', dbPath);
+  const db = new DatabaseSync(dbPath);
   db.exec([
     'CREATE TABLE IF NOT EXISTS keys (',
     '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
@@ -434,6 +458,34 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note);
       }
       stmt.touch.run(nowIso(), id);
+      return toRec(getRow(id));
+    },
+
+    upsertModels(id, models) {
+      const cur = getRow(id);
+      if (!cur) return null;
+      try {
+        models.forEach(function (m) {
+          const hit = stmt.selModel.get(id, m.id);
+          if (hit) {
+            stmt.updModel.run(
+              m.ctx !== undefined ? (m.ctx == null ? null : m.ctx) : hit.ctx,
+              m.out !== undefined ? (m.out == null ? null : m.out) : hit.out,
+              m.src !== undefined ? m.src : hit.src,
+              m.note !== undefined ? m.note : hit.note,
+              id, m.id
+            );
+          } else {
+            stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note);
+          }
+        });
+        stmt.touch.run(nowIso(), id);
+      } catch (e) {
+        console.error('upsertModels error:', e.message, 'for key', id, 'with', models.length, 'models');
+        console.error('Database path:', dbPath);
+        console.error('Database exists:', require('fs').existsSync(dbPath));
+        throw e;
+      }
       return toRec(getRow(id));
     },
 

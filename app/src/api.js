@@ -278,10 +278,11 @@ async function routeApi(req, res, ctx) {
       error = e.message;
     }
     const applied = enrich.applyToModels(k.models, found);
+    const changedModels = [];
     applied.models.forEach(function (mm, idx) {
       if (applied.changed.indexOf(mm.id) >= 0) {
-        const prev = k.models[idx];
-        storage.upsertModel(k.id, {
+        var prev = k.models[idx];
+        changedModels.push({
           id: mm.id,
           ctx: mm.ctx != null ? mm.ctx : prev.ctx,
           out: mm.out != null ? mm.out : prev.out,
@@ -289,6 +290,9 @@ async function routeApi(req, res, ctx) {
         });
       }
     });
+    if (changedModels.length > 0) {
+      storage.upsertModels(k.id, changedModels);
+    }
     const rec = storage.getKey(k.id);
     const stillUnknown = (rec.models || []).filter(function (mm) {
       return mm.ctx == null;
