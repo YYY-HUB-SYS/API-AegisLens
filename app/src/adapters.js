@@ -191,12 +191,14 @@ function proxyFetch(urlStr, init, proxyUrl) {
     connectReq.end();
   });
 }
-
 function effectiveFetch(url, init) {
-  if (PROXY_URL && /^https:\/\//i.test(String(url))) return proxyFetch(url, init);
+  if (PROXY_URL && /^https:/i.test(String(url))) {
+    return proxyFetch(url, init).catch(function () {
+      return fetch(url, init);
+    });
+  }
   return fetch(url, init);
 }
-
 async function requestJson(url, headers, opts) {
   const f = (opts && opts.fetchImpl) || effectiveFetch;
   const timeoutMs = (opts && opts.timeoutMs) || 10000;
