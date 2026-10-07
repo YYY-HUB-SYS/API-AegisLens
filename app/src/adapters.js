@@ -350,18 +350,31 @@ async function fetchModels(platform, ep, key, opts) {
   const list = (res.body && Array.isArray(res.body.data)) ? res.body.data : [];
   const models = [];
   for (let i = 0; i < list.length; i++) {
-    const id = String((list[i] && list[i].id) || '').trim();
+    const item = list[i] || {};
+    const id = String(item.id || '').trim();
     if (!id) continue;
+    /* 平台自己在 /models 里给的参数优先，内置元表只兜它没给的部分：
+       SenseNova 等端点会返回 context_length / max_output_length，
+       而联网检索命中的常是同名模型在别处的上限，两者不一致时以前者为准 */
+    const apiCtx = posInt(item.context_length);
+    const apiOut = posInt(item.max_output_length);
     const meta = lookupMeta(platform, id);
+    const ctx = apiCtx != null ? apiCtx : (meta ? meta.ctx : null);
+    const out = apiOut != null ? apiOut : (meta ? meta.out : null);
     models.push({
       id: id,
-      ctx: meta ? meta.ctx : null,
-      out: meta ? meta.out : null,
-      src: meta ? 'meta' : 'api',
+      ctx: ctx,
+      out: out,
+      src: (apiCtx != null || apiOut != null) ? 'api' : (meta ? 'meta' : 'api'),
       note: null
     });
   }
   return models;
+}
+
+function posInt(v) {
+  const n = Number(v);
+  return (v == null || v === '' || !Number.isFinite(n) || n <= 0) ? null : Math.floor(n);
 }
 
 function chatProbePath(style) {

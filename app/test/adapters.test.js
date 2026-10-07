@@ -28,6 +28,29 @@ test('fetchModels：OpenAI 风格响应解析 + 元数据库补参数', async ()
   assert.strictEqual(unknown.src, 'api');
 });
 
+test('fetchModels：平台自带的 context_length / max_output_length 优先于内置元表', async () => {
+  const f = () => Promise.resolve(res({ data: [
+    { id: 'deepseek-chat', context_length: 1048576, max_output_length: 65536 },
+    { id: 'sensenova-u1-fast', context_length: 262144, max_output_length: 65536 },
+    { id: 'no-numbers-model' },
+    { id: 'zero-model', context_length: 0, max_output_length: null },
+  ] }));
+  const ep = { url: 'https://token.sensenova.cn/v1', style: 'openai' };
+  const models = await adapters.fetchModels('sensenova', ep, 'sk-test', { fetchImpl: f });
+  const known = models.find(m => m.id === 'deepseek-chat');
+  assert.strictEqual(known.ctx, 1048576, '平台给的值应压过内置元表的 131072');
+  assert.strictEqual(known.out, 65536);
+  assert.strictEqual(known.src, 'api', '来源应标 api 而不是 meta');
+  const sn = models.find(m => m.id === 'sensenova-u1-fast');
+  assert.strictEqual(sn.ctx, 262144);
+  assert.strictEqual(sn.out, 65536);
+  const bare = models.find(m => m.id === 'no-numbers-model');
+  assert.strictEqual(bare.ctx, null, '平台没给参数时留空，交给联网/手动兜底');
+  const zero = models.find(m => m.id === 'zero-model');
+  assert.strictEqual(zero.ctx, null, '0 不是有效上下文长度，不能当值采纳');
+  assert.strictEqual(zero.out, null);
+});
+
 test('fetchModels：Anthropic 使用 x-api-key 头与 /v1/models 路径', async () => {
   let captured = null;
   const f = (url, opts) => {
