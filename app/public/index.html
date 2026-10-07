@@ -564,6 +564,13 @@
     if (s === 'anthropic') return 'Anthropic';
     return s || 'OpenAI';
   }
+  /* 自动命名是「平台名-末4位」，而卡片头部左边已经有平台标签了，
+     这里显示时只留尾巴：库里名字不动，避免同一串平台名连着读两遍 */
+  function shortName(k) {
+    var prefix = platLabel(k) + '-';
+    var n = String(k.name || '');
+    return n.indexOf(prefix) === 0 && n.length > prefix.length ? n.slice(prefix.length) : n;
+  }
   function epSuffix(k) {   /* 让徽章说清是哪条端点通了；该端点事后被改过就标注失效 */
     var t = k.test;
     if (!t || t.epIndex == null) return '';
@@ -769,7 +776,7 @@
         '<div class="kc-main">' +
           '<div class="kc-l1">' +
             '<span class="plat"><span class="plat-dot" style="background:' + p.color + '"></span>' + esc(platLabel(k)) + '</span>' +
-            '<span class="kname">' + esc(k.name) + '</span>' +
+            '<span class="kname">' + esc(shortName(k)) + '</span>' +
             '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
             testChip +
             (authNote ? '<button class="auth-chip" data-act="toggle-auth" title="该密钥带特殊认证说明，点击展开查看">⚠ 特殊认证</button>' : '') +
@@ -1557,7 +1564,7 @@
       return '<label class="export-item">' +
         '<input type="checkbox" class="export-cb" data-id="' + k.id + '" checked>' +
         '<span class="plat-dot" style="background:' + p.color + '"></span>' +
-        '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(k.name) + '</span>' +
+        '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(shortName(k)) + '</span>' +
         '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
       '</label>';
     }).join('');
@@ -1659,7 +1666,7 @@
             var p = state.platforms[k.platform] || { name: k.platform, color: '#8A8FA8' };
             return '<div class="import-item">' +
               '<span class="plat-dot" style="background:' + p.color + '"></span>' +
-              '<span class="kname">' + esc(p.name) + ' · ' + esc(k.name || '') + '</span>' +
+              '<span class="kname">' + esc(p.name) + ' · ' + esc(shortName(k)) + '</span>' +
               '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
             '</div>';
           }).join('') + '</div>';

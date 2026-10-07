@@ -172,3 +172,10 @@ test('生成配置：端点风格与工具协议不匹配时必须出警告', ()
   assert.ok(html.includes('不是 OpenAI 兼容'), 'Dify/n8n 拿到非 OpenAI 兼容端点时要警告');
   assert.ok(!html.includes("else cl.push('# 未配置 Anthropic 兼容地址');"), '原先那段永不可达的死分支应已被替换');
 });
+test('卡片头部与导入导出列表：自动名重复平台名时只显示尾巴', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('function shortName(k)'), '应有 shortName 助手');
+  assert.equal((html.match(/esc\(shortName\(k\)\)/g) || []).length, 3,
+    '卡片头部 + 导出列表 + 导入预览 三处都该去重');
+  assert.ok(!html.includes("'<span class=\"kname\">' + esc(k.name)"), '不应再有直接输出 k.name 的 kname');
+});
