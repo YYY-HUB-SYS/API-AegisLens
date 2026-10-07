@@ -1,0 +1,12 @@
+# 这台机器 core.autocrlf=true，字体是压缩二进制，不能让 git 去猜它是不是文本
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary

@@ -3,16 +3,85 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { apiRouter } = require('./api');
 
+/* 只放行这几种后缀：不在表里的扩展名一律 404，避免 /vendor/ 变成任意文件读取口 */
+const VENDOR_TYPES = {
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.svg': 'image/svg+xml',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8'
+};
+
+function pathnameOf(url) {
+  const q = url.indexOf('?');
+  const h = url.indexOf('#');
+  let p = q === -1 ? url : url.slice(0, q);
+  if (h !== -1) p = p.slice(0, h);
+  return p;
+}
+
 function createApp(opts) {
   const storage = opts.storage;
   const fetchImpl = opts.fetchImpl;
   const version = opts.version || '0.0.0';
   const publicDir = opts.publicDir;
+  const vendorRoot = path.resolve(publicDir, 'vendor');
 
   let indexHtml = null;
   try {
     indexHtml = fs.readFileSync(path.join(publicDir, 'index.html'));
   } catch (e) { /* index.html 缺失时由下方 500 分支提示 */ }
+
+  /* 命中 /vendor/ 返回 true（已自行应答），否则 false 交给后续路由 */
+  function serveVendor(req, res) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    const pathname = pathnameOf(req.url);
+    if (!pathname.startsWith('/vendor/')) return false;
+
+    let rel;
+    try {
+      rel = decodeURIComponent(pathname.slice('/vendor/'.length));
+    } catch (e) {
+      rel = null;
+    }
+    if (rel === null || rel.indexOf('\u0000') !== -1 || path.isAbsolute(rel)) {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Bad Request');
+      return true;
+    }
+
+    const abs = path.resolve(vendorRoot, rel);
+    if (abs !== vendorRoot && !abs.startsWith(vendorRoot + path.sep)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return true;
+    }
+
+    const type = VENDOR_TYPES[path.extname(abs).toLowerCase()];
+    if (!type) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not Found');
+      return true;
+    }
+
+    fs.readFile(abs, function (err, buf) {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not Found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': buf.length,
+        'Cache-Control': 'no-store'
+      });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return true;
+  }
 
   return http.createServer(function (req, res) {
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
@@ -26,6 +95,7 @@ function createApp(opts) {
       });
       return res.end(indexHtml);
     }
+    if (serveVendor(req, res)) return;
     if (req.url.startsWith('/api/')) {
       return apiRouter(req, res, { storage: storage, fetchImpl: fetchImpl, version: version });
     }

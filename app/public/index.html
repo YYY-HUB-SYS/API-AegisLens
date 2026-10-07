@@ -16,6 +16,15 @@
   })();
 </script>
 <style>
+  /* 随仓库走的 latin 子集（可变字重，31KB）。中文不内置：子集化必漏用户自填的字，
+     漏字会让同一段文字一半思源一半雅黑，比全用系统字体更难看。*/
+  @font-face {
+    font-family: "JetBrains Mono";
+    font-style: normal;
+    font-weight: 100 800;
+    font-display: block;
+    src: url("/vendor/fonts/jetbrains-mono-latin-var.woff2") format("woff2");
+  }
   :root {
     color-scheme: light;
     /* 表面与墨色：冷中性 + 高对比，正文 7:1 起 */
@@ -41,7 +50,7 @@
     --warn-soft: rgba(180, 116, 9, 0.13);
     --danger: #B3261E;
     --danger-soft: rgba(179, 38, 30, 0.09);
-    --mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
     /* 字号五档，相邻档差 >= 1.18 */
     --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px;
     --r-card: 12px; --r-ctl: 8px; --r-chip: 6px; --r-pill: 999px;
@@ -136,7 +145,7 @@
   .stats { display: flex; gap: 0; padding: 14px 0; flex-wrap: wrap; }
   .stat { display: flex; align-items: baseline; gap: 7px; padding: 0 18px; border-left: 1px solid var(--rule); }
   .stat:first-child { border-left: none; padding-left: 0; }
-  .stat .num { font-family: var(--mono); font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
+  .stat .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
   .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); }
 
   .board { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
