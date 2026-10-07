@@ -2,7 +2,7 @@
 
 [简体中文](./DEPLOYMENT.md) | [English](./DEPLOYMENT_EN.md)
 
-AI Key Manager is a **local-first** tool: the service listens on `127.0.0.1` only, and the data directory is fully separated from the code repository. This guide covers day-to-day startup, auto-start on boot, remote access, reverse proxying, backup, and upgrades.
+API-AegisLens is a **local-first** tool: the service listens on `127.0.0.1` only, and the data directory is fully separated from the code repository. This guide covers day-to-day startup, auto-start on boot, remote access, reverse proxying, backup, and upgrades.
 
 ## Contents
 
@@ -41,7 +41,7 @@ cd app
 node server.js
 ```
 
-You should see `AI Key Manager 已启动` and `浏览器访问: http://127.0.0.1:37700`.
+You should see `API-AegisLens 已启动` and `浏览器访问: http://127.0.0.1:37700`.
 
 ## Configuration
 
@@ -50,7 +50,7 @@ Three environment variables, set as needed:
 | Variable | Default | Description |
 |---|---|---|
 | `AKM_PORT` | `37700` | Listening port (binds 127.0.0.1 only, never exposed) |
-| `AKM_DATA_DIR` | `~/.ai-key-manager` | Data directory: encrypted store (`store.json` or `keys.db`) + master key `master.key` |
+| `AKM_DATA_DIR` | `~/.api-aegislens` | Data directory: encrypted store (`store.json` or `keys.db`) + master key `master.key` |
 | `AKM_PROXY` | auto-detect | Proxy for outbound requests, see below |
 
 **Proxy notes**: outbound requests (key testing, model fetching, balance queries) resolve the proxy in this order:
@@ -76,15 +76,15 @@ Run headless in the background:
 
 ```powershell
 # Adjust node.exe and project paths to your setup
-schtasks /Create /TN "AI Key Manager" /SC ONLOGON /RL LIMITED `
-  /TR "\"C:\Program Files\nodejs\node.exe\" \"D:\ai\ai-key-manager\app\server.js\""
+schtasks /Create /TN "API-AegisLens" /SC ONLOGON /RL LIMITED `
+  /TR "\"C:\Program Files\nodejs\node.exe\" \"D:\ai\api-aegislens\app\server.js\""
 ```
 
-Manage it with `schtasks /Run /TN "AI Key Manager"` to start and `schtasks /Delete /TN "AI Key Manager"` to remove. You can also configure "At log on" triggers in the Task Scheduler GUI.
+Manage it with `schtasks /Run /TN "API-AegisLens"` to start and `schtasks /Delete /TN "API-AegisLens"` to remove. You can also configure "At log on" triggers in the Task Scheduler GUI.
 
 ### macOS (launchd)
 
-Create `~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist`:
+Create `~/Library/LaunchAgents/com.oldgao.api-aegislens.plist`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -92,11 +92,11 @@ Create `~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist`:
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.oldgao.ai-key-manager</string>
+  <key>Label</key><string>com.oldgao.api-aegislens</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>/Users/YOU/ai-key-manager/app/server.js</string>
+    <string>/Users/YOU/api-aegislens/app/server.js</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -107,21 +107,21 @@ Create `~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist`:
 Activate it:
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist
+launchctl load ~/Library/LaunchAgents/com.oldgao.api-aegislens.plist
 ```
 
 (Confirm the `node` path with `which node`; on Apple Silicon it is usually `/opt/homebrew/bin/node`.)
 
 ### Linux (systemd user service)
 
-Create `~/.config/systemd/user/ai-key-manager.service`:
+Create `~/.config/systemd/user/api-aegislens.service`:
 
 ```ini
 [Unit]
-Description=AI Key Manager (local-first API key manager)
+Description=API-AegisLens (local-first API key manager)
 
 [Service]
-ExecStart=/usr/bin/node /opt/ai-key-manager/app/server.js
+ExecStart=/usr/bin/node /opt/api-aegislens/app/server.js
 Restart=on-failure
 # Uncomment and adjust if a proxy is needed
 # Environment=AKM_PROXY=http://127.0.0.1:7897
@@ -134,7 +134,7 @@ Activate it:
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now ai-key-manager
+systemctl --user enable --now api-aegislens
 
 # Optional: start at boot even before login
 loginctl enable-linger $USER
@@ -160,7 +160,7 @@ server {
     listen 8080;
 
     # Authentication is mandatory
-    auth_basic "AI Key Manager";
+    auth_basic "API-AegisLens";
     auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
@@ -172,10 +172,10 @@ server {
 
 ## Data Backup and Migration
 
-All data lives in the data directory (default `~/.ai-key-manager`):
+All data lives in the data directory (default `~/.api-aegislens`):
 
 ```
-~/.ai-key-manager/
+~/.api-aegislens/
 ├── master.key    # Master key (if lost, data can no longer be decrypted — back it up!)
 └── store.json    # or keys.db — the AES-256-GCM encrypted key vault
 ```
@@ -189,7 +189,7 @@ All data lives in the data directory (default `~/.ai-key-manager`):
 ## Upgrading
 
 ```bash
-cd ai-key-manager
+cd api-aegislens
 git pull
 npm test        # optional: run the 85-test suite to verify the environment
 # Restart the service (the restart command for your auto-start method, or npm start again)
@@ -212,7 +212,7 @@ The relay performs client fingerprinting; this app already sends a coding-tool U
 That endpoint does not implement the `/models` list API (e.g. Volcano Ark Agent Plan). Testing automatically falls back to an auth probe against the chat endpoint; model fetching returns the built-in official catalog for Agent Plan, and for other endpoints you can add models manually.
 
 **Forgot where the data lives**
-Default is `~/.ai-key-manager` (on Windows: `C:\Users\<you>\.ai-key-manager`), or wherever `AKM_DATA_DIR` points. The startup log prints the data directory.
+Default is `~/.api-aegislens` (on Windows: `C:\Users\<you>\.api-aegislens`), or wherever `AKM_DATA_DIR` points. The startup log prints the data directory.
 
 **Node version too old**
 Verify with `node -v` that it is >= 18. Managing Node versions with nvm / nvm-windows is recommended.

@@ -1,4 +1,4 @@
-# AI Key Manager
+# API-AegisLens
 
 [简体中文](./README.md) | [English](./README_EN.md)
 
@@ -28,8 +28,8 @@
 环境要求：[Node.js](https://nodejs.org/) >= 18（无需安装任何依赖）。
 
 ```bash
-git clone https://github.com/roseion/ai-key-manager.git
-cd ai-key-manager/app
+git clone https://github.com/YYY-HUB-SYS/API-AegisLens.git
+cd API-AegisLens/app
 npm start
 ```
 
@@ -42,7 +42,7 @@ npm start
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AKM_PORT` | `37700` | 服务监听端口（仅 127.0.0.1） |
-| `AKM_DATA_DIR` | `~/.ai-key-manager` | 数据目录（加密存储与主密钥） |
+| `AKM_DATA_DIR` | `~/.api-aegislens` | 数据目录（加密存储与主密钥） |
 | `AKM_PROXY` | 自动检测 | 外发请求代理。默认依次检测 `HTTPS_PROXY`/`HTTP_PROXY` 环境变量与 Windows 系统代理；设为 `off` 强制直连，或设为 `http://127.0.0.1:7897` 显式指定 |
 
 ## 使用流程
@@ -69,7 +69,7 @@ npm test
 │   ├── src/                # 加密 / 存储 / API / 平台适配器
 │   ├── public/             # 前端单页
 │   └── test/               # 测试
-├── ai-key-manager-prd/     # 产品设计文档（PRD）
+├── api-aegislens-prd/     # 产品设计文档（PRD）
 └── demo/                   # 交互演示页
 ```
 

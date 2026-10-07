@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Key Manager</title>
+<title>API-AegisLens</title>
 <style>
   :root {
     --bg: #F4F5F7;
@@ -356,7 +356,7 @@
     <div class="brand">
       <div class="logo">K</div>
       <div>
-        <h1>AI Key Manager</h1>
+        <h1>API-AegisLens</h1>
         <div class="sub">本地密钥管理 · 加密存储</div>
       </div>
     </div>
@@ -1570,7 +1570,7 @@
     var selected = state.keys.filter(function (k) { return selectedIds[k.id]; });
     if (!selected.length) { toast('请至少选择一个密钥', 'warn'); return; }
     var exportData = {
-      type: 'ai-key-manager-export',
+      type: 'api-aegislens-export',
       version: 1,
       exportedAt: new Date().toISOString(),
       keys: selected.map(function (k) {
@@ -1593,7 +1593,7 @@
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'ai-key-manager-export-' + new Date().toISOString().slice(0, 10) + '.json';
+    a.download = 'api-aegislens-export-' + new Date().toISOString().slice(0, 10) + '.json';
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -1628,7 +1628,7 @@
     reader.onload = function (e) {
       try {
         var data = JSON.parse(e.target.result);
-        if (data.type !== 'ai-key-manager-export' || !Array.isArray(data.keys)) {
+        if (data.type !== 'api-aegislens-export' || !Array.isArray(data.keys)) {
           toast('文件格式不正确，请选择有效的导出文件', 'warn');
           return;
         }
@@ -1723,7 +1723,7 @@
     buildPlatformSelect();
     var m = state.meta || {};
     document.getElementById('foot-meta').textContent =
-      'AI Key Manager v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
+      'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
     render();
   }).catch(function (e) {
     document.getElementById('foot-meta').textContent = '服务连接失败：' + e.message;

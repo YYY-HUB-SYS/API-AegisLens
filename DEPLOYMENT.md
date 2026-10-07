@@ -2,7 +2,7 @@
 
 [简体中文](./DEPLOYMENT.md) | [English](./DEPLOYMENT_EN.md)
 
-AI Key Manager 是**本地优先**工具：服务只监听 `127.0.0.1`，数据目录独立于代码仓库。本指南覆盖日常启动、开机自启、远程访问、反向代理、备份与升级。
+API-AegisLens 是**本地优先**工具：服务只监听 `127.0.0.1`，数据目录独立于代码仓库。本指南覆盖日常启动、开机自启、远程访问、反向代理、备份与升级。
 
 ## 目录
 
@@ -41,7 +41,7 @@ cd app
 node server.js
 ```
 
-看到 `AI Key Manager 已启动` 与 `浏览器访问: http://127.0.0.1:37700` 即成功。
+看到 `API-AegisLens 已启动` 与 `浏览器访问: http://127.0.0.1:37700` 即成功。
 
 ## 配置项
 
@@ -50,7 +50,7 @@ node server.js
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AKM_PORT` | `37700` | 监听端口（仅绑定 127.0.0.1，不可对外） |
-| `AKM_DATA_DIR` | `~/.ai-key-manager` | 数据目录：加密存储（`store.json` 或 `keys.db`）+ 主密钥 `master.key` |
+| `AKM_DATA_DIR` | `~/.api-aegislens` | 数据目录：加密存储（`store.json` 或 `keys.db`）+ 主密钥 `master.key` |
 | `AKM_PROXY` | 自动检测 | 外发请求代理，见下文 |
 
 **代理说明**：服务的外发请求（测试密钥、拉取模型、查余额）默认按以下优先级解析代理：
@@ -76,15 +76,15 @@ Environment=AKM_PROXY=http://127.0.0.1:7897
 
 ```powershell
 # 按实际路径替换 node.exe 与项目目录
-schtasks /Create /TN "AI Key Manager" /SC ONLOGON /RL LIMITED `
-  /TR "\"C:\Program Files\nodejs\node.exe\" \"D:\ai\ai-key-manager\app\server.js\""
+schtasks /Create /TN "API-AegisLens" /SC ONLOGON /RL LIMITED `
+  /TR "\"C:\Program Files\nodejs\node.exe\" \"D:\ai\api-aegislens\app\server.js\""
 ```
 
-管理：`schtasks /Run /TN "AI Key Manager"` 启动，`schtasks /Delete /TN "AI Key Manager"` 移除。也可在「任务计划程序」图形界面中配置「登录时启动」。
+管理：`schtasks /Run /TN "API-AegisLens"` 启动，`schtasks /Delete /TN "API-AegisLens"` 移除。也可在「任务计划程序」图形界面中配置「登录时启动」。
 
 ### macOS（launchd）
 
-创建 `~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist`：
+创建 `~/Library/LaunchAgents/com.oldgao.api-aegislens.plist`：
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -92,11 +92,11 @@ schtasks /Create /TN "AI Key Manager" /SC ONLOGON /RL LIMITED `
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.oldgao.ai-key-manager</string>
+  <key>Label</key><string>com.oldgao.api-aegislens</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>/Users/YOU/ai-key-manager/app/server.js</string>
+    <string>/Users/YOU/api-aegislens/app/server.js</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -107,21 +107,21 @@ schtasks /Create /TN "AI Key Manager" /SC ONLOGON /RL LIMITED `
 生效：
 
 ```bash
-launchctl load ~/Library/LaunchAgents/com.oldgao.ai-key-manager.plist
+launchctl load ~/Library/LaunchAgents/com.oldgao.api-aegislens.plist
 ```
 
 （`node` 路径用 `which node` 确认，Apple Silicon 上通常是 `/opt/homebrew/bin/node`。）
 
 ### Linux（systemd 用户服务）
 
-创建 `~/.config/systemd/user/ai-key-manager.service`：
+创建 `~/.config/systemd/user/api-aegislens.service`：
 
 ```ini
 [Unit]
-Description=AI Key Manager (local-first API key manager)
+Description=API-AegisLens (local-first API key manager)
 
 [Service]
-ExecStart=/usr/bin/node /opt/ai-key-manager/app/server.js
+ExecStart=/usr/bin/node /opt/api-aegislens/app/server.js
 Restart=on-failure
 # 需要代理时取消注释并修改地址
 # Environment=AKM_PROXY=http://127.0.0.1:7897
@@ -134,7 +134,7 @@ WantedBy=default.target
 
 ```bash
 systemctl --user daemon-reload
-systemctl --user enable --now ai-key-manager
+systemctl --user enable --now api-aegislens
 
 # 未登录也随开机启动（可选）
 loginctl enable-linger $USER
@@ -160,7 +160,7 @@ server {
     listen 8080;
 
     # 必须加一层认证
-    auth_basic "AI Key Manager";
+    auth_basic "API-AegisLens";
     auth_basic_user_file /etc/nginx/.htpasswd;
 
     location / {
@@ -172,10 +172,10 @@ server {
 
 ## 数据备份与迁移
 
-所有数据都在数据目录（默认 `~/.ai-key-manager`）：
+所有数据都在数据目录（默认 `~/.api-aegislens`）：
 
 ```
-~/.ai-key-manager/
+~/.api-aegislens/
 ├── master.key    # 主密钥（丢失则数据无法解密，务必备份）
 └── store.json    # 或 keys.db —— AES-256-GCM 加密的密钥库
 ```
@@ -189,7 +189,7 @@ server {
 ## 升级
 
 ```bash
-cd ai-key-manager
+cd api-aegislens
 git pull
 npm test        # 可选：跑一遍 85 项测试确认环境正常
 # 重启服务（自启方式对应的 restart 命令，或重新运行 npm start）
@@ -212,7 +212,7 @@ npm test        # 可选：跑一遍 85 项测试确认环境正常
 该端点未提供 `/models` 列表接口（如火山方舟 Agent Plan）。测试会自动回退对话接口鉴权探测；拉模型对 Agent Plan 返回内置官方目录，其他端点请手动添加模型。
 
 **忘了数据存在哪**
-默认 `~/.ai-key-manager`（Windows 即 `C:\Users\<你>\.ai-key-manager`）；设置了 `AKM_DATA_DIR` 则在对应位置。服务启动日志会打印数据目录。
+默认 `~/.api-aegislens`（Windows 即 `C:\Users\<你>\.api-aegislens`）；设置了 `AKM_DATA_DIR` 则在对应位置。服务启动日志会打印数据目录。
 
 **Node 版本过低**
 `node -v` 确认 >= 18。建议用 nvm / nvm-windows 管理 Node 版本。

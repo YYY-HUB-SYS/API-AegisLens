@@ -33,7 +33,7 @@ test('头部包含指向 www.oldgao.com 的「回到首页」链接', () => {
 test('包含 GitHub 仓库部署地址', () => {
   const html = readHomepage();
   assert.ok(
-    (html.match(/https:\/\/github\.com\/roseion\/ai-key-manager/g) || []).length >= 3,
+    (html.match(/https:\/\/github\.com\/YYY-HUB-SYS\/API-AegisLens/g) || []).length >= 3,
     'GitHub 仓库地址应多次出现（导航 / 快速开始 / 部署章节）'
   );
 });

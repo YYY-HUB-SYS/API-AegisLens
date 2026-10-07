@@ -15,7 +15,7 @@ const app = createApp({
 
 app.on('error', function (e) {
   if (e.code === 'EADDRINUSE') {
-    console.error('端口 ' + config.port + ' 已被占用：可能已有一个 AI Key Manager 在运行。');
+    console.error('端口 ' + config.port + ' 已被占用：可能已有一个 API-AegisLens 在运行。');
     console.error('请直接用浏览器访问 http://127.0.0.1:' + config.port + '，或用环境变量 AKM_PORT 换端口。');
     process.exit(1);
   }
@@ -25,7 +25,7 @@ app.on('error', function (e) {
 
 app.listen(config.port, '127.0.0.1', function () {
   console.log('');
-  console.log('  AI Key Manager v' + pkg.version + ' 已启动');
+  console.log('  API-AegisLens v' + pkg.version + ' 已启动');
   console.log('  浏览器访问: http://127.0.0.1:' + config.port);
   console.log('  数据目录: ' + config.dataDir);
   console.log('  存储后端: ' + storage.backend + '（密钥字段 AES-256-GCM 加密）');

@@ -1,4 +1,4 @@
-# AI Key Manager
+# API-AegisLens
 
 [简体中文](./README.md) | [English](./README_EN.md)
 
@@ -28,8 +28,8 @@ Bring the API keys scattered across AI platforms into one local dashboard — en
 Requirement: [Node.js](https://nodejs.org/) >= 18 (no dependencies to install).
 
 ```bash
-git clone https://github.com/roseion/ai-key-manager.git
-cd ai-key-manager/app
+git clone https://github.com/YYY-HUB-SYS/API-AegisLens.git
+cd API-AegisLens/app
 npm start
 ```
 
@@ -42,7 +42,7 @@ For more deployment options (auto-start on boot, systemd / launchd / Task Schedu
 | Variable | Default | Description |
 |---|---|---|
 | `AKM_PORT` | `37700` | Port the service listens on (127.0.0.1 only) |
-| `AKM_DATA_DIR` | `~/.ai-key-manager` | Data directory (encrypted store and master key) |
+| `AKM_DATA_DIR` | `~/.api-aegislens` | Data directory (encrypted store and master key) |
 | `AKM_PROXY` | auto-detect | Proxy for outbound requests. Detection order: `HTTPS_PROXY`/`HTTP_PROXY` environment variables, then the Windows system proxy. Set to `off` to force direct connection, or e.g. `http://127.0.0.1:7897` to pin a proxy |
 
 ## Workflow
@@ -69,7 +69,7 @@ npm test
 │   ├── src/                # Crypto / storage / API / platform adapters
 │   ├── public/             # Frontend single page
 │   └── test/               # Tests
-├── ai-key-manager-prd/     # Product design document (PRD, in Chinese)
+├── api-aegislens-prd/     # Product design document (PRD, in Chinese)
 └── demo/                   # Interactive demo page
 ```
 

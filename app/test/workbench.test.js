@@ -150,7 +150,7 @@ test('工作台页面：导出/导入 JS 逻辑存在', () => {
   assert.ok(html.includes('renderExportList'), '应定义 renderExportList 函数');
   assert.ok(html.includes('updateExportCount'), '应定义 updateExportCount 函数');
   assert.ok(html.includes('doImport'), '应定义 doImport 函数');
-  assert.ok(html.includes('ai-key-manager-export'), '导出格式标识应定义');
+  assert.ok(html.includes('api-aegislens-export'), '导出格式标识应定义');
   assert.ok(html.includes('POST\', \'/import\''), '导入应调用 POST /api/import');
   assert.ok(html.includes('GET\', \'/keys\''), '导入后应刷新密钥列表');
 });

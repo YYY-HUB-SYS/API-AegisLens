@@ -75,7 +75,7 @@ test('API 集成：完整业务流程', async () => {
     const idxRes = await fetch(base + '/');
     assert.strictEqual(idxRes.status, 200);
     const idxText = await idxRes.text();
-    assert.ok(idxText.includes('AI Key Manager'), '首页应可访问');
+    assert.ok(idxText.includes('API-AegisLens'), '首页应可访问');
 
     let r = await call(base, 'POST', '/api/keys', {
       platform: 'deepseek',

@@ -1,6 +1,6 @@
 {
-  "id": "ai-key-manager",
-  "name": "AI Key Manager",
+  "id": "api-aegislens",
+  "name": "API-AegisLens",
   "nameNote": "本地 AI API Key 加密管理看板",
   "type": "script",
   "path": "app/workbench.bat",
@@ -9,7 +9,7 @@
   "description": "本地 AI API Key 管理工具：AES-256-GCM 加密存储、连通性测试、模型目录自动拉取、一键生成 Dify/n8n/.env 配置",
   "dependencies": ["Node.js >= 18"],
   "tags": ["密钥管理", "AI 工具"],
-  "notes": "数据目录 ~/.ai-key-manager（密钥加密存储）。手动启动用 start.bat；本入口供工作台托管进程与日志。",
+  "notes": "数据目录 ~/.api-aegislens（密钥加密存储）。手动启动用 start.bat；本入口供工作台托管进程与日志。",
   "options": {
     "processMatch": "server.js"
   }
