@@ -16,7 +16,7 @@
 - **双存储后端** — Node >= 22 走 SQLite（`node:sqlite`），18–21 上该模块不存在、静默改用 JSON 文件；**两个后端之间不自动迁移数据**，换 Node 版本前先确认数据目录里是 `keys.db` 还是 `store.json`
 - **多兼容端点** — 同一 Key 可配最多 6 个 Base URL（OpenAI / Anthropic / 自定义兼容模式），如 DeepSeek 可同时登记 `https://api.deepseek.com` 与 `https://api.deepseek.com/anthropic`。**连通性测试与模型拉取只走第一个端点**，只有余额查询会依次遍历全部端点
 - **连通性测试** — 调用平台模型列表接口验证密钥可用性；无列表接口的端点（如火山方舟 Agent Plan）自动回退对话接口鉴权探测
-- **模型目录** — 自动拉取模型列表；上下文长度与最大输出经四级兜底补全：平台接口 → 内置元数据库 → 联网检索（OpenRouter / models.dev）→ 手动补充；火山方舟 Agent Plan 端点内置官方模型目录
+- **模型目录** — 自动拉取模型列表；上下文长度与最大输出按字段各自四级兜底：平台接口（自报值优先）→ 内置元数据库（只补平台没给的那一项；平台报了任一数值时来源仍显示「平台接口」）→ 联网检索（OpenRouter / models.dev，仅对上下文仍为空的模型发起）→ 手动补充；火山方舟 Agent Plan 端点内置官方模型目录
 - **配置生成** — 按目标工具套用模板，自动带入模型参数；Dify / n8n 取 OpenAI 兼容端点，Claude Code 取 Anthropic 兼容端点（生成 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`）
 - **余额监控** — 按 Base URL 域名自动匹配官方余额接口（DeepSeek / Moonshot / Kimi / 智谱），自定义平台指向官方域名同样可查，多端点依次回退，一键刷新全部密钥
 - **有效期管理** — 临期（30 天内）/ 过期状态自动判定与看板标记
