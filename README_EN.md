@@ -1,31 +1,29 @@
-# API-AegisLens
+<div align="center">
 
-[简体中文](./README.md) | [English](./README_EN.md)
+# 🛡️ API-AegisLens
+
+**A local-first AI API key manager** — enter once, see everything, use anywhere.
 
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-4B3FE3)
+![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
+![Tests](https://img.shields.io/badge/tests-133%20passing-4B3FE3)
+![Loopback](https://img.shields.io/badge/listens-on%20127.0.0.1%20only-0B7285)
+![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
-**A local-first AI API key manager: enter once, see everything, use anywhere.**
+[简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md)
 
-Bring the API keys scattered across AI platforms into one local dashboard — encrypted storage, connectivity testing, automatic model catalog fetching, and one-click config generation for Dify / n8n / Claude Code / `.env`. The service listens on `127.0.0.1` only; your data never leaves your machine.
+</div>
 
-## Features
+> [!NOTE]
+> Bring the API keys scattered across AI platforms into one local dashboard: field-level encrypted storage,
+> connectivity testing, automatic model catalog fetching, and one-click config snippets for
+> Dify / n8n / Claude Code / `.env`. The service listens on `127.0.0.1` only, and a key is sent
+> **only to the endpoint you typed in** — online enrichment fetches public model catalogs and never carries a key.
 
-- **Encrypted storage** — Keys are encrypted field-by-field with AES-256-GCM before hitting disk; the master key is stored separately and plaintext never touches disk. A stolen data file cannot reveal your keys
-- **Dual storage backends** — Prefers SQLite (`node:sqlite`) and seamlessly falls back to a JSON file when unsupported
-- **Multiple compatible endpoints** — Each key can hold up to 6 Base URLs (OpenAI / Anthropic / custom compatibility styles). For example, DeepSeek can register both `https://api.deepseek.com` and `https://api.deepseek.com/anthropic`
-- **Connectivity testing** — Verifies key validity via the platform's model list endpoint; endpoints without a list API (e.g. Volcano Ark Agent Plan) automatically fall back to an auth probe against the chat endpoint
-- **Model catalog** — Auto-fetches model lists; context window and max output are each resolved field by field through a four-level fallback: platform API (self-reported values win) → built-in metadata DB (fills only the field the API omitted; the source tag still reads "platform API" once the API reported either value) → web search (OpenRouter / models.dev, only for models still missing a context window) → manual entry. Volcano Ark Agent Plan endpoints ship with a built-in official model catalog
-- **Config generation** — Renders per-tool templates with model parameters included. Dify / n8n pick the OpenAI-compatible endpoint; Claude Code picks the Anthropic-compatible one (generating `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`)
-- **Balance monitoring** — Matches official balance APIs by Base URL domain (DeepSeek / Moonshot / Kimi / Zhipu); custom platforms pointing at official domains work too, multi-endpoint fallback, one-click refresh for all keys
-- **Expiry management** — Automatic expiring (within 30 days) / expired status detection with kanban badges
-- **Proxy auto-detection** — Endpoints unreachable by direct connection (e.g. overseas relay stations) automatically route through the system or environment-variable proxy (CONNECT tunnel); requests carry a coding-tool User-Agent to pass relay-side client fingerprinting
-- **Zero dependencies** — Pure Node.js standard library. Run right after `git clone`, no `npm install` needed
+---
 
-## Quick Start
-
-Requirement: [Node.js](https://nodejs.org/) >= 18 (no dependencies to install). The SQLite backend needs **>= 22**; on 18–21 the app silently falls back to the JSON file store, with identical features.
+## ⚡ Up and running in 30 seconds
 
 ```bash
 git clone https://github.com/YYY-HUB-SYS/API-AegisLens.git
@@ -33,58 +31,139 @@ cd API-AegisLens/app
 npm start
 ```
 
-Open <http://127.0.0.1:37700> in your browser. Windows users can simply double-click `app/start.bat`.
+Then open <http://127.0.0.1:37700>. On Windows you can also double-click `app/start.bat`.
+**Zero dependencies** — pure Node.js standard library, no `npm install` after cloning.
 
-For more deployment options (auto-start on boot, systemd / launchd / Task Scheduler, reverse proxy, data backup and upgrades), see the [Deployment Guide](./DEPLOYMENT_EN.md).
-
-### Environment Variables
-
-| Variable | Default | Description |
+| Runtime | Storage backend used | Notes |
 |---|---|---|
-| `AKM_PORT` | `37700` | Port the service listens on (127.0.0.1 only) |
-| `AKM_DATA_DIR` | `~/.api-aegislens` | Data directory (encrypted store and master key) |
-| `AKM_PROXY` | auto-detect | Proxy for outbound requests. Detection order: `HTTPS_PROXY`/`HTTP_PROXY` environment variables, then the Windows system proxy. Set to `off` to force direct connection, or e.g. `http://127.0.0.1:7897` to pin a proxy |
+| Node.js **≥ 22** | SQLite (`keys.db`) | recommended; `node:sqlite` ships from Node 22 |
+| Node.js 18 – 21 | JSON file (`store.json`) | identical features, silent fallback |
 
-## Workflow
+> [!WARNING]
+> The two backends **do not migrate data between each other**. Keys entered on Node 20 will look gone after
+> upgrading to 22 — nothing is lost, they are still in `store.json`. On startup the app now detects the other
+> store and logs a `⚠ …另一份密钥库…` line. If you see it, check before you act, and **do not delete files**.
 
-1. **Add a key** — Pick a platform (13 built-in: DeepSeek / Zhipu / SiliconFlow / Volcano Ark / Moonshot / Xiaohongshu Dots / OpenAI / Anthropic / …, or custom), paste the API key; endpoint URLs and the default model are auto-filled. One key can carry multiple compatible endpoints. The "special auth note" is a per-key editable field — built-in platforms ship a default note (e.g. Xiaohongshu Dots's `api-key` header), typing your own overrides it, and custom platforms can register their own; keys with a note show a "special auth" badge and generated configs carry the note automatically
-2. **Test connectivity** — One click to verify the key works
-3. **Fetch models** — Pull the model catalog automatically; missing parameters are enriched online, and anything still missing can be entered manually
-4. **Generate config** — Render Dify / n8n / Claude Code / `.env` snippets and copy them into your target tool
+---
 
-## Running Tests
+## 🧭 The day-to-day flow
+
+```
+add key → test connectivity → fetch models → generate config → record where it went
+```
+
+1. **Add a key** — pick a platform (13 built in, or custom), paste the key; the base URL and default model are filled in for you. Leave the name empty and it becomes the **last 4 characters** of the key
+2. **Test connectivity** — validates against the platform's model list endpoint; endpoints without one fall back to an auth probe on the chat endpoint. Each address has its own test button, and the badge says **which endpoint** passed
+3. **Fetch models** — values reported by the platform itself win; only the missing half falls through to the built-in metadata table → online lookup → manual entry
+4. **Generate config** — Dify / n8n / Claude Code / `.env` templates, with model parameters and auth notes applied automatically
+5. **Record usage** — keep track of which tools a given key was configured into
+
+---
+
+## 📦 Capabilities
+
+| | Capability | In one line |
+|---|---|---|
+| 🔐 | Encrypted storage | Only the key field is AES-256-GCM encrypted; every other field is plaintext, and the master key sits next to the data |
+| 🧪 | Connectivity testing | Per endpoint, with latency and the exact failure reason on the card |
+| 🛰 | Model catalog | Automatic fetch plus a four-level fallback; Volcengine Ark Agent Plan ships with the official catalog |
+| 🔌 | Multiple endpoints | Up to 6 base URLs per key (OpenAI / Anthropic / custom compatibility mode) |
+| ⚙️ | Config generation | Dify / n8n / Claude Code / `.env`, with an explicit warning when the endpoint style does not fit |
+| 💰 | Balance monitoring | Matched by endpoint **domain** against official APIs, so a custom platform pointing at an official domain still works |
+| ⏳ | Expiry tracking | Due within 30 days / expired, detected automatically and flagged on the board |
+| 🌐 | Proxy autodetection | Unreachable relays go through the system / environment proxy (CONNECT tunnel) |
+| 📝 | Special auth notes | Per-key auth notes, pre-filled for platforms that need a custom header (e.g. Xiaohongshu Dots uses `api-key`) |
+| 🧩 | Zero dependencies | Standard library only; the UI is a single file with no CDN and no external fonts |
+
+---
+
+## 🗺 Where the data goes
+
+```mermaid
+flowchart LR
+  U["👤 you"] -->|browser| B["single-page UI<br/>127.0.0.1:37700"]
+  B -->|"same-origin writes"| S["local service<br/>Node standard library"]
+  S --> C["crypto<br/>AES-256-GCM"]
+  C --> D[("data directory<br/>~/.api-aegislens<br/>keys.db + master.key")]
+  S --> A["platform adapters<br/>endpoints · balance domain matching"]
+  A ==>|"Bearer / x-api-key<br/>only to the endpoint you set"| P["model providers<br/>DeepSeek · SenseNova · Zhipu …"]
+  S -.->|"public model catalogs only<br/>no key attached"| E["OpenRouter / models.dev"]
+```
+
+> [!IMPORTANT]
+> **There is no authentication in this app** — it is designed to run on your own machine.
+> The service binds to `127.0.0.1` and write requests are checked for same origin, but **any local process
+> can read the decrypted keys**. Exposing it through nginx to a LAN or the public internet means everyone
+> who can reach that address sees every key in plaintext. For remote use, take an SSH tunnel
+> (see the [deployment guide](./DEPLOYMENT_EN.md)).
+
+---
+
+## 🔌 Endpoint style × target tool
+
+Config generation picks an endpoint whose **style matches the tool**. When nothing matches it does not
+quietly improvise — it says so inside the snippet.
+
+| Target tool | Endpoint needed | Generates | When no matching endpoint exists |
+|---|---|---|---|
+| Dify | OpenAI compatible | model provider snippet | uses the first address and warns it may not connect |
+| n8n | OpenAI compatible | Chat Model node parameters | same |
+| Claude Code | **Anthropic compatible** | `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` | uses the first address and warns that `/v1/messages` is required |
+| `.env` | OpenAI compatible | `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL`, etc. | same |
+
+Connectivity testing and model fetching default to the **first** endpoint; you can also test or fetch from a
+specific one via the buttons on that address row.
+
+---
+
+## 🧪 Tests
 
 ```bash
 cd app
 npm test
 ```
 
-Tests cover encryption, storage (both backends), API integration, adapters (platform catalog, balance domain matching, and special-auth platforms), proxying, and the start script. The exact count changes as the code evolves; always trust the output of `cd app && npm test`. Measured on this fork on 2026-10-07: tests 127 / pass 127 / fail 0 (Node v24.14.0).
+Coverage: encryption, storage (both backends plus shadow-store detection), API integration and validation,
+platform adapters (catalog, balance domain matching, special auth), proxy and start scripts, frontend
+templates and modal behaviour. The exact count moves with the code — **trust the command output**.
+Measured on this fork on 2026-10-07 with Node v24.14.0: `tests 133 / pass 133 / fail 0`.
 
-## Project Layout
+---
+
+## 🗂 Repository layout
 
 ```
-├── app/                    # Main app (Node.js, zero dependencies)
-│   ├── server.js           # Entry point
-│   ├── src/                # Crypto / storage / API / platform adapters
-│   ├── public/             # Frontend single page
-│   └── test/               # Tests
-├── api-aegislens-prd/     # Product design document (PRD, in Chinese)
-└── demo/                   # Interactive demo page
+├── app/                      # main application (Node.js, zero dependencies)
+│   ├── server.js             # entry point
+│   ├── src/                  # crypto / storage / API / adapters / model fallback
+│   ├── public/               # single-page front end
+│   └── test/                 # tests
+├── api-aegislens-prd/        # product design document (opens in a browser, in Chinese)
+├── demo/                     # interactive demo page (fake data, no backend)
+├── index.html                # project homepage
+└── DEPLOYMENT_EN.md          # deployment · backup · upgrades
 ```
 
-## Security Notes
+---
 
-- Key fields are AES-256-GCM encrypted on disk; the master key is kept separately in the same data directory
-- The service listens on `127.0.0.1` only; write endpoints enforce same-origin checks and reject cross-origin writes
-- All `sk-` samples in this repository are fake keys for demonstration
+## ⚖️ Known limitations
 
-## Author
+We would rather list them here than let them surprise you.
 
-- Homepage: <https://www.oldgao.com>
-- QQ: 638694
-- WeChat: reincat
+- **The master key lives next to the data** — whoever holds the whole `~/.api-aegislens` directory holds plaintext keys. Treat backups at that sensitivity level
+- **Exported JSON is plaintext** — the export file contains unencrypted keys; delete it once used. For routine backups, copy the data directory instead
+- **Balance APIs cover three providers** — DeepSeek / Moonshot·Kimi / Zhipu. SiliconFlow's `/v1/user/info` was retired upstream on 2026-08-14 (410), so it is not listed
+- **Custom compatibility modes cannot be auto-tested** — when an endpoint style is neither `openai` nor `anthropic`, connectivity testing and model fetching ask you to handle it manually
+- **Online lookup is a guess** — the same model name has different limits at different providers, which is why platform-reported values win; anything resolved online stays labelled `web`
+- **`index.html` is read into memory at startup** — editing the front end requires a service restart to take effect
 
-## License
+---
 
-[MIT](./LICENSE)
+## 🙏 License and credits
+
+Released under the **MIT** license — see [LICENSE](./LICENSE).
+
+This is a maintenance fork of [roseion/ai-key-manager](https://github.com/roseion/ai-key-manager).
+The original design and implementation are by **Reinhard**: homepage <https://www.oldgao.com> · QQ 638694 · WeChat reincat.
+On top of it, this branch renamed the project, moved the data directory out of the code tree, tightened the
+encryption boundaries, and made the documentation match what the code actually does.
