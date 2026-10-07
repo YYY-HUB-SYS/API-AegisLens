@@ -22,15 +22,36 @@ function legacyEps(platform, base) {
 function createStore(dataDir, masterKey, opts) {
   fs.mkdirSync(dataDir, { recursive: true });
   const prefer = (opts && opts.backend) || 'auto';
+  let store = null;
   if (prefer !== 'json') {
     try {
       const { DatabaseSync } = require('node:sqlite');
-      return makeSqliteStore(dataDir, masterKey, DatabaseSync);
+      store = makeSqliteStore(dataDir, masterKey, DatabaseSync);
     } catch (e) {
       if (prefer === 'sqlite') throw e;
     }
   }
-  return makeJsonStore(dataDir, masterKey);
+  if (!store) store = makeJsonStore(dataDir, masterKey);
+  markShadowStore(dataDir, store);
+  return store;
+}
+
+/* 首选后端由 Node 版本决定（node:sqlite 自 22 起才有），而两份库互不迁移：
+   用 18–21 录的数据升到 22 后看不见，会被当成"密钥全丢了"，其实还在另一个文件里 */
+function markShadowStore(dataDir, store) {
+  const other = store.backend === 'sqlite' ? 'store.json' : 'keys.db';
+  let size = 0;
+  try {
+    size = fs.statSync(path.join(dataDir, other)).size;
+  } catch (e) {
+    return;
+  }
+  if (size > 0) {
+    store.shadowStore = other;
+    console.warn('  ⚠ 数据目录里还有另一份密钥库 ' + other + '（当前用的是 ' + store.backend + '）。'
+      + '两份互不迁移；若列表里少了你录过的密钥，先切到能读它的 Node 版本（SQLite 需 >= 22，'
+      + 'JSON 全版本可读）确认，再决定是否合并，别删文件。');
+  }
 }
 
 function emptyBalance(status) {

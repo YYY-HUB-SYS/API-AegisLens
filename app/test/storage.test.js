@@ -225,3 +225,30 @@ test('createStore 指定 sqlite 但不可用时抛错', () => {
     Module.prototype.require = orig;
   }
 });
+
+test('另一份后端留有数据时标记 shadowStore，避免"升级 Node 后密钥全没了"被误判成丢数据', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-shadow-'));
+  const mk = loadOrCreateMasterKey(dir);
+  const jsonStore = createStore(dir, mk, { backend: 'json' });
+  jsonStore.createKey({
+    name: 'JSON 时代的 Key', platform: 'deepseek', customName: '', key: KEY_VALUE,
+    base: 'https://api.deepseek.com', model: 'deepseek-chat', reg: '', exp: ''
+  });
+  assert.strictEqual(jsonStore.shadowStore, undefined, '只有 store.json 时不该报影子库');
+
+  fs.writeFileSync(path.join(dir, 'keys.db'), 'placeholder');
+  const mixed = createStore(dir, mk, { backend: 'json' });
+  assert.strictEqual(mixed.backend, 'json');
+  assert.strictEqual(mixed.shadowStore, 'keys.db', '空目录外的另一份库必须被指出');
+  assert.strictEqual(mixed.listKeys().length, 1, '影子库不应污染当前读取结果');
+
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-shadow2-'));
+  createStore(other, mk, { backend: 'json' }).createKey({
+    name: '旧数据', platform: 'openai', customName: '', key: KEY_VALUE,
+    base: 'https://api.openai.com/v1', model: 'gpt-4o', reg: '', exp: ''
+  });
+  const zeroLen = path.join(other, 'keys.db');
+  fs.writeFileSync(zeroLen, '');
+  const noShadow = createStore(other, mk, { backend: 'json' });
+  assert.strictEqual(noShadow.shadowStore, undefined, '零字节的残留文件不算另一份库');
+});

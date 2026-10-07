@@ -118,7 +118,8 @@ async function routeApi(req, res, ctx) {
     return json(res, 200, {
       version: ctx.version,
       storage: storage.backend,
-      dataDir: storage.dataDir
+      dataDir: storage.dataDir,
+      shadowStore: storage.shadowStore || null
     });
   }
 
