@@ -13,6 +13,9 @@
       t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
     }
     document.documentElement.setAttribute('data-theme', t);
+    var c = null;
+    try { c = localStorage.getItem('aegis-cols'); } catch (e2) {}
+    document.documentElement.setAttribute('data-cols', c === '1' ? '1' : '2');
   })();
 </script>
 <style>
@@ -55,7 +58,7 @@
     --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px;
     --r-card: 12px; --r-ctl: 8px; --r-chip: 6px; --r-pill: 999px;
     --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-    --z-foot: 20; --z-modal: 60; --z-toast: 70;
+    --z-modal: 60; --z-toast: 70;
     /* 实心色块上的文字：浅色主题用白，深色主题反过来用墨 */
     --on-accent: #FFFFFF; --on-danger: #FFFFFF;
     --card-hover-border: #C6CBDD; --card-hover-bg: #FDFDFF;
@@ -116,7 +119,7 @@
   .brand h1 { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
   .brand .sub { font-size: var(--fs-sm); color: var(--ink-2); }
   .topbar-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-  .theme-ico { margin-right: 6px; }
+  .theme-ico, .cols-ico { margin-right: 6px; }
 
   .btn {
     border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
@@ -154,6 +157,14 @@
     display: flex; align-items: center; gap: 10px; margin: 6px 0 10px;
   }
   .group-title::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  :root[data-cols="2"] .board {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px 16px; align-items: start;
+  }
+  :root[data-cols="2"] .keycard { min-width: 0; }
+  @media (max-width: 1100px) {
+    :root[data-cols="2"] .board { grid-template-columns: minmax(0, 1fr); }
+  }
 
   /* 卡片：单层发丝边框，悬停只改边框与底色，不加投影 */
   .keycard {
@@ -199,7 +210,7 @@
     border-radius: var(--r-chip); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
   .copy-btn:hover { background: var(--accent-soft); color: var(--accent-ink); }
-  .param .lbl2 { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 700; letter-spacing: 0.01em; }
+  .param .lbl2 { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 700; letter-spacing: 0.01em; white-space: nowrap; }
   .eye {
     border: none; background: transparent; cursor: pointer; color: var(--ink-3);
     font-size: var(--fs-sm); padding: 3px 6px; border-radius: var(--r-chip);
@@ -207,8 +218,20 @@
   }
   .eye:hover { background: var(--accent-soft); color: var(--accent-ink); }
 
-  .kc-l2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-  .kc-more { margin-left: auto; display: flex; gap: 8px; }
+  .kc-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .kc-assigned { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-right: auto; }
+  .kc-more { display: flex; gap: 8px; flex-shrink: 0; }
+  .kc-meta {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    font-size: var(--fs-sm); color: var(--ink-2);
+  }
+  .m-item b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .m-item.st-warn b { color: var(--warn); }
+  .m-item.st-exp b, .m-item.st-revoked b { color: var(--danger); }
+  .auto-tag {
+    font-size: var(--fs-xs); color: var(--ink-3); cursor: help;
+    border: 1px dashed var(--rule); border-radius: var(--r-chip); padding: 1px 7px;
+  }
 
   /* 抽屉：不再动画 max-height（会卡且裁内容），改为即时展开 + 内容上浮 */
   .drawer { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule); }
@@ -266,7 +289,6 @@
   .input-with-btn input { flex: 1; }
   .input-with-btn .btn { flex-shrink: 0; white-space: nowrap; }
 
-  .assigned-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 8px; }
   .tool-chip {
     display: inline-flex; align-items: center; gap: 3px;
     font-size: var(--fs-xs); font-weight: 700; color: var(--accent-ink);
@@ -470,6 +492,9 @@
     <div class="topbar-actions">
       <button class="btn theme-btn" id="btn-theme" type="button" aria-pressed="false">
         <span class="theme-ico" aria-hidden="true"></span><span id="theme-label">浅色</span>
+      </button>
+      <button class="btn layout-btn" id="btn-cols" type="button" aria-pressed="true">
+        <span class="cols-ico" aria-hidden="true"></span><span id="cols-label">双列</span>
       </button>
       <button class="btn" id="btn-export">导出</button>
       <button class="btn" id="btn-import">导入</button>
@@ -683,6 +708,13 @@
     var n = String(k.name || '');
     return n.indexOf(prefix) === 0 && n.length > prefix.length ? n.slice(prefix.length) : n;
   }
+  function autoTailOf(v) {
+    var s = String(v == null ? '' : v);
+    return s.length >= 4 ? s.slice(-4) : s;
+  }
+  function isAutoName(k) {
+    return !!k.name && k.name === autoTailOf(k.key);
+  }
   function epSuffix(k) {   /* 让徽章说清是哪条端点通了；该端点事后被改过就标注失效 */
     var t = k.test;
     if (!t || t.epIndex == null) return '';
@@ -770,6 +802,11 @@
     renderBoard();
   }
 
+  /* 0 不染色：染成告警色的零比染成正常色的非零更容易让人误判 */
+  function statCell(n, label, color) {
+    var c = n > 0 ? ' style="color:' + color + '"' : '';
+    return '<div class="stat"><span class="num"' + c + '>' + n + '</span><span class="lbl">' + label + '</span></div>';
+  }
   function renderStats() {
     var total = state.keys.length;
     var platforms = {};
@@ -784,9 +821,10 @@
     var html =
       '<div class="stat"><span class="num">' + total + '</span><span class="lbl">个密钥</span></div>' +
       '<div class="stat"><span class="num">' + Object.keys(platforms).length + '</span><span class="lbl">个平台</span></div>' +
-      '<div class="stat"><span class="num" style="color:var(--ok)">' + ok + '</span><span class="lbl">有效</span></div>' +
-      '<div class="stat"><span class="num" style="color:var(--warn)">' + warn + '</span><span class="lbl">临期</span></div>' +
-      '<div class="stat"><span class="num" style="color:var(--exp)">' + exp + '</span><span class="lbl">过期/停用</span></div>';
+      statCell(ok, '有效', 'var(--api)') +
+      statCell(warn, '临期', 'var(--warn)') +
+      statCell(exp, '过期/停用', 'var(--danger)') +
+      statCell(total - ok - warn - exp, '未测试', 'var(--ink)');
     document.getElementById('stats').innerHTML = html;
   }
 
@@ -863,37 +901,34 @@
     }
 
     var assigned = k.assigned || [];
-    var assignedRow =
-      '<div class="assigned-row">' +
+    var assignedChips =
+      '<span class="kc-assigned">' +
         '<span class="meta">已配置到</span>' +
         assigned.map(function (t) {
           return '<span class="tool-chip">' + esc(t) +
             '<button class="rm" data-act="rm-assigned" data-tool="' + esc(t) + '" title="移除「' + esc(t) + '" aria-label="移除 ' + esc(t) + '">×</button></span>';
         }).join('') +
-        '<button class="btn ghost small" data-act="toggle-assigned">' + (assigned.length ? '+' : '+ 记录配置去向') + '</button>' +
-      '</div>';
-    if (ui.assignedOpen[k.id]) {
-      assignedRow +=
-        '<div class="tool-add-bar">' +
+        '<button class="btn ghost small" data-act="toggle-assigned" title="登记这个密钥被配到了哪个工具">' +
+          (assigned.length ? '+ 添加去向' : '+ 记录配置去向') + '</button>' +
+      '</span>';
+    var toolAddBar = ui.assignedOpen[k.id] ?
+      '<div class="tool-add-bar">' +
           '<input data-tool-input maxlength="40" placeholder="工具名，如 Dify、n8n、Cherry Studio" aria-label="配置到的工具名" autocomplete="off">' +
           '<button class="btn primary small" data-act="add-assigned">添加</button>' +
           '<button class="btn small" data-act="cancel-assigned">取消</button>' +
-        '</div>';
-    }
+        '</div>' : '';
 
-    var modelsBtnLabel = k.modelsFetched ? ('模型 ' + (k.models || []).length) : '模型目录';
+    var modelsBtnLabel = k.modelsFetched ? ('模型清单 ' + (k.models || []).length) : '模型清单';
 
     return (
       '<article class="keycard" data-id="' + k.id + '">' +
         '<div class="kc-main">' +
           '<div class="kc-l1">' +
             '<span class="plat">' + esc(shortName(k)) + '</span>' +
+            (isAutoName(k) ? '<span class="auto-tag" title="名称取自密钥末 4 位，建议改成自己认得出的名字">自动命名</span>' : '') +
             '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
             testChip +
             (authNote ? '<button class="auth-chip" data-act="toggle-auth" title="该密钥带特殊认证说明，点击展开查看">⚠ 特殊认证</button>' : '') +
-            '<span class="meta">余额 ' + esc(balanceText(k)) + '</span>' +
-            (k.reg ? '<span class="meta">注册 ' + esc(k.reg) + '</span>' : '') +
-            (k.exp ? '<span class="meta">有效期至 ' + esc(k.exp) + '</span>' : '<span class="meta">长期有效</span>') +
             '<span class="kc-actions">' +
               (ui.testing[k.id]
                 ? '<button class="btn ghost small" disabled><span class="spin"></span> 测试中</button>'
@@ -901,6 +936,12 @@
               '<button class="btn ghost small" data-act="edit">编辑</button>' +
               '<button class="btn ghost small" data-act="del">删除</button>' +
             '</span>' +
+          '</div>' +
+          '<div class="kc-meta">' +
+            '<span class="m-item">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
+            (k.exp ? '<span class="m-item st-' + st + '">有效期至 <b>' + esc(k.exp) + '</b></span>'
+                   : '<span class="m-item">长期有效</span>') +
+            (k.reg ? '<span class="m-item">注册于 <b>' + esc(k.reg) + '</b></span>' : '') +
           '</div>' +
           '<div class="params">' +
             '<span class="param" data-copy="' + esc(k.key) + '">' +
@@ -912,24 +953,25 @@
             (k.endpoints || []).map(function (ep, i) {
               if (!ep.url) return '';
               return '<span class="param" data-copy="' + esc(ep.url) + '" title="' + esc(styleLabel(ep.style)) + ' 端点，点击复制按钮取地址">' +
-                '<span class="lbl2">' + (i === 0 ? 'Base URL' : '地址 ' + (i + 1)) + '</span>' +
+                '<span class="lbl2">端点 ' + (i + 1) + '</span>' +
                 '<span class="val">' + esc(ep.url) + '</span>' +
                 '<span class="ep-style-tag" title="' + esc(styleLabel(ep.style)) + '">' + esc(styleShort(ep.style)) + '</span>' +
                 '<button class="copy-btn" data-act="copy" title="复制 ' + esc(ep.url) + '">复制</button>' +
-                '<button class="btn ghost small" data-act="ep-test" data-idx="' + i + '" title="只测这条端点">测</button>' +
-                '<button class="btn ghost small" data-act="ep-models" data-idx="' + i + '" title="从这条端点拉模型">模型</button>' +
+                '<button class="btn ghost small" data-act="ep-test" data-idx="' + i + '" title="只测这一条端点，不影响其他端点">测这条</button>' +
+                '<button class="btn ghost small" data-act="ep-models" data-idx="' + i + '" title="从这一条端点拉取模型清单">拉模型</button>' +
               '</span>';
             }).join('') +
-            (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
+            (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">默认模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
           '</div>' +
           (authNote && ui.authOpen[k.id] ? '<div class="auth-note-bar">⚠ ' + esc(authNote) + '</div>' : '') +
-          '<div class="kc-l2">' +
+          '<div class="kc-foot">' +
+            assignedChips +
             '<span class="kc-more">' +
               '<button class="btn small" data-act="toggle-models">' + esc(modelsBtnLabel) + '</button>' +
               '<button class="btn primary small" data-act="config">生成配置</button>' +
             '</span>' +
           '</div>' +
-          assignedRow +
+          toolAddBar +
         '</div>' +
         (ui.drawerOpen[k.id] ? '<div class="drawer open">' + renderDrawer(k) + '</div>' : '<div class="drawer"></div>') +
       '</article>'
@@ -1692,6 +1734,21 @@
     try { localStorage.setItem('aegis-theme', next); } catch (e) {}
   });
   paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
+  function paintCols(n) {
+    document.documentElement.setAttribute('data-cols', n);
+    var two = n === '2';
+    var b = document.getElementById('btn-cols');
+    document.getElementById('cols-label').textContent = two ? '双列' : '单列';
+    b.querySelector('.cols-ico').textContent = two ? '\u25A6' : '\u25A4';
+    b.setAttribute('aria-pressed', two ? 'true' : 'false');
+    b.title = two ? '当前两列布局，点击切成单列' : '当前单列布局，点击切成两列';
+  }
+  document.getElementById('btn-cols').addEventListener('click', function () {
+    var next = document.documentElement.getAttribute('data-cols') === '2' ? '1' : '2';
+    paintCols(next);
+    try { localStorage.setItem('aegis-cols', next); } catch (e) {}
+  });
+  paintCols(document.documentElement.getAttribute('data-cols') || '2');
 
   /* ================= 导出 / 导入 ================= */
 

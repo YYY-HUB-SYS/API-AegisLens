@@ -275,3 +275,35 @@ test('配置高亮：不得在自身生成的标签上二次着色', () => {
   assert.ok(out.includes('<span class="s">https://api.anthropic.com</span>'), '.env 的 = 值要着色');
   assert.ok(!out.includes('<span class="k">https</span>'), '裸 URL 行不该被拆成键值对');
 });
+
+test('CSS 变量不得有悬空引用（改令牌名时最容易漏）', () => {
+  const html = readHomepage();
+  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
+  const used = new Set([...html.matchAll(/var\((--[a-z0-9-]+)/g)].map(m => m[1]));
+  const dangling = [...used].filter(t => !defined.has(t));
+  assert.deepStrictEqual(dangling, [], '这些 var() 引用没有对应定义，浏览器会静默失效：' + dangling);
+});
+
+test('双列是开关：属性、按钮、持久化与栅格规则齐备', () => {
+  const html = readHomepage();
+  assert.ok(html.includes(':root[data-cols="2"] .board'), '双列应挂在 #board 上，挂在 .group 上等于把单卡压窄');
+  assert.ok(html.includes('repeat(2, minmax(0, 1fr))'), '两列要用 minmax(0,1fr) 才允许收缩');
+  assert.ok(html.includes('id="btn-cols"'), '顶栏要有双列开关');
+  assert.ok(html.includes("localStorage.getItem('aegis-cols')"), '列数选择要持久化');
+  assert.ok(html.slice(0, html.indexOf('<style>')).includes("setAttribute('data-cols'"),
+    'data-cols 必须在 style 之前落好，否则首屏先单列再跳两列');
+  assert.ok(html.includes('@media (max-width: 1100px)'), '窄屏要把双列降回单列');
+});
+
+test('卡片脚注合并成一行，端点命名统一且按钮不再单字', () => {
+  const html = readHomepage();
+  assert.ok(!html.includes('class="kc-l2"'), 'kc-l2 那行只放两个右对齐按钮，是空洞的来源');
+  assert.ok(!html.includes('.assigned-row'), '已配置到不再独占一行');
+  assert.ok(html.includes("'<div class=\"kc-foot\">'"), '去向与动作应在同一行左右分开');
+  assert.ok(html.includes("'<span class=\"lbl2\">端点 ' + (i + 1) + '</span>'"), '端点标签统一为「端点 N」');
+  assert.ok(!html.includes("'地址 ' + (i + 1)"), '不该再有 Base URL / 地址 2 两套叫法');
+  assert.ok(html.includes('>测这条</button>') && html.includes('>拉模型</button>'), '端点按钮要说清动作');
+  assert.ok(!html.includes('data-act="ep-test" data-idx="\' + i + \'" title="只测这条端点">测<'), '单字「测」应已替换');
+  assert.ok(html.includes('statCell('), '统计数字应走统一渲染，0 不染色');
+});
