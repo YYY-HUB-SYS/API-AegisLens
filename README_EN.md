@@ -59,7 +59,7 @@ cd app
 npm test
 ```
 
-99 tests cover encryption, storage (both backends), API integration, adapters (platform catalog, balance domain matching, and special-auth platforms), proxying, and the start script.
+Tests cover encryption, storage (both backends), API integration, adapters (platform catalog, balance domain matching, and special-auth platforms), proxying, and the start script. The exact count changes as the code evolves; always trust the output of `cd app && npm test`. Measured on this fork on 2026-10-07: tests 127 / pass 127 / fail 0 (Node v24.14.0).
 
 ## Project Layout
 
