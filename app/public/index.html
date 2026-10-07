@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>API-AegisLens</title>
+<script>
+  /* 内联在 style 之前：等主脚本再设就晚了，会先闪一下浅色 */
+  (function () {
+    var t = null;
+    try { t = localStorage.getItem('aegis-theme'); } catch (e) {}
+    if (t !== 'dark' && t !== 'light') {
+      t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
 <style>
   :root {
     color-scheme: light;
@@ -36,12 +47,46 @@
     --r-card: 12px; --r-ctl: 8px; --r-chip: 6px; --r-pill: 999px;
     --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
     --z-foot: 20; --z-modal: 60; --z-toast: 70;
+    /* 实心色块上的文字：浅色主题用白，深色主题反过来用墨 */
+    --on-accent: #FFFFFF; --on-danger: #FFFFFF;
+    --card-hover-border: #C6CBDD; --card-hover-bg: #FDFDFF;
+    --warn-line: rgba(180, 116, 9, 0.28); --warn-line-strong: rgba(180, 116, 9, 0.5);
+    --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(75, 63, 227, 0.16);
+    --overlay-ink: rgba(20, 22, 35, 0.5);
+    --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.26);
+    --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.28);
+    /* 配置代码块与提示条两套主题下都保持深色，不跟随反转 */
+    --code-bg: #141623; --code-ink: #E8EAF4;
+    --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
+    --toast-bg: #1E2233; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0E1015; --surface: #171A21; --surface-2: #1D212A;
+    --ink: #E9ECF4; --ink-2: #A9B1C4; --ink-3: #8D96AB;
+    --rule: #2A2F3A; --rule-soft: #232833;
+    --accent: #7C6FF5; --accent-ink: #B4ABFF;
+    --accent-soft: rgba(124, 111, 245, 0.16); --accent-line: rgba(124, 111, 245, 0.42);
+    --api: #3FD9A0; --api-soft: rgba(63, 217, 160, 0.14);
+    --web: #7FB2FF; --web-soft: rgba(127, 178, 255, 0.14);
+    --warn: #F0B65E; --warn-soft: rgba(240, 182, 94, 0.14);
+    --danger: #FF7A6E; --danger-soft: rgba(255, 122, 110, 0.13);
+    --on-accent: #0B0D12; --on-danger: #1A0A08;
+    --card-hover-border: #3A4150; --card-hover-bg: #1B1F28;
+    --warn-line: rgba(240, 182, 94, 0.34); --warn-line-strong: rgba(240, 182, 94, 0.6);
+    --warn-line-hover: rgba(240, 182, 94, 0.22); --accent-line-soft: rgba(124, 111, 245, 0.28);
+    --overlay-ink: rgba(6, 7, 10, 0.66);
+    --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
+    --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
+    /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
+    --code-bg: #232833; --toast-bg: #2A3040;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     background: var(--bg); color: var(--ink);
     font-size: var(--fs-base); line-height: 1.55;
+    transition: background-color var(--t) var(--ease), color var(--t) var(--ease);
     -webkit-font-smoothing: antialiased;
   }
   ::selection { background: var(--accent-soft); color: var(--accent-ink); }
@@ -56,12 +101,13 @@
   .brand { display: flex; align-items: center; gap: 11px; }
   .brand .logo {
     width: 34px; height: 34px; border-radius: var(--r-ctl); flex-shrink: 0;
-    background: var(--accent); color: #fff; font-weight: 800; font-size: var(--fs-lg);
+    background: var(--accent); color: var(--on-accent); font-weight: 800; font-size: var(--fs-lg);
     display: flex; align-items: center; justify-content: center; letter-spacing: -0.02em;
   }
   .brand h1 { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
   .brand .sub { font-size: var(--fs-sm); color: var(--ink-2); }
   .topbar-actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .theme-ico { margin-right: 6px; }
 
   .btn {
     border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
@@ -72,13 +118,13 @@
   }
   .btn:hover { background: var(--surface-2); border-color: var(--accent-line); color: var(--accent-ink); }
   .btn:active { transform: translateY(1px); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); color: #fff; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--on-accent); }
   .btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
   .btn.ghost:hover { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
   .btn.small { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--r-chip); white-space: nowrap; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
-  .danger-confirm { background: var(--danger) !important; border-color: var(--danger) !important; color: #fff !important; }
+  .danger-confirm { background: var(--danger) !important; border-color: var(--danger) !important; color: var(--on-danger) !important; }
   .spin {
     display: inline-block; width: 12px; height: 12px; vertical-align: -1px;
     border: 2px solid var(--accent-soft); border-top-color: var(--accent);
@@ -105,7 +151,7 @@
     background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-card);
     padding: 15px 18px; transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
   }
-  .keycard:hover { border-color: #C6CBDD; background: #FDFDFF; }
+  .keycard:hover { border-color: var(--card-hover-border); background: var(--card-hover-bg); }
   .keycard:focus-within { border-color: var(--accent-line); }
   .board.first-paint .keycard { animation: rise 340ms var(--ease) backwards; }
   .board.first-paint .keycard:nth-child(2) { animation-delay: 45ms; }
@@ -122,7 +168,7 @@
   .st.ok { color: var(--api); background: var(--api-soft); }
   .st.warn { color: var(--warn); background: var(--warn-soft); }
   .st.exp { color: var(--danger); background: var(--danger-soft); }
-  .st.revoked { color: #fff; background: var(--danger); }
+  .st.revoked { color: var(--on-danger); background: var(--danger); }
   .meta { font-size: var(--fs-sm); color: var(--ink-2); }
   .kc-actions { margin-left: auto; display: flex; gap: 6px; }
 
@@ -187,11 +233,11 @@
   .supp-sep { font-size: var(--fs-sm); color: var(--ink-2); }
   .m-note {
     font-size: var(--fs-xs); font-weight: 700; color: var(--warn);
-    background: var(--warn-soft); border: 1px solid rgba(180, 116, 9, 0.28);
+    background: var(--warn-soft); border: 1px solid var(--warn-line);
     border-radius: var(--r-chip); padding: 2px 8px; max-width: 230px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer;
   }
-  .m-note:hover { border-color: rgba(180, 116, 9, 0.5); }
+  .m-note:hover { border-color: var(--warn-line-strong); }
   .note-edit { width: 100%; display: flex; gap: 7px; margin-top: 7px; }
   .note-edit input {
     flex: 1; border: 1px solid var(--accent-line); border-radius: var(--r-chip);
@@ -222,7 +268,7 @@
     border: none; background: transparent; color: inherit; opacity: 0.6;
     font-size: var(--fs-base); line-height: 1; padding: 1px 6px; border-radius: var(--r-pill); cursor: pointer;
   }
-  .tool-chip .rm:hover { opacity: 1; background: rgba(75, 63, 227, 0.16); }
+  .tool-chip .rm:hover { opacity: 1; background: var(--accent-line-soft); }
   .tool-add-bar { display: flex; gap: 7px; flex-wrap: wrap; width: 100%; }
   .tool-add-bar input {
     flex: 1; max-width: 280px; border: 1px solid var(--accent-line); border-radius: var(--r-chip);
@@ -237,12 +283,12 @@
   .auth-chip {
     font-size: var(--fs-xs); font-weight: 700; border-radius: var(--r-chip); padding: 2px 8px;
     color: var(--warn); background: var(--warn-soft); cursor: pointer;
-    border: 1px solid rgba(180, 116, 9, 0.28);
+    border: 1px solid var(--warn-line);
   }
-  .auth-chip:hover { background: rgba(180, 116, 9, 0.2); }
+  .auth-chip:hover { background: var(--warn-line-hover); }
   .auth-note-bar {
     font-size: var(--fs-sm); color: var(--warn); background: var(--warn-soft);
-    border: 1px solid rgba(180, 116, 9, 0.28); border-radius: var(--r-ctl);
+    border: 1px solid var(--warn-line); border-radius: var(--r-ctl);
     padding: 8px 11px; line-height: 1.55; margin-top: 6px;
   }
 
@@ -256,7 +302,7 @@
   .empty p { margin-bottom: 16px; }
 
   .overlay {
-    position: fixed; inset: 0; background: rgba(20, 22, 35, 0.5);
+    position: fixed; inset: 0; background: var(--overlay-ink);
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
     display: flex; align-items: center; justify-content: center; padding: 20px;
     opacity: 0; pointer-events: none; transition: opacity var(--t) var(--ease); z-index: var(--z-modal);
@@ -265,7 +311,7 @@
   .modal {
     background: var(--surface); border-radius: var(--r-card); width: min(620px, 94vw);
     max-height: 88vh; overflow-y: auto; padding: 22px 24px;
-    box-shadow: 0 18px 44px rgba(20, 22, 35, 0.26);
+    box-shadow: var(--shadow-modal);
   }
   .overlay.show .modal { animation: modalIn 220ms var(--ease) backwards; }
   @keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(0.985); } }
@@ -317,7 +363,7 @@
       border-color var(--t-fast) var(--ease);
   }
   .seg button:hover { border-color: var(--accent-line); color: var(--accent-ink); }
-  .seg button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .seg button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
   .filter-bar { display: flex; gap: 6px; padding: 0 0 14px; flex-wrap: wrap; }
   .filter-bar button {
@@ -327,28 +373,29 @@
       border-color var(--t-fast) var(--ease);
   }
   .filter-bar button:hover { border-color: var(--accent-line); color: var(--accent-ink); }
-  .filter-bar button.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .filter-bar button.active { background: var(--ink); border-color: var(--ink); color: var(--bg); }
   .filter-bar .count { font-weight: 400; opacity: 0.75; }
 
   .config-pre {
-    background: #141623; color: #E8EAF4; border-radius: var(--r-ctl); padding: 14px 16px;
+    background: var(--code-bg); color: var(--code-ink); border-radius: var(--r-ctl); padding: 14px 16px;
+    border: 1px solid var(--rule);
     font-family: var(--mono); font-size: var(--fs-sm); line-height: 1.7;
     white-space: pre-wrap; word-break: break-all; margin-bottom: 12px;
   }
-  .config-pre .k { color: #7FE0B4; }
-  .config-pre .c { color: #8A90AE; }
-  .config-pre .s { color: #F5C97B; }
+  .config-pre .k { color: var(--code-k); }
+  .config-pre .c { color: var(--code-c); }
+  .config-pre .s { color: var(--code-s); }
   .config-note { font-size: var(--fs-sm); color: var(--ink-2); }
   .modal-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
   .toasts { position: fixed; top: 18px; right: 18px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; }
   .toast {
-    background: #1E2233; color: #fff; font-size: var(--fs-sm); font-weight: 600;
+    background: var(--toast-bg); color: var(--code-ink); font-size: var(--fs-sm); font-weight: 600;
     border-radius: var(--r-ctl); padding: 10px 15px; max-width: 46ch;
-    box-shadow: 0 10px 28px rgba(20, 22, 35, 0.28); animation: toastIn 220ms var(--ease);
+    box-shadow: var(--shadow-toast); animation: toastIn 220ms var(--ease);
   }
-  .toast.warn { background: #6E4700; }
-  .toast.ok { background: #0A5F41; }
+  .toast.warn { background: var(--toast-warn); }
+  .toast.ok { background: var(--toast-ok); }
   @keyframes toastIn { from { opacity: 0; transform: translateX(16px); } }
 
   .export-item {
@@ -412,6 +459,9 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <button class="btn theme-btn" id="btn-theme" type="button" aria-pressed="false">
+        <span class="theme-ico" aria-hidden="true"></span><span id="theme-label">浅色</span>
+      </button>
       <button class="btn" id="btn-export">导出</button>
       <button class="btn" id="btn-import">导入</button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
@@ -1606,6 +1656,21 @@
     var el = ev.target;
     if (el && el.dataset && el.dataset.act === 'empty-add') openForm(null);
   });
+  function paintTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    var dark = t === 'dark';
+    var b = document.getElementById('btn-theme');
+    document.getElementById('theme-label').textContent = dark ? '深色' : '浅色';
+    b.querySelector('.theme-ico').textContent = dark ? '\u263E' : '\u2600';
+    b.setAttribute('aria-pressed', dark ? 'true' : 'false');
+    b.title = dark ? '当前深色主题，点击切回浅色' : '当前浅色主题，点击切换到深色';
+  }
+  document.getElementById('btn-theme').addEventListener('click', function () {
+    var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    paintTheme(next);
+    try { localStorage.setItem('aegis-theme', next); } catch (e) {}
+  });
+  paintTheme(document.documentElement.getAttribute('data-theme') || 'light');
 
   /* ================= 导出 / 导入 ================= */
 

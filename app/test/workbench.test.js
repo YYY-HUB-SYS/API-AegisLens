@@ -228,3 +228,26 @@ test('窄屏：参数胶囊必须能被压进容器，不许撑出横向滚动',
   assert.ok(/max-width:\s*100%/.test(rule), '.param 需设 max-width: 100%');
   assert.ok(/min-width:\s*0/.test(rule), '.param 需解除 flex 子项的 min-width:auto');
 });
+
+test('主题开关：两套令牌齐全，且首屏前就落 data-theme', () => {
+  const html = readHomepage();
+  assert.ok(html.includes(':root[data-theme="dark"]'), '应有暗色令牌块');
+  const darkBlock = html.slice(html.indexOf(':root[data-theme="dark"]'));
+  const lightBlock = html.slice(0, html.indexOf(':root[data-theme="dark"]'));
+  for (const tok of ['--bg', '--surface', '--ink', '--ink-2', '--rule', '--accent', '--api', '--warn', '--danger']) {
+    assert.ok(lightBlock.includes(tok + ':'), '浅色缺令牌 ' + tok);
+    assert.ok(darkBlock.slice(0, 1400).includes(tok + ':'), '暗色缺令牌 ' + tok);
+  }
+  assert.ok(html.includes("localStorage.getItem('aegis-theme')"), '主题选择要持久化');
+  const head = html.slice(0, html.indexOf('<style>'));
+  assert.ok(head.includes("setAttribute('data-theme'"), '内联脚本必须在 style 之前落主题，否则刷新会闪一下另一套');
+});
+
+test('CSS 颜色必须全部走令牌，令牌块之外不许有硬编码色值', () => {
+  const html = readHomepage();
+  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  const offenders = css.split('\n')
+    .map((l, i) => ({ l: l.trim(), i: i + 1 }))
+    .filter(x => /#[0-9A-Fa-f]{3,8}\b/.test(x.l) && !x.l.startsWith('--'));
+  assert.deepStrictEqual(offenders, [], '这些行绕过了令牌，切到暗色时会不跟随：' + JSON.stringify(offenders.slice(0, 5)));
+});
