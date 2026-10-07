@@ -6,6 +6,7 @@ const path = require('node:path');
 const batPath = path.join(__dirname, '..', 'workbench.bat');
 const jsonPath = path.join(__dirname, '..', 'workbench.json');
 const homepagePath = path.join(__dirname, '..', 'public', 'index.html');
+const repoRoot = path.join(__dirname, '..', '..');
 
 function readHomepage() {
   return fs.readFileSync(homepagePath, 'utf8');
@@ -72,7 +73,9 @@ test('workbench.json：合法 JSON 且 script 类型必填字段完整', () => {
 test('workbench.json：id 符合工作台字符集规范且 path 指向真实存在的脚本', () => {
   const p = readPayload();
   assert.match(p.id, /^[a-zA-Z0-9._-]+$/, 'id 只允许字母数字与 . _ -');
-  assert.ok(fs.existsSync(p.path), `path 应指向真实文件: ${p.path}`);
+  // 钉死某台机器的绝对路径会让任何 clone 都测不过，故 path 允许仓库相对路径，按仓库根解析后再断言
+  const resolvedPath = path.isAbsolute(p.path) ? p.path : path.join(repoRoot, p.path);
+  assert.ok(fs.existsSync(resolvedPath), `path 应指向真实文件: ${p.path}`);
   assert.ok(/[\\/](workbench\.bat)$/i.test(p.path), 'path 应指向 workbench.bat');
 });
 

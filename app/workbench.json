@@ -3,7 +3,7 @@
   "name": "AI Key Manager",
   "nameNote": "本地 AI API Key 加密管理看板",
   "type": "script",
-  "path": "D:/ai/traework/AI key项目/app/workbench.bat",
+  "path": "app/workbench.bat",
   "ports": [37700],
   "urls": ["http://127.0.0.1:37700"],
   "description": "本地 AI API Key 管理工具：AES-256-GCM 加密存储、连通性测试、模型目录自动拉取、一键生成 Dify/n8n/.env 配置",
