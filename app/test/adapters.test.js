@@ -51,6 +51,36 @@ test('fetchModels：平台自带的 context_length / max_output_length 优先于
   assert.strictEqual(zero.out, null);
 });
 
+test('fetchModels：SenseNova 无平台自报值时回落内置元表', async () => {
+  const f = () => Promise.resolve(res({ data: [
+    { id: 'sensenova-u1-fast' },
+    { id: 'glm-5.2' },
+    { id: 'sensenova-6.8-flash-lite', max_output_length: 65536 },
+    { id: 'not-in-meta-table' },
+  ] }));
+  const ep = { url: 'https://token.sensenova.cn/v1', style: 'openai' };
+  const models = await adapters.fetchModels('sensenova', ep, 'sk-test', { fetchImpl: f });
+
+  const u1 = models.find(m => m.id === 'sensenova-u1-fast');
+  assert.strictEqual(u1.ctx, 262144, '平台没给上下文长度时应取内置元表的 262144');
+  assert.strictEqual(u1.out, 65536, '平台没给最大输出时应取内置元表的 65536');
+  assert.strictEqual(u1.src, 'meta');
+
+  const glm = models.find(m => m.id === 'glm-5.2');
+  assert.strictEqual(glm.ctx, 1048576);
+  assert.strictEqual(glm.out, 131072);
+  assert.strictEqual(glm.src, 'meta');
+
+  const half = models.find(m => m.id === 'sensenova-6.8-flash-lite');
+  assert.strictEqual(half.ctx, 262144, '平台只给一半时，缺的那一半由内置元表补齐');
+  assert.strictEqual(half.out, 65536);
+  assert.strictEqual(half.src, 'api', '平台报了任一数值，来源就标 api');
+
+  const unknown = models.find(m => m.id === 'not-in-meta-table');
+  assert.strictEqual(unknown.ctx, null, '元表没有的 id 仍留空，交给联网/手动兜底');
+  assert.strictEqual(unknown.out, null);
+});
+
 test('fetchModels：Anthropic 使用 x-api-key 头与 /v1/models 路径', async () => {
   let captured = null;
   const f = (url, opts) => {

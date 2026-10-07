@@ -29,6 +29,17 @@
     "moonshot-v1-128k*": { "ctx": 131072, "out": 8192 },
     "kimi-k2*": { "ctx": 262144, "out": 16384 }
   },
+  "sensenova": {
+    "sensenova-u1-fast": { "ctx": 262144, "out": 65536 },
+    "sensenova-u1.5-lite": { "ctx": 262144, "out": 65536 },
+    "sensenova-6.8-flash-lite": { "ctx": 262144, "out": 65536 },
+    "deepseek-v4-flash": { "ctx": 1048576, "out": 65536 },
+    "deepseek-v4.1-flash": { "ctx": 1048576, "out": 65536 },
+    "deepseek-v4-pro": { "ctx": 1048576, "out": 65536 },
+    "deepseek-flash": { "ctx": 1048576, "out": 65536 },
+    "glm-5.2": { "ctx": 1048576, "out": 131072 },
+    "kimi-k3": { "ctx": 1048576, "out": 65536 }
+  },
   "dots": {
     "dots3-note-prev": { "ctx": 524288, "out": null }
   },
