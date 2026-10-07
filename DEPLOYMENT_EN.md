@@ -180,7 +180,11 @@ All data lives in the data directory (default `~/.api-aegislens`):
 └── store.json    # or keys.db — the AES-256-GCM encrypted key vault
 ```
 
-**Backup**: stop the service, then copy the entire directory to a safe location (encrypted drive / USB stick).
+**Backup**: stop the service, then copy the entire directory to a safe location (encrypted drive / USB stick). The backup must be a **pair** — `master.key` without the vault is useless, and the vault without `master.key` is unreadable. Treat the backup itself as plaintext-equivalent to your API keys.
+
+**Restored and verified**: on 2026-10-07 this procedure was drilled in a temporary data directory (create key → stop → copy whole directory → delete the original → copy back → restart): the key decrypted to the identical value, and manually added models plus assigned tool entries survived. With the SQLite backend no `-wal`/`-shm` side files remain, so a whole-directory copy taken while stopped is a consistent snapshot.
+
+**Missing `master.key` now refuses to start**: earlier builds silently generated a fresh master key in that situation — the service started normally, surfaced only a read error, and left the old vault permanently undecryptable. Startup now aborts with "the data directory already contains a key vault but master.key is missing"; restore `master.key` from a backup, or delete the vault too if you intend to discard the old data.
 
 **Migrating to a new machine**: `git clone` the project on the new machine and start it once (this creates the directory structure) → stop the service → overwrite with the entire data directory from the old machine → start again.
 
