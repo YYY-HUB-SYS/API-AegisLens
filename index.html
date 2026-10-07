@@ -485,7 +485,7 @@
           </svg>
         </div>
         <h3>加密存储</h3>
-        <p>密钥以 AES-256-GCM 字段级加密落盘，主密钥独立分离保管，明文永不落盘——存储文件被拷走也无法解出密钥。</p>
+        <p>密钥以 AES-256-GCM 字段级加密落盘，其余字段明文存储；主密钥 <code>master.key</code> 与数据文件同目录，拿到该目录即可解密，请按明文密钥对待。</p>
       </div>
 
       <div class="feature">
@@ -495,7 +495,7 @@
           </svg>
         </div>
         <h3>双存储后端</h3>
-        <p>自动优选 SQLite（<code>node:sqlite</code>），环境不支持时无缝回退 JSON 文件，无需额外安装任何数据库。</p>
+        <p>Node &ge; 22 时走 SQLite（<code>node:sqlite</code>），18–21 自动改用 JSON 文件，无需额外安装任何数据库；两种后端之间不自动迁移数据。</p>
       </div>
 
       <div class="feature">
@@ -598,7 +598,7 @@
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11"/></svg>
           字段级加密落盘
         </h3>
-        <p>密钥字段以 AES-256-GCM 加密后写入存储文件，主密钥与数据同目录分离保管；即使存储文件被复制，也无法反解出明文密钥。</p>
+        <p>只有密钥字段以 AES-256-GCM 加密后写入存储文件，其余字段为明文；主密钥与数据同目录，<strong>整个数据目录等同明文密钥</strong>。导出的 JSON 亦为明文。</p>
       </div>
       <div class="security-card">
         <h3>
@@ -612,7 +612,7 @@
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11"/></svg>
           同源写校验
         </h3>
-        <p>所有写接口校验请求同源性，拒绝跨域写入；外发请求仅用于连通性测试、模型拉取与余额查询等明确用途。</p>
+        <p>所有写接口校验请求同源性，拒绝跨域写入；<strong>但应用没有登录鉴权</strong>，本机进程可直接读到解密后的密钥，请勿反向代理暴露。外发请求仅用于连通性测试、模型拉取与余额查询，密钥只发往你自己填写的端点。</p>
       </div>
     </div>
     <p class="security-note">说明：仓库中所有 <code>sk-</code> 开头的样例密钥均为演示用假密钥，不含任何真实凭据。</p>

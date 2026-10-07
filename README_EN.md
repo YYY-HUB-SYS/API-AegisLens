@@ -25,7 +25,7 @@ Bring the API keys scattered across AI platforms into one local dashboard — en
 
 ## Quick Start
 
-Requirement: [Node.js](https://nodejs.org/) >= 18 (no dependencies to install).
+Requirement: [Node.js](https://nodejs.org/) >= 18 (no dependencies to install). The SQLite backend needs **>= 22**; on 18–21 the app silently falls back to the JSON file store, with identical features.
 
 ```bash
 git clone https://github.com/YYY-HUB-SYS/API-AegisLens.git

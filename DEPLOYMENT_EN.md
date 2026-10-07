@@ -20,7 +20,7 @@ API-AegisLens is a **local-first** tool: the service listens on `127.0.0.1` only
 
 | Item | Requirement |
 |---|---|
-| Node.js | >= 18 (20 LTS or newer recommended; check with `node -v`) |
+| Node.js | >= 18 for the JSON backend, **>= 22 for SQLite** (`node:sqlite` ships from Node 22); 22 LTS or newer recommended, check with `node -v` |
 | OS | Windows / macOS / Linux |
 | Dependencies | None — no `npm install`, pure standard library |
 | Network | Reaching overseas endpoints (Anthropic, relay stations, etc.) may require a proxy, see [Configuration](#configuration) |

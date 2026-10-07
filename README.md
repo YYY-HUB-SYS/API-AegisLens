@@ -12,9 +12,9 @@
 
 ## 功能特性
 
-- **加密存储** — 密钥以 AES-256-GCM 字段级加密落盘，主密钥独立保管，明文永不落盘；存储文件拷走也无法解出密钥
-- **双存储后端** — 自动优选 SQLite（`node:sqlite`），环境不支持时无缝回退 JSON 文件
-- **多兼容端点** — 同一 Key 可配最多 6 个 Base URL（OpenAI / Anthropic / 自定义兼容模式），如 DeepSeek 可同时登记 `https://api.deepseek.com` 与 `https://api.deepseek.com/anthropic`
+- **加密存储** — 仅密钥字段以 AES-256-GCM 加密后落盘，其余字段（名称、平台、端点、模型、备注等）为明文；主密钥 `master.key` 与数据文件同目录，**拿到该目录即等于拿到明文密钥**
+- **双存储后端** — Node >= 22 走 SQLite（`node:sqlite`），18–21 上该模块不存在、静默改用 JSON 文件；**两个后端之间不自动迁移数据**，换 Node 版本前先确认数据目录里是 `keys.db` 还是 `store.json`
+- **多兼容端点** — 同一 Key 可配最多 6 个 Base URL（OpenAI / Anthropic / 自定义兼容模式），如 DeepSeek 可同时登记 `https://api.deepseek.com` 与 `https://api.deepseek.com/anthropic`。**连通性测试与模型拉取只走第一个端点**，只有余额查询会依次遍历全部端点
 - **连通性测试** — 调用平台模型列表接口验证密钥可用性；无列表接口的端点（如火山方舟 Agent Plan）自动回退对话接口鉴权探测
 - **模型目录** — 自动拉取模型列表；上下文长度与最大输出经四级兜底补全：平台接口 → 内置元数据库 → 联网检索（OpenRouter / models.dev）→ 手动补充；火山方舟 Agent Plan 端点内置官方模型目录
 - **配置生成** — 按目标工具套用模板，自动带入模型参数；Dify / n8n 取 OpenAI 兼容端点，Claude Code 取 Anthropic 兼容端点（生成 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`）
@@ -25,7 +25,7 @@
 
 ## 快速开始
 
-环境要求：[Node.js](https://nodejs.org/) >= 18（无需安装任何依赖）。
+环境要求：[Node.js](https://nodejs.org/) >= 18（无需安装任何依赖）；**要用 SQLite 后端需 >= 22**，低版本自动落到 JSON 文件，功能一致。
 
 ```bash
 git clone https://github.com/YYY-HUB-SYS/API-AegisLens.git
@@ -59,7 +59,7 @@ cd app
 npm test
 ```
 
-99 项测试覆盖加密、存储（双后端）、API 集成、适配器（平台目录、余额域名匹配与特殊认证平台）、代理与启动脚本。
+122 项测试覆盖加密、存储（双后端）、API 集成、适配器（平台目录、余额域名匹配与特殊认证平台）、代理、工作台入口与启动脚本。本 fork 于 2026-10-07 在 Node v24.14.0 实跑：tests 122 / pass 122 / fail 0。
 
 ## 目录结构
 
@@ -75,8 +75,8 @@ npm test
 
 ## 安全说明
 
-- 密钥字段 AES-256-GCM 加密后落盘，主密钥与数据同目录分离保管
-- 服务仅监听 `127.0.0.1`，写接口校验同源，拒绝跨域写入
+- 密钥字段 AES-256-GCM 加密后落盘；主密钥与数据文件同目录，请按明文密钥的级别设权限与备份
+- 服务仅监听 `127.0.0.1`，写接口校验 Origin 同源；**应用本身没有任何登录鉴权**，本机任意进程都能读到解密后的密钥，因此不可反代暴露（见部署指南「反向代理（谨慎）」）
 - 本仓库所有 `sk-` 样例均为演示用的假密钥
 
 ## 作者

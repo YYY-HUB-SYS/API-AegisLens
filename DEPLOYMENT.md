@@ -20,7 +20,7 @@ API-AegisLens 是**本地优先**工具：服务只监听 `127.0.0.1`，数据�
 
 | 项目 | 要求 |
 |---|---|
-| Node.js | >= 18（推荐 20 LTS 及以上；`node -v` 检查） |
+| Node.js | >= 18（JSON 后端）/ **>= 22（SQLite 后端，`node:sqlite` 自 22 起提供）**；推荐 22 LTS 及以上，`node -v` 检查 |
 | 操作系统 | Windows / macOS / Linux 均可 |
 | 依赖 | 无需 `npm install`，纯标准库实现 |
 | 网络 | 访问境外端点（如 Anthropic、海外中转站）可能需要代理，见[配置项](#配置项) |
@@ -176,7 +176,7 @@ server {
 
 ```
 ~/.api-aegislens/
-├── master.key    # 主密钥（丢失则数据无法解密，务必备份）
+├── master.key    # 主密钥（丢失则数据无法解密，务必备份；它与数据文件同目录，整目录等同明文密钥）
 └── store.json    # 或 keys.db —— AES-256-GCM 加密的密钥库
 ```
 
