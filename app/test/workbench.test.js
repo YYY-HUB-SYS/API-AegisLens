@@ -165,3 +165,10 @@ test('工作台页面：导出/导入 CSS 样式已定义', () => {
   assert.ok(html.includes('.import-result'), 'CSS 应定义 .import-result 样式');
   assert.ok(html.includes('.import-detail'), 'CSS 应定义 .import-detail 样式');
 });
+test('生成配置：端点风格与工具协议不匹配时必须出警告', () => {
+  const html = readHomepage();
+  assert.ok(html.includes('var mismatch = !!(ep && ep.style !== want)'), '应计算端点风格不匹配');
+  assert.ok(html.includes('没有 Anthropic 兼容端点'), 'Claude Code 缺 Anthropic 端点时要警告');
+  assert.ok(html.includes('不是 OpenAI 兼容'), 'Dify/n8n 拿到非 OpenAI 兼容端点时要警告');
+  assert.ok(!html.includes("else cl.push('# 未配置 Anthropic 兼容地址');"), '原先那段永不可达的死分支应已被替换');
+});

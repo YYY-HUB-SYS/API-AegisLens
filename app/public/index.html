@@ -1361,7 +1361,10 @@
 
   function buildConfig(k, tool) {
     var meta = currentModelMeta(k);
-    var ep = tool === 'claude' ? pickEndpoint(k, 'anthropic') : pickEndpoint(k, 'openai');
+    var want = tool === 'claude' ? 'anthropic' : 'openai';
+    var ep = pickEndpoint(k, want);
+    /* pickEndpoint 无匹配风格时回退首个端点：地址出得来，但它不讲这个工具要的协议，必须显式警告 */
+    var mismatch = !!(ep && ep.style !== want);
     var baseUrl = ep ? ep.url : '';
     var p = P(k.platform);
     var authLine = authNoteOf(k) ? '# 认证: ' + authNoteOf(k) : '';
@@ -1372,6 +1375,7 @@
         'API Key: ' + k.key + '\n' +
         'API base: ' + baseUrl + '\n' +
         '# 模式选「OpenAI-API-compatible」' + (baseUrl ? '' : '（未配置 OpenAI 兼容地址）') + '\n' +
+        (mismatch ? '# ⚠ 上述是「' + styleLabel(ep.style) + '」端点，不是 OpenAI 兼容，Dify 可能连不通\n' : '') +
         (meta && meta.ctx ? '# 上下文长度: ' + meta.ctx + ' tokens\n' : '') +
         (meta && meta.out ? '# 最大输出: ' + meta.out + ' tokens\n' : '') +
         (authLine ? authLine + '\n' : '');
@@ -1381,6 +1385,7 @@
         'Base URL = ' + baseUrl + '\n' +
         'API Key = ' + k.key + '\n' +
         'Model = ' + (k.model || '（未设置默认模型）') + '\n' +
+        (mismatch ? '// ⚠ 上述是「' + styleLabel(ep.style) + '」端点，不是 OpenAI 兼容\n' : '') +
         (meta && meta.ctx ? 'Context Window = ' + meta.ctx + '\n' : '') +
         (meta && meta.out ? 'Max Output = ' + meta.out + '\n' : '') +
         (authLine ? authLine + '\n' : '');
@@ -1389,8 +1394,9 @@
       var cl = ['# Claude Code · 环境变量'];
       cl.push('ANTHROPIC_BASE_URL=' + baseUrl);
       cl.push('ANTHROPIC_AUTH_TOKEN=' + k.key);
-      if (baseUrl) cl.push('# 使用「' + styleLabel(ep.style) + '」端点');
-      else cl.push('# 未配置 Anthropic 兼容地址');
+      if (baseUrl && !mismatch) cl.push('# 使用「' + styleLabel(ep.style) + '」端点');
+      else if (baseUrl) cl.push('# ⚠ 该密钥没有 Anthropic 兼容端点，上面填的是「' + styleLabel(ep.style) + '」地址；Claude Code 走 /v1/messages，请先在密钥里补一个 Anthropic 兼容地址，否则大概率不通');
+      else cl.push('# 未配置任何端点地址');
       if (k.model) cl.push('# 模型: ' + k.model);
       if (meta && meta.ctx) cl.push('# 上下文: ' + meta.ctx + ' tokens');
       if (meta && meta.out) cl.push('# 最大输出: ' + meta.out + ' tokens');
@@ -1400,6 +1406,7 @@
     var U = 'AI';
     var lines = ['# .env', U + '_API_KEY=' + k.key];
     if (baseUrl) lines.push(U + '_BASE_URL=' + baseUrl);
+    if (mismatch) lines.push('# ⚠ 上述地址是「' + styleLabel(ep.style) + '」端点，非 OpenAI 兼容');
     if (k.model) lines.push(U + '_MODEL=' + k.model);
     if (meta) {
       if (meta.ctx) lines.push(U + '_CONTEXT_WINDOW=' + meta.ctx);
