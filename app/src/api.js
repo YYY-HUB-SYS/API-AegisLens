@@ -68,11 +68,10 @@ function endpointAt(k, raw) {
   return { ep: eps[i], idx: i };
 }
 
-function autoName(platform, customName, keyValue) {
-  const p = platOf(platform);
-  const label = platform === 'custom' ? (customName || '自定义平台') : (p ? p.name : platform);
-  const tail = keyValue.length >= 4 ? keyValue.slice(-4) : keyValue;
-  return label + '-' + tail;
+/* 自动名只取末 4 位：卡片头部已有平台标签，再把平台名嵌进名字就是同一串念两遍。
+   查重按「平台 + 名字」，同平台末 4 位撞车时返回 409 明说，由用户手动改名 */
+function autoName(keyValue) {
+  return keyValue.length >= 4 ? keyValue.slice(-4) : keyValue;
 }
 
 function str(v) { return String(v == null ? '' : v).trim(); }
@@ -149,7 +148,7 @@ async function routeApi(req, res, ctx) {
     const keyValue = str(b.key);
     if (!keyValue) throw bad(400, 'API Key 为必填项');
     const customName = platform === 'custom' ? (str(b.customName) || '自定义平台') : '';
-    const name = str(b.name) || autoName(platform, customName, keyValue);
+    const name = str(b.name) || autoName(keyValue);
     const dup = storage.listKeys().some(function (x) {
       return x.platform === platform
         && (platform === 'custom' ? x.customName === customName : true)
@@ -206,7 +205,7 @@ async function routeApi(req, res, ctx) {
       : '';
     if (platform === 'custom') patch.customName = customName;
     if (patch.name === '') {
-      patch.name = autoName(platform, customName, patch.key || cur.key);
+      patch.name = autoName(patch.key || cur.key);
     }
     if (b.endpoints !== undefined || b.base !== undefined) {
       try {
@@ -419,7 +418,7 @@ async function routeApi(req, res, ctx) {
         const keyValue = str(item.key);
         if (!keyValue) { skipped.push({ name: item.name || '', reason: '缺少 API Key' }); continue; }
         const customName = platform === 'custom' ? (str(item.customName) || '自定义平台') : '';
-        const name = str(item.name) || autoName(platform, customName, keyValue);
+        const name = str(item.name) || autoName(keyValue);
         const dup = storage.listKeys().some(function (x) {
           return x.platform === platform
             && (platform === 'custom' ? x.customName === customName : true)

@@ -386,7 +386,7 @@
 <div class="overlay" id="overlay-form">
   <div class="modal">
     <h3 id="form-title">新增密钥</h3>
-    <p class="sub">Key 名称、注册时间、有效期均为可选；Key 名称留空将自动生成「平台名-末4位」。</p>
+    <p class="sub">Key 名称、注册时间、有效期均为可选；Key 名称留空将自动取密钥末 4 位。</p>
     <div class="form-grid">
       <div class="field">
         <label for="f-platform">平台</label>
@@ -398,7 +398,7 @@
       </div>
       <div class="field">
         <label for="f-name">Key 名称 <span class="hint">可选 · 同平台唯一</span></label>
-        <input id="f-name" type="text" maxlength="40" placeholder="留空自动生成，如 DeepSeek-4f2a">
+        <input id="f-name" type="text" maxlength="40" placeholder="留空自动生成，如 4f2a">
       </div>
       <div class="field">
         <label for="f-exp">有效期至 <span class="hint">可选</span></label>

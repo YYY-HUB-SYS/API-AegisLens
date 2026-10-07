@@ -84,13 +84,13 @@ test('API 集成：完整业务流程', async () => {
     });
     assert.strictEqual(r.status, 201, JSON.stringify(r.data));
     const k = r.data.key;
-    assert.strictEqual(k.name, 'DeepSeek-cdef', '名称留空自动生成');
+    assert.strictEqual(k.name, 'cdef', '名称留空自动生成＝密钥末 4 位，不再带平台名');
     assert.strictEqual(k.balance.status, 'pending');
 
     r = await call(base, 'POST', '/api/keys', {
       platform: 'deepseek',
       key: 'sk-another-key-9999',
-      name: 'DeepSeek-cdef'
+      name: 'cdef',   // 撞第一条的自动名（现为密钥末 4 位）
     });
     assert.strictEqual(r.status, 409, '同平台重名应被拒绝');
 
@@ -666,6 +666,20 @@ test('API 集成：/test 与 /models/fetch 按 endpointIndex 选端点，越界�
     const m = await call(base, 'POST', '/api/keys/' + id + '/models/fetch', { endpointIndex: 1 });
     assert.strictEqual(m.status, 200);
     assert.ok(seen.some(u => u.indexOf('api.deepseek.com/anthropic/v1/models') >= 0), '模型拉取同样可指定端点');
+  } finally {
+    server.close();
+  }
+});
+
+test('自动命名只取密钥末 4 位，撞车时明确报 409', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    const r = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-abcdefgh1234' });
+    assert.strictEqual(r.status, 201);
+    assert.strictEqual(r.data.key.name, '1234', '自动名应为密钥末 4 位，不带平台名');
+    const dup = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-zyxw1234' });
+    assert.strictEqual(dup.status, 409, '同平台末 4 位撞车必须明说，不能悄悄改名');
+    assert.match(dup.data.error, /同名/);
   } finally {
     server.close();
   }
