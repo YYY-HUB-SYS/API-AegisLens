@@ -196,3 +196,26 @@ test('四个弹层都必须有可点的关闭入口', () => {
     assert.ok(re.test(html), '缺少关闭按钮：' + id);
   }
 });
+test('页脚不得脱离文档流（悬浮状态条会压住最后一张卡片）', () => {
+  const html = readHomepage();
+  const at = html.indexOf('  .foot {');
+  assert.ok(at > -1, '应定义 .foot 样式');
+  const rule = html.slice(at, at + 240);
+  assert.ok(!/position:\s*(fixed|sticky)/.test(rule), '.foot 必须留在文档流内');
+});
+
+test('卡片主标题只放密钥名，平台名交给组标题承担', () => {
+  const html = readHomepage();
+  assert.ok(html.includes("'<span class=\"plat\">' + esc(shortName(k)) + '</span>'"),
+    '卡片标题应为 shortName，不再重复组标题里的平台名');
+  assert.equal((html.match(/class="plat-dot"/g) || []).length, 3,
+    '色点应为组标题 + 导出列表 + 导入预览三处');
+});
+
+test('空状态自带新增入口，且由事件委托接住', () => {
+  const html = readHomepage();
+  assert.equal((html.match(/data-act="empty-add"/g) || []).length, 2,
+    '静态空状态与动态空状态各一处按钮');
+  assert.ok(html.includes("getElementById('empty').addEventListener"),
+    '#empty 应有委托监听，否则动态渲染的按钮点不动');
+});
