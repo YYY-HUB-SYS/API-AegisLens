@@ -219,3 +219,12 @@ test('空状态自带新增入口，且由事件委托接住', () => {
   assert.ok(html.includes("getElementById('empty').addEventListener"),
     '#empty 应有委托监听，否则动态渲染的按钮点不动');
 });
+
+test('窄屏：参数胶囊必须能被压进容器，不许撑出横向滚动', () => {
+  const html = readHomepage();
+  const at = html.indexOf('  .param {');
+  assert.ok(at > -1, '应定义 .param 样式');
+  const rule = html.slice(at, at + 220);
+  assert.ok(/max-width:\s*100%/.test(rule), '.param 需设 max-width: 100%');
+  assert.ok(/min-width:\s*0/.test(rule), '.param 需解除 flex 子项的 min-width:auto');
+});

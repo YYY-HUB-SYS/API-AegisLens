@@ -129,12 +129,13 @@
   .params { display: flex; gap: 8px; flex-wrap: wrap; }
   .param {
     display: inline-flex; align-items: center; gap: 7px;
+    max-width: 100%; min-width: 0;
     border: 1px solid var(--rule-soft); border-radius: var(--r-ctl);
     padding: 4px 6px 4px 11px; background: var(--surface-2);
   }
   .param .val {
     font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600;
-    max-width: 340px; min-width: 0; flex: 0 1 auto;
+    max-width: 340px; min-width: 0; flex: 1 1 auto;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .copy-btn {
