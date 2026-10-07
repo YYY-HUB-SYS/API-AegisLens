@@ -54,6 +54,20 @@ function sameOrigin(req) {
 
 function platOf(id) { return adapters.PLATFORMS[id] || null; }
 
+/* 端点可由调用方按序号指定：默认仍是第 0 条（向后兼容）。
+   越界必须报错，不能悄悄退回第一条——「以为测了其实没测」就是这么来的 */
+function endpointAt(k, raw) {
+  const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
+  let i = 0;
+  if (raw !== undefined && raw !== null && raw !== '') {
+    i = Number(raw);
+    if (!Number.isInteger(i) || i < 0 || i >= eps.length) {
+      throw bad(400, '端点序号不存在：该密钥共 ' + eps.length + ' 个端点');
+    }
+  }
+  return { ep: eps[i], idx: i };
+}
+
 function autoName(platform, customName, keyValue) {
   const p = platOf(platform);
   const label = platform === 'custom' ? (customName || '自定义平台') : (p ? p.name : platform);
@@ -234,14 +248,20 @@ async function routeApi(req, res, ctx) {
 
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/test$/.exec(path))) {
     const k = requireKey(m[1]);
-    const test = await adapters.testKey(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
+    const tb = await readBody(req).catch(function () { return {}; });
+    const at = endpointAt(k, tb.endpointIndex);
+    const test = await adapters.testKey(k.platform, at.ep, k.key, { fetchImpl: fetchImpl });
+    test.epIndex = at.idx;
+    test.epUrl = at.ep.url;
+    test.epStyle = at.ep.style;
     const rec = storage.saveTest(k.id, test);
     return json(res, 200, { test: rec.test });
   }
 
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/models\/fetch$/.exec(path))) {
     const k = requireKey(m[1]);
-    const fetched = await adapters.fetchModels(k.platform, adapters.primaryEndpoint(k), k.key, { fetchImpl: fetchImpl });
+    const fb = await readBody(req).catch(function () { return {}; });
+    const fetched = await adapters.fetchModels(k.platform, endpointAt(k, fb.endpointIndex).ep, k.key, { fetchImpl: fetchImpl });
     let merged = adapters.mergeModels(k.models, fetched);
     let enrichInfo = null;
     if (merged.some(function (mm) { return mm.ctx == null; })) {

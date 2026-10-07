@@ -634,3 +634,39 @@ test('API 集成：导入空列表应被拒绝', async () => {
     server.close();
   }
 });
+
+test('API 集成：/test 与 /models/fetch 按 endpointIndex 选端点，越界报错不回退', async () => {
+  const seen = [];
+  const spy = (url, opts) => { seen.push(String(url)); return mockFetch(url, opts); };
+  const { server, base } = await startServer(spy);
+  try {
+    const created = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-index-test', name: '两条端点',
+      endpoints: [
+        { url: 'https://api.deepseek.com', style: 'openai' },
+        { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
+      ]
+    });
+    const id = created.data.key.id;
+
+    const first = await call(base, 'POST', '/api/keys/' + id + '/test', {});
+    assert.strictEqual(first.data.test.epIndex, 0, '不传序号仍测第一条（向后兼容）');
+    assert.strictEqual(first.data.test.epUrl, 'https://api.deepseek.com');
+
+    const second = await call(base, 'POST', '/api/keys/' + id + '/test', { endpointIndex: 1 });
+    assert.strictEqual(second.data.test.epIndex, 1);
+    assert.strictEqual(second.data.test.epStyle, 'anthropic');
+    assert.ok(seen.some(u => u.indexOf('api.deepseek.com/anthropic/v1/models') >= 0),
+      '第二次请求必须真打到第二条端点，而不是又测了第一条');
+
+    const oob = await call(base, 'POST', '/api/keys/' + id + '/test', { endpointIndex: 9 });
+    assert.strictEqual(oob.status, 400, '序号越界必须 400，禁止静默退回第一条');
+    assert.match(oob.data.error, /端点序号不存在/);
+
+    const m = await call(base, 'POST', '/api/keys/' + id + '/models/fetch', { endpointIndex: 1 });
+    assert.strictEqual(m.status, 200);
+    assert.ok(seen.some(u => u.indexOf('api.deepseek.com/anthropic/v1/models') >= 0), '模型拉取同样可指定端点');
+  } finally {
+    server.close();
+  }
+});

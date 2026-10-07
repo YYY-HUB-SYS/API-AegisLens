@@ -564,6 +564,12 @@
     if (s === 'anthropic') return 'Anthropic';
     return s || 'OpenAI';
   }
+  function epSuffix(k) {   /* 让徽章说清是哪条端点通了；该端点事后被改过就标注失效 */
+    var t = k.test;
+    if (!t || t.epIndex == null) return '';
+    var live = (k.endpoints || []).some(function (e) { return e.url && e.url === t.epUrl; });
+    return ' · #' + (t.epIndex + 1) + (t.epStyle ? ' ' + styleShort(t.epStyle) : '') + (live ? '' : ' ⚠地址已变更');
+  }
   function pickEndpoint(k, style) {
     var eps = (k.endpoints || []).filter(function (e) { return e.url; });
     for (var i = 0; i < eps.length; i++) {
@@ -733,8 +739,8 @@
     var testChip = '';
     if (k.test) {
       testChip = k.test.status === 'pass'
-        ? '<span class="test-chip pass" title="' + esc(k.test.msg) + '">连通 · ' + esc(k.test.latency + 'ms') + '</span>'
-        : '<span class="test-chip fail" title="' + esc(k.test.msg) + '">不通 · ' + esc(k.test.code) + '</span>';
+        ? '<span class="test-chip pass" title="' + esc(k.test.msg) + '">连通 · ' + esc(k.test.latency + 'ms') + esc(epSuffix(k)) + '</span>'
+        : '<span class="test-chip fail" title="' + esc(k.test.msg) + '">不通 · ' + esc(k.test.code) + esc(epSuffix(k)) + '</span>';
     }
 
     var assigned = k.assigned || [];
@@ -792,6 +798,8 @@
                 '<span class="val">' + esc(ep.url) + '</span>' +
                 '<span class="ep-style-tag" title="' + esc(styleLabel(ep.style)) + '">' + esc(styleShort(ep.style)) + '</span>' +
                 '<button class="copy-btn" data-act="copy" title="复制 ' + esc(ep.url) + '">复制</button>' +
+                '<button class="btn ghost small" data-act="ep-test" data-idx="' + i + '" title="只测这条端点">测</button>' +
+                '<button class="btn ghost small" data-act="ep-models" data-idx="' + i + '" title="从这条端点拉模型">模型</button>' +
               '</span>';
             }).join('') +
             (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +
@@ -991,6 +999,11 @@
       }
       return;
     }
+    if (act === 'ep-test' || act === 'ep-models') {
+      var epIdx = Number(btn.dataset.idx) || 0;
+      if (act === 'ep-test') { runTest(k, epIdx); } else { fetchModels(k, epIdx); }
+      return;
+    }
     if (act === 'toggle-models') {
       ui.drawerOpen[k.id] = !ui.drawerOpen[k.id];
       render();
@@ -1092,18 +1105,18 @@
 
   /* ================= 连通测试 / 模型拉取 / 备注 / 配置去向 ================= */
 
-  function runTest(k) {
+  function runTest(k, idx) {
     if (ui.testing[k.id]) return;
     ui.testing[k.id] = true;
     render();
-    api('POST', '/keys/' + k.id + '/test').then(function (data) {
+    api('POST', '/keys/' + k.id + '/test', { endpointIndex: idx || 0 }).then(function (data) {
       k.test = data.test;
       ui.testing[k.id] = false;
       render();
       if (data.test.status === 'pass') {
-        toast('「' + k.name + '」测试通过（' + data.test.latency + 'ms）', 'ok');
+        toast('「' + k.name + '」测试通过（' + data.test.latency + 'ms）' + epSuffix(k), 'ok');
       } else {
-        toast('「' + k.name + '」测试失败：' + data.test.msg, 'warn');
+        toast('「' + k.name + '」测试失败：' + data.test.msg + epSuffix(k), 'warn');
       }
     }).catch(function (e) {
       ui.testing[k.id] = false;
@@ -1112,17 +1125,17 @@
     });
   }
 
-  function fetchModels(k) {
+  function fetchModels(k, idx) {
     if (ui.modelsLoading[k.id]) return;
     ui.modelsLoading[k.id] = true;
     ui.drawerOpen[k.id] = true;
     render();
-    api('POST', '/keys/' + k.id + '/models/fetch').then(function (data) {
+    api('POST', '/keys/' + k.id + '/models/fetch', { endpointIndex: idx || 0 }).then(function (data) {
       k.models = data.models;
       k.modelsFetched = true;
       ui.modelsLoading[k.id] = false;
       render();
-      var msg = '已拉取 ' + data.models.length + ' 个模型';
+      var msg = '已拉取 ' + data.models.length + ' 个模型（地址 #' + ((idx || 0) + 1) + '）';
       var e = data.enrich;
       if (e && e.enriched > 0) msg += '，联网补全 ' + e.enriched + ' 个模型参数';
       var nf = e && e.notFound ? e.notFound.length : 0;
