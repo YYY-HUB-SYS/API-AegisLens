@@ -24,6 +24,22 @@ test('主密钥：损坏文件报错', () => {
   assert.throws(() => loadOrCreateMasterKey(dir), /损坏/);
 });
 
+test('主密钥：已有密钥库但缺 master.key 时拒绝启动，且不生成新密钥', () => {
+  for (const store of ['keys.db', 'store.json']) {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, store), 'placeholder-ciphertext');
+    assert.throws(() => loadOrCreateMasterKey(dir), /缺少 master.key/, store + ' 应触发保护');
+    assert.strictEqual(fs.existsSync(path.join(dir, 'master.key')), false,
+      store + ' 场景下绝不能新生成主密钥（否则旧库永久解不开）');
+  }
+});
+
+test('主密钥：空目录正常生成（未被上面的保护误伤）', () => {
+  const dir = tempDir();
+  const mk = loadOrCreateMasterKey(dir);
+  assert.strictEqual(mk.length, 32);
+});
+
 test('字段加密：往返一致', () => {
   const dir = tempDir();
   const mk = loadOrCreateMasterKey(dir);
