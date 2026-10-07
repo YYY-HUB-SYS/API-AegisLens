@@ -456,6 +456,7 @@
     </div>
     <pre class="config-pre" id="config-pre"></pre>
     <div class="modal-foot" style="margin-top:0.6rem">
+      <button class="btn" data-close="overlay-config">关闭</button>
       <button class="btn primary" id="btn-copy-config">复制整段配置</button>
       <button class="btn ghost small" id="btn-mark-assigned" style="display:none"></button>
       <span class="config-note" id="config-note"></span>
@@ -1717,6 +1718,8 @@
   /* ================= Modal 通用 ================= */
 
   function openOverlay(id) {
+    /* 弹层互斥：叠两层会让底下那层透出来，且 ESC / 点遮罩会一次关掉两层 */
+    document.querySelectorAll('.overlay.show').forEach(function (ov) { ov.classList.remove('show'); });
     document.getElementById(id).classList.add('show');
   }
   function closeOverlay(id) {

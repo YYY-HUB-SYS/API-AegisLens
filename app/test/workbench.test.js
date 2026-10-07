@@ -179,3 +179,20 @@ test('卡片头部与导入导出列表：自动名重复平台名时只显示�
     '卡片头部 + 导出列表 + 导入预览 三处都该去重');
   assert.ok(!html.includes("'<span class=\"kname\">' + esc(k.name)"), '不应再有直接输出 k.name 的 kname');
 });
+
+test('弹层互斥：openOverlay 必须先关掉已开的弹层', () => {
+  const html = readHomepage();
+  const fn = html.slice(html.indexOf('function openOverlay(id)'), html.indexOf('function closeOverlay(id)'));
+  assert.ok(fn.includes('.overlay.show'), 'openOverlay 内应清理已显示的弹层');
+  var clearAt = fn.indexOf('.overlay.show');
+  var addAt = fn.indexOf('classList.add');
+  assert.ok(clearAt > -1 && addAt > -1 && clearAt < addAt, '必须先关掉已开的再开新的');
+});
+
+test('四个弹层都必须有可点的关闭入口', () => {
+  const html = readHomepage();
+  for (const id of ['overlay-form', 'overlay-config', 'overlay-export', 'overlay-import']) {
+    const re = new RegExp('data-close=' + String.fromCharCode(34) + id + String.fromCharCode(34));
+    assert.ok(re.test(html), '缺少关闭按钮：' + id);
+  }
+});
