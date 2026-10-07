@@ -251,3 +251,27 @@ test('CSS 颜色必须全部走令牌，令牌块之外不许有硬编码色值'
     .filter(x => /#[0-9A-Fa-f]{3,8}\b/.test(x.l) && !x.l.startsWith('--'));
   assert.deepStrictEqual(offenders, [], '这些行绕过了令牌，切到暗色时会不跟随：' + JSON.stringify(offenders.slice(0, 5)));
 });
+
+test('配置高亮：不得在自身生成的标签上二次着色', () => {
+  const html = readHomepage();
+  const from = html.indexOf('function highlightConfig');
+  const src = html.slice(from, html.indexOf('function renderConfig', from));
+  assert.ok(from > -1 && src.length > 80, '应能截到 highlightConfig 函数体');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fn = new Function('esc', src + '; return highlightConfig;')(esc);
+  const out = fn([
+    '# Dify · 模型供应商配置',
+    '模型名称: deepseek-chat',
+    'API base: https://api.deepseek.com',
+    'ANTHROPIC_BASE_URL=https://api.anthropic.com',
+    'https://bare-url.example/path'
+  ].join('\n'));
+  assert.ok(!/"[kcs]">/.test(out.replace(/<[^>]*>/g, '')),
+    '剥掉标签后的正文里不该残留 class 片段（旧实现就是这样把 "c"> 显示出来）');
+  assert.ok(out.includes('https://api.deepseek.com'), 'URL 必须完整不被当注释截走');
+  assert.ok(out.includes('<span class="c"># Dify'), '整行注释仍要着色');
+  assert.ok(out.includes('<span class="k">模型名称</span>'), '中文键名要能识别');
+  assert.ok(out.includes('<span class="s">https://api.anthropic.com</span>'), '.env 的 = 值要着色');
+  assert.ok(!out.includes('<span class="k">https</span>'), '裸 URL 行不该被拆成键值对');
+});

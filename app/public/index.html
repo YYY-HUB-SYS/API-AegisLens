@@ -1560,15 +1560,27 @@
     openOverlay('overlay-config');
   }
 
+  /* 逐行分类、分段转义。原先三条正则串在已生成的 HTML 上再跑一遍，
+     会把 class="c" 里的 = 当成赋值、把 https:// 里的 // 当成注释，
+     结果代码块里出现字面量 "c">，复制出去就是脏配置。 */
+  function highlightConfig(text) {
+    return String(text).split('\n').map(function (line) {
+      if (/^\s*(#|\/\/)/.test(line)) return '<span class="c">' + esc(line) + '</span>';
+      var m = /^([^=:]+?)\s{0,2}(:\s+|=\s*)(.*)$/.exec(line);
+      if (m) {
+        return '<span class="k">' + esc(m[1]) + '</span>' + esc(m[2]) +
+               '<span class="s">' + esc(m[3]) + '</span>';
+      }
+      return esc(line);
+    }).join('\n');
+  }
+
   function renderConfig() {
     var k = findKey(configKeyRef);
     if (!k) return;
     var meta = currentModelMeta(k);
     var text = buildConfig(k, configTool);
-    document.getElementById('config-pre').innerHTML = esc(text)
-      .replace(/(#[^\n]*|\/\/[^\n]*)/g, '<span class="c">$1</span>')
-      .replace(/([A-Z_]+)=/g, '<span class="k">$1</span>=')
-      .replace(/(= ?)([^\n<]+)/g, '$1<span class="s">$2</span>');
+    document.getElementById('config-pre').innerHTML = highlightConfig(text);
 
     document.getElementById('config-note').textContent = meta && meta.ctx
       ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
