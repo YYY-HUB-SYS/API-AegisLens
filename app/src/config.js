@@ -4,7 +4,7 @@ const { execSync } = require('node:child_process');
 
 const dataDir = process.env.AKM_DATA_DIR
   ? path.resolve(process.env.AKM_DATA_DIR)
-  : path.join(__dirname, '..', 'data');
+  : path.join(os.homedir(), '.api-aegislens');
 
 const port = Number(process.env.AKM_PORT || 37700);
 
