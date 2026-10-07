@@ -385,6 +385,8 @@
   .form-grid .span2 { grid-column: span 2; }
   .btn-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
   .name-err { font-size: var(--fs-sm); color: var(--danger); min-height: 18px; margin-bottom: 6px; }
+  .name-err.inline { min-height: 0; margin: 3px 0 0; }
+  .name-err.inline:empty { display: none; }
 
   .seg { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
   .seg button {
@@ -508,7 +510,7 @@
   <main class="board first-paint" id="board"></main>
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
-    <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型目录、生成配置。</p>
+    <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p>
     <button class="btn primary" data-act="empty-add">+ 新增密钥</button>
   </div>
 
@@ -543,11 +545,12 @@
       <div class="field span2">
         <label for="f-key">API Key <span class="hint">必填 · 加密存储</span></label>
         <input id="f-key" type="text" class="mono" placeholder="sk-..." autocomplete="off" spellcheck="false">
+        <div class="name-err inline" id="key-err"></div>
       </div>
       <div class="field span2">
         <div class="ep-head">
-          <label style="margin:0">Base URL <span class="hint">同一 Key 可配多个兼容端点（如 OpenAI / Anthropic 兼容）</span></label>
-          <button type="button" class="btn ghost small" id="btn-add-ep" title="最多 6 个地址">+ 添加地址</button>
+          <label style="margin:0">端点 <span class="hint">同一 Key 可配多个兼容端点（如 OpenAI / Anthropic 兼容）</span></label>
+          <button type="button" class="btn ghost small" id="btn-add-ep" title="最多 6 个端点">+ 添加端点</button>
         </div>
         <div id="endpoints-box"></div>
       </div>
@@ -556,7 +559,7 @@
         <option value="anthropic">Anthropic 兼容</option>
       </datalist>
       <div class="field">
-        <label for="f-model">默认模型 <span class="hint">可稍后在模型目录中设置</span></label>
+        <label for="f-model">默认模型 <span class="hint">可稍后在「模型清单」里设置</span></label>
         <input id="f-model" type="text" class="mono" placeholder="deepseek-chat" spellcheck="false">
       </div>
       <div class="field">
@@ -875,7 +878,7 @@
     if (filteredKeys.length === 0) {
       if (state.keys.length === 0) {
         document.getElementById('empty').style.display = '';
-        document.getElementById('empty').innerHTML = '<h3>还没有任何密钥</h3><p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型目录、生成配置。</p><button class="btn primary" data-act="empty-add">+ 新增密钥</button>';
+        document.getElementById('empty').innerHTML = '<h3>还没有任何密钥</h3><p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p><button class="btn primary" data-act="empty-add">+ 新增密钥</button>';
       } else {
         document.getElementById('empty').style.display = '';
         document.getElementById('empty').innerHTML = '<h3>没有匹配的密钥</h3><p>当前筛选条件下没有密钥，试试切换其他标签。</p>';
@@ -987,7 +990,7 @@
     var head =
       '<div class="drawer-inner">' +
         '<div class="drawer-toolbar">' +
-          '<span class="drawer-title">模型目录</span>' +
+          '<span class="drawer-title">模型清单</span>' +
           '<span class="meta">来源：平台接口 / 元数据库 / 联网检索 / 手动补充</span>' +
           '<span style="flex:1"></span>' +
           enrichBtn +
@@ -997,10 +1000,10 @@
     var body;
     if (ui.modelsLoading[k.id]) {
       body = '<p class="meta"><span class="spin" style="vertical-align:-2px"></span> 正在调用平台接口拉取，并联网补全缺失参数…</p>';
-    } else if (!k.modelsFetched) {
-      body = '<p class="meta" style="margin-bottom:0.6rem">尚未拉取。点击右上「拉取模型」自动获取平台模型列表；缺失的上下文 / 最大输出会自动联网检索补全。</p>';
     } else if (!models.length) {
-      body = '<p class="meta" style="margin-bottom:0.6rem">平台未返回任何模型，可在下方手动添加。</p>';
+      body = k.modelsFetched
+        ? '<p class="meta" style="margin-bottom:0.6rem">平台未返回任何模型，可在下方手动添加。</p>'
+        : '<p class="meta" style="margin-bottom:0.6rem">尚未拉取。点击右上「拉取模型」自动获取平台模型列表；缺失的上下文 / 最大输出会自动联网检索补全。</p>';
     } else {
       body = '<div class="model-list">' + models.map(function (m) { return renderModelRow(k, m); }).join('') + '</div>';
     }
@@ -1382,6 +1385,7 @@
   var fExp = document.getElementById('f-exp');
   var fAuthNote = document.getElementById('f-authnote');
   var nameErr = document.getElementById('name-err');
+  var keyErr = document.getElementById('key-err');
   var btnFormSave = document.getElementById('btn-form-save');
   var endpointsBox = document.getElementById('endpoints-box');
   var btnAddEp = document.getElementById('btn-add-ep');
@@ -1429,12 +1433,12 @@
   function syncEpButtons() {
     var n = endpointsBox.querySelectorAll('.ep-row').length;
     btnAddEp.disabled = n >= MAX_EPS;
-    btnAddEp.title = n >= MAX_EPS ? '最多支持 ' + MAX_EPS + ' 个地址' : '添加地址（最多 ' + MAX_EPS + ' 个）';
+    btnAddEp.title = n >= MAX_EPS ? '最多支持 ' + MAX_EPS + ' 个端点' : '添加端点（最多 ' + MAX_EPS + ' 个）';
   }
 
   btnAddEp.addEventListener('click', function () {
     if (endpointsBox.querySelectorAll('.ep-row').length >= MAX_EPS) {
-      toast('最多支持 ' + MAX_EPS + ' 个 Base URL', 'warn');
+      toast('最多支持 ' + MAX_EPS + ' 个端点', 'warn');
       return;
     }
     addEpRow('', '');
@@ -1454,6 +1458,7 @@
     document.getElementById('form-title').textContent = k ? '编辑密钥' : '新增密钥';
     btnFormSave.textContent = k ? '保存修改' : '新增';
     nameErr.textContent = '';
+    keyErr.textContent = '';
     fPlatform.value = k ? k.platform : 'deepseek';
     document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
     fCustomName.value = k && k.platform === 'custom' ? k.customName : '';
@@ -1492,7 +1497,8 @@
 
   btnFormSave.addEventListener('click', function () {
     nameErr.textContent = '';
-    if (!fKey.value.trim()) { nameErr.textContent = 'API Key 为必填项'; fKey.focus(); return; }
+    keyErr.textContent = '';
+    if (!fKey.value.trim()) { keyErr.textContent = 'API Key 为必填项'; fKey.focus(); return; }
     var body = {
       platform: fPlatform.value,
       customName: fCustomName.value.trim(),

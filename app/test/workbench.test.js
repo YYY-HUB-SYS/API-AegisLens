@@ -307,3 +307,25 @@ test('卡片脚注合并成一行，端点命名统一且按钮不再单字', ()
   assert.ok(!html.includes('data-act="ep-test" data-idx="\' + i + \'" title="只测这条端点">测<'), '单字「测」应已替换');
   assert.ok(html.includes('statCell('), '统计数字应走统一渲染，0 不染色');
 });
+
+test('表单校验：Key 的必填报错必须贴着 Key 输入框，不在按钮旁', () => {
+  const html = readHomepage();
+  const field = html.slice(html.indexOf('<div class="field span2">'), html.indexOf('id="endpoints-box"'));
+  assert.ok(field.includes('id="key-err"'), 'key-err 应在 API Key 那个 field 内部');
+  assert.ok(field.indexOf('id="f-key"') < field.indexOf('id="key-err"'), '错误位应排在输入框之后');
+  assert.ok(html.includes("keyErr.textContent = 'API Key 为必填项'"),
+    '必填报错要写进就近槽，而不是弹窗底部那个通用的 name-err');
+  assert.ok(html.includes(".name-err.inline:empty { display: none; }"),
+    '就近槽空着时不能占位，否则表单凭空多一行空隙');
+});
+
+test('手动添加的模型必须立刻出现在清单里，不被"尚未拉取"盖住', () => {
+  const html = readHomepage();
+  const at = html.indexOf('} else if (!models.length) {');
+  assert.ok(at > -1, '应存在模型清单分支');
+  const seg = html.slice(at, at + 320);
+  assert.ok(seg.includes('k.modelsFetched'), '空状态要按 modelsFetched 分两种文案');
+  const before = html.slice(0, at);
+  assert.ok(!/else if \(!k\.modelsFetched\) \{/.test(before.slice(before.indexOf('function renderDrawer'))),
+    '不能再有"只看 modelsFetched 就出空状态"的分支，那会藏掉手动添加的模型');
+});
