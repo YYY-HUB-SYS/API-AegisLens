@@ -73,7 +73,7 @@ add key → test connectivity → fetch models → generate config → record wh
 | ⏳ | Expiry tracking | Due within 30 days / expired, detected automatically and flagged on the board |
 | 🌐 | Proxy autodetection | Unreachable relays go through the system / environment proxy (CONNECT tunnel) |
 | 📝 | Special auth notes | Per-key auth notes, pre-filled for platforms that need a custom header (e.g. Xiaohongshu Dots uses `api-key`) |
-| 🧩 | Zero dependencies | Standard library only; the UI is a single file with no CDN and no external fonts |
+| 🧩 | Zero dependencies | Standard library only, no `npm install`; the UI is a single file with no CDN. The only binary shipped in the repo is a local vendored monospace font subset (OFL licensed, see `app/public/vendor/fonts/CREDITS.md`) |
 
 ---
 
@@ -155,6 +155,7 @@ We would rather list them here than let them surprise you.
 - **Balance APIs cover three providers** — DeepSeek / Moonshot·Kimi / Zhipu. SiliconFlow's `/v1/user/info` was retired upstream on 2026-08-14 (410), so it is not listed
 - **Custom compatibility modes cannot be auto-tested** — when an endpoint style is neither `openai` nor `anthropic`, connectivity testing and model fetching ask you to handle it manually
 - **Online lookup is a guess** — the same model name has different limits at different providers, which is why platform-reported values win; anything resolved online stays labelled `web`
+- **The export `type` is validated in the UI only** — the interface rejects foreign files, but `POST /api/import` looks at `keys` alone. This is deliberate: the front end never forwards `type`, so a mandatory backend check would break the app's own import, and a "check it only if present" rule stops nothing that a omitted field couldn't bypass. Closing it properly takes a change on both sides
 - **`index.html` is read into memory at startup** — editing the front end requires a service restart to take effect
 
 ---

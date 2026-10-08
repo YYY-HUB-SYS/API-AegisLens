@@ -3,6 +3,10 @@ const path = require('node:path');
 const { encryptField, decryptField } = require('./crypto');
 const { inferStyle } = require('./adapters');
 
+/* 按字段来源与能力位：JSON 后端直接挂在模型对象上，SQLite 后端存进 models.extra 一列。
+   两边合并补丁时都按这张表逐字段处理，漏一处就会静默丢字段。 */
+const MODEL_EXTRA = ['ctxSrc', 'outSrc', 'conflict', 'outGtCtx', 'reasoning', 'modalitiesIn', 'rpm'];
+
 function nowIso() { return new Date().toISOString(); }
 
 function normEps(platform, eps) {
@@ -199,7 +203,7 @@ function makeJsonStore(dataDir, masterKey) {
         hit = { id: m.id, ctx: null, out: null, src: m.src || 'manual', note: null };
         d.models.push(hit);
       }
-      ['ctx', 'out', 'src', 'note'].forEach(function (f) {
+      ['ctx', 'out', 'src', 'note'].concat(MODEL_EXTRA).forEach(function (f) {
         if (m[f] !== undefined) hit[f] = m[f];
       });
       d.updatedAt = nowIso();
@@ -220,7 +224,7 @@ function makeJsonStore(dataDir, masterKey) {
           hit = { id: m.id, ctx: null, out: null, src: m.src || 'manual', note: null };
           d.models.push(hit);
         }
-        ['ctx', 'out', 'src', 'note'].forEach(function (f) {
+        ['ctx', 'out', 'src', 'note'].concat(MODEL_EXTRA).forEach(function (f) {
           if (m[f] !== undefined) hit[f] = m[f];
         });
       });
@@ -293,6 +297,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  out INTEGER,',
     '  src TEXT DEFAULT \'meta\',',
     '  note TEXT,',
+    '  extra TEXT,',
     '  PRIMARY KEY (key_id, id)',
     ');',
     'CREATE TABLE IF NOT EXISTS assigned (',
@@ -307,6 +312,9 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   try {
     db.exec('ALTER TABLE keys ADD COLUMN auth_note TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
+  try {
+    db.exec('ALTER TABLE models ADD COLUMN extra TEXT');
+  } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
 
   const stmt = {
     selectAll: db.prepare('SELECT * FROM keys ORDER BY id'),
@@ -318,21 +326,47 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     setModelsFetched: db.prepare('UPDATE keys SET models_fetched = 1 WHERE id = ?'),
     touch: db.prepare('UPDATE keys SET updated_at = ? WHERE id = ?'),
     delKey: db.prepare('DELETE FROM keys WHERE id = ?'),
-    selModels: db.prepare('SELECT id, ctx, out, src, note FROM models WHERE key_id = ? ORDER BY rowid'),
+    selModels: db.prepare('SELECT id, ctx, out, src, note, extra FROM models WHERE key_id = ? ORDER BY rowid'),
     delModels: db.prepare('DELETE FROM models WHERE key_id = ?'),
-    insModel: db.prepare('INSERT INTO models (key_id, id, ctx, out, src, note) VALUES (?, ?, ?, ?, ?, ?)'),
-    selModel: db.prepare('SELECT id, ctx, out, src, note FROM models WHERE key_id = ? AND id = ?'),
-    updModel: db.prepare('UPDATE models SET ctx = ?, out = ?, src = ?, note = ? WHERE key_id = ? AND id = ?'),
+    insModel: db.prepare('INSERT INTO models (key_id, id, ctx, out, src, note, extra) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    selModel: db.prepare('SELECT id, ctx, out, src, note, extra FROM models WHERE key_id = ? AND id = ?'),
+    updModel: db.prepare('UPDATE models SET ctx = ?, out = ?, src = ?, note = ?, extra = ? WHERE key_id = ? AND id = ?'),
     selAssigned: db.prepare('SELECT tool FROM assigned WHERE key_id = ? ORDER BY rowid'),
     insAssigned: db.prepare('INSERT OR IGNORE INTO assigned (key_id, tool) VALUES (?, ?)'),
     delAssigned: db.prepare('DELETE FROM assigned WHERE key_id = ? AND tool = ?'),
     delAssignedAll: db.prepare('DELETE FROM assigned WHERE key_id = ?')
   };
 
-  function loadModels(id) {
-    return stmt.selModels.all(id).map(function (r) {
-      return { id: r.id, ctx: r.ctx == null ? null : r.ctx, out: r.out == null ? null : r.out, src: r.src || 'api', note: r.note == null ? null : r.note };
+  /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
+  function extraOf(m) {
+    const o = {};
+    MODEL_EXTRA.forEach(function (k) { if (m[k] !== undefined && m[k] !== null) o[k] = m[k]; });
+    return Object.keys(o).length ? JSON.stringify(o) : null;
+  }
+  /* 局部更新时不能整列覆盖：补丁只带 reasoning 也要保住已有的 ctxSrc，所以先解旧值再按 undefined=不动 / null=删除 合并。 */
+  function extraFor(m, prevJson) {
+    const o = {};
+    try {
+      const prev = prevJson ? JSON.parse(prevJson) : null;
+      if (prev && typeof prev === 'object') Object.keys(prev).forEach(function (k) { o[k] = prev[k]; });
+    } catch (e) { /* 旧值损坏则从头写 */ }
+    MODEL_EXTRA.forEach(function (k) {
+      if (m[k] === undefined) return;
+      if (m[k] === null) delete o[k]; else o[k] = m[k];
     });
+    return Object.keys(o).length ? JSON.stringify(o) : null;
+  }
+  function modelFromRow(r) {
+    const base = { id: r.id, ctx: r.ctx == null ? null : r.ctx, out: r.out == null ? null : r.out, src: r.src || 'api', note: r.note == null ? null : r.note };
+    if (!r.extra) return base;
+    try {
+      const o = JSON.parse(r.extra);
+      if (o && typeof o === 'object') Object.keys(o).forEach(function (k) { base[k] = o[k]; });
+    } catch (e) { /* 该列损坏时退回五个基础字段，不整条读不出 */ }
+    return base;
+  }
+  function loadModels(id) {
+    return stmt.selModels.all(id).map(modelFromRow);
   }
   function loadAssigned(id) {
     return stmt.selAssigned.all(id).map(function (r) { return r.tool; });
@@ -456,7 +490,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       stmt.delModels.run(id);
       models.forEach(function (m) {
-        stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'api', m.note == null ? null : m.note);
+        stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'api', m.note == null ? null : m.note, extraOf(m));
       });
       stmt.setModelsFetched.run(id);
       stmt.touch.run(nowIso(), id);
@@ -473,10 +507,11 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
           m.out !== undefined ? (m.out == null ? null : m.out) : hit.out,
           m.src !== undefined ? m.src : hit.src,
           m.note !== undefined ? m.note : hit.note,
+          extraFor(m, hit.extra),
           id, m.id
         );
       } else {
-        stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note);
+        stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note, extraOf(m));
       }
       stmt.touch.run(nowIso(), id);
       return toRec(getRow(id));
@@ -494,10 +529,11 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
               m.out !== undefined ? (m.out == null ? null : m.out) : hit.out,
               m.src !== undefined ? m.src : hit.src,
               m.note !== undefined ? m.note : hit.note,
+              extraFor(m, hit.extra),
               id, m.id
             );
           } else {
-            stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note);
+            stmt.insModel.run(id, m.id, m.ctx == null ? null : m.ctx, m.out == null ? null : m.out, m.src || 'manual', m.note == null ? null : m.note, extraOf(m));
           }
         });
         stmt.touch.run(nowIso(), id);
