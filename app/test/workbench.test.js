@@ -514,13 +514,17 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
   assert.deepEqual(F.fieldSrcs({ ctx: null, out: null, src: 'unknown' }), { ctxSrc: null, outSrc: null },
     '值没取到时不许把 unknown 当作有来源');
 
-  // 3b) 手动保存的旧记录：PATCH 只写 src 不写 ctxSrc，库里留着拉取时的 'api'，
-  //     照 ctxSrc 拆标签会把人手填的值标成平台报的
+  // 3b) src=manual 分两种（PATCH 自 033dd1d 起会把改过的字段写成 manual）：
+  //     两个字段来源都不是 manual = 修复前的存量脏行，只能按整条标签走
   const stale = F.srcChips({ ctx: 4096, out: 2048, src: 'manual', ctxSrc: 'api', outSrc: 'api' });
   assert.ok(stale.includes('手动填写') && !stale.includes('split'),
-    'src=manual 时走聚合标签，不许采用可能过期的按字段来源：' + stale);
-  assert.ok(F.srcChips({ ctx: 4096, out: 2048, src: 'manual', ctxSrc: 'api', outSrc: 'web' })
-    .includes('手动填写'), 'manual 优先于任何按字段来源');
+    '脏行不许采用过期的按字段来源，否则把人手填的值标成平台报的：' + stale);
+  assert.ok(F.srcChips({ ctx: 4096, out: 2048, src: 'manual' }).includes('手动填写'),
+    'POST 新建的手动行没有按字段来源，走 legacy 兜底');
+  //     有一个字段是 manual = 修复后写的，另一个字段的真实来源要照实拆出来
+  const mixed = F.srcChips({ ctx: 4096, out: 2048, src: 'manual', ctxSrc: 'manual', outSrc: 'api' });
+  assert.ok(mixed.includes('上下文 · 手动') && mixed.includes('输出 · 接口'),
+    '只手改 ctx 时，out 仍是平台报的，必须拆成两条而不是整条标成手动填写：' + mixed);
 
   // 4) 能力位：默认态（纯文本 / 无推理数据）不许制造噪声
   assert.strictEqual(F.capChips({ modalitiesIn: ['text'] }), '', '纯文本是默认，不该每行都喊一遍');

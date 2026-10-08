@@ -839,11 +839,15 @@
 
   /* 上下文和最大输出可以来自不同渠道（接口只报上下文、输出靠联网补），
      整条压成一个标签就会谎报另一个字段的出处。旧记录只有整条 src 时按两字段同源理解。
-     src='manual' 例外：手动保存只写 src 不写 ctxSrc/outSrc（见 api.js 的 PATCH 分支），
-     库里留着的是拉取时的 'api'，照它拆就等于把人手填的值标成平台报的。 */
+     src='manual' 要分两种：PATCH 现在会把改过的那个字段写成 manual（033dd1d），所以
+     「ctx 手填、out 仍是平台报的」是合法组合，得照实拆；而 src=manual 却**两个字段都不是
+     manual** 的行，只可能是修复前的存量脏数据（当时只写 src 不写来源），那种按整条标签走，
+     别把人手填的值标成平台报的。 */
   function fieldSrcs(m) {
     if (!m) return { ctxSrc: null, outSrc: null };
-    if (m.src === 'manual') return { ctxSrc: null, outSrc: null };
+    if (m.src === 'manual' && m.ctxSrc !== 'manual' && m.outSrc !== 'manual') {
+      return { ctxSrc: null, outSrc: null };
+    }
     if (m.ctxSrc || m.outSrc) return { ctxSrc: m.ctxSrc || null, outSrc: m.outSrc || null };
     var legacy = (m.src && m.src !== 'unknown') ? m.src : null;
     return { ctxSrc: m.ctx != null ? legacy : null, outSrc: m.out != null ? legacy : null };
