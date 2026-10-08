@@ -137,8 +137,12 @@
   .btn:active { transform: translateY(1px); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); color: var(--on-accent); }
-  .btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
-  .btn.ghost:hover { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+  .btn.ghost { border-color: var(--rule-soft); background: var(--surface-2); color: var(--ink-2); }
+  .btn.ghost:hover { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+  /* 只有删除是破坏性的。原先所有 ghost 悬停都转红，鼠标扫过「测试」「拉模型」
+     也像要删东西，且无边框无底色时它们看着像文本链接而不是按钮。 */
+  .btn.danger { color: var(--danger); }
+  .btn.danger:hover { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
   .btn.small { padding: 3px 10px; font-size: var(--fs-xs); border-radius: var(--r-chip); white-space: nowrap; }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
   .danger-confirm { background: var(--danger) !important; border-color: var(--danger) !important; color: var(--on-danger) !important; }
@@ -155,6 +159,8 @@
   .stat:first-child { border-left: none; padding-left: 0; }
   .stat .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
   .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); }
+  .stat.zero .num { font-size: var(--fs-lg); color: var(--ink-3); }
+  .stat.zero .lbl { color: var(--ink-3); }
 
   .board { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
   .group-title {
@@ -428,6 +434,9 @@
   .filter-bar button:hover { border-color: var(--accent-line); color: var(--accent-ink); }
   .filter-bar button.active { background: var(--ink); border-color: var(--ink); color: var(--bg); }
   .filter-bar .count { font-weight: 400; opacity: 0.75; }
+  .filter-bar button.empty { opacity: 0.5; }
+  .filter-bar button.empty:hover { opacity: 1; }
+  .filter-bar button.empty.active { opacity: 1; }
 
   .config-pre {
     background: var(--code-bg); color: var(--code-ink); border-radius: var(--r-ctl); padding: 14px 16px;
@@ -489,7 +498,7 @@
   @media (max-width: 900px) {
     .form-grid { grid-template-columns: 1fr; }
     .form-grid .span2 { grid-column: span 1; }
-    .kc-actions { margin-left: 0; width: 100%; }
+    .kc-actions { margin-left: 0; }
     .stat { padding: 0 14px; }
     .stat .num { font-size: var(--fs-lg); }
   }
@@ -834,7 +843,8 @@
   /* 0 不染色：染成告警色的零比染成正常色的非零更容易让人误判 */
   function statCell(n, label, color) {
     var c = n > 0 ? ' style="color:' + color + '"' : '';
-    return '<div class="stat"><span class="num"' + c + '>' + n + '</span><span class="lbl">' + label + '</span></div>';
+    return '<div class="stat' + (n > 0 ? '' : ' zero') + '"><span class="num"' + c + '">' + n +
+           '</span><span class="lbl">' + label + '</span></div>';
   }
   function renderStats() {
     var total = state.keys.length;
@@ -872,8 +882,8 @@
       { key: 'exp', label: '过期/停用', count: counts.exp }
     ];
     document.getElementById('filter-bar').innerHTML = tabs.map(function (t) {
-      return '<button data-filter="' + t.key + '"' +
-        (state.filter === t.key ? ' class="active"' : '') + '>' +
+      var cls = (state.filter === t.key ? 'active' : '') + (t.count ? '' : ' empty');
+      return '<button data-filter="' + t.key + '" class="' + cls + '">' +
         esc(t.label) + ' <span class="count">' + t.count + '</span></button>';
     }).join('');
   }
@@ -932,7 +942,7 @@
     var assigned = k.assigned || [];
     var assignedChips =
       '<span class="kc-assigned">' +
-        '<span class="meta">已配置到</span>' +
+        (assigned.length ? '<span class="meta">已配置到</span>' : '') +
         assigned.map(function (t) {
           return '<span class="tool-chip">' + esc(t) +
             '<button class="rm" data-act="rm-assigned" data-tool="' + esc(t) + '" title="移除「' + esc(t) + '" aria-label="移除 ' + esc(t) + '">×</button></span>';
@@ -963,7 +973,7 @@
                 ? '<button class="btn ghost small" disabled><span class="spin"></span> 测试中</button>'
                 : '<button class="btn ghost small" data-act="test" title="调用平台模型列表接口验证密钥可用性">' + (k.test ? '重新测试' : '测试') + '</button>') +
               '<button class="btn ghost small" data-act="edit">编辑</button>' +
-              '<button class="btn ghost small" data-act="del">删除</button>' +
+              '<button class="btn ghost small danger" data-act="del">删除</button>' +
             '</span>' +
           '</div>' +
           '<div class="kc-meta">' +
