@@ -12,7 +12,7 @@ const { createStore } = require('../src/storage');
 
 const FIELDS = {
   id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'api',
-  ctxSrc: 'api', outSrc: 'web', conflict: true, outGtCtx: false,
+  ctxSrc: 'api', outSrc: 'web', conflict: true, outGtCtx: null, // outGtCtx 读取时按 ctx/out 重算，false 不可表示（true 的情形钉在 model-write-path.test.js）
   reasoning: true, modalitiesIn: ['text', 'image'], rpm: 2640, note: null
 };
 

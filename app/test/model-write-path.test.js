@@ -149,3 +149,60 @@ test('API：只改 note 不动数值时，按字段来源原样保留', async ()
     server.close();
   }
 });
+
+/* 告警位挂在记录上、数值另走一份，两者会分家：手改过 ctx 之后，上次拉取留下的
+   「最大输出超过上下文」还在亮着，可屏幕上那两个数字明明是 out < ctx。 */
+['sqlite', 'json'].forEach(function (backend) {
+  test(backend + ' 后端：outGtCtx 按读到的 ctx/out 重算，不吃库里存的旧位', () => {
+    const k = fresh(backend);
+    k.store.replaceModels(k.id, [
+      { id: 'stale', ctx: 1048576, out: 131072, outGtCtx: true, src: 'api' },
+      { id: 'real', ctx: 32768, out: 131072, src: 'api' }
+    ]);
+    const rows = k.store.getKey(k.id).models;
+    assert.strictEqual(rows.find(m => m.id === 'stale').outGtCtx, null, '数值已经反了就不该再亮');
+    assert.strictEqual(rows.find(m => m.id === 'real').outGtCtx, true, '平台真的自相矛盾时该亮');
+  });
+});
+
+test('两个后端都把同 id 的重复行折叠成一条，后到的只补空缺', () => {
+  const read = (backend) => {
+    const k = fresh(backend);
+    k.store.replaceModels(k.id, [
+      { id: 'dup-1', ctx: 262144, out: null, src: 'api', reasoning: null },
+      { id: 'dup-1', ctx: 131072, out: 131072, src: 'api', reasoning: true }
+    ]);
+    const rows = k.store.getKey(k.id).models;
+    return { n: rows.length, row: rows[0] && { ctx: rows[0].ctx, out: rows[0].out, reasoning: rows[0].reasoning } };
+  };
+  const a = read('sqlite');
+  const b = read('json');
+  assert.strictEqual(a.n, 1);
+  assert.deepStrictEqual(a, b, '两个后端对同一批重复行要给出一样的结果');
+  assert.deepStrictEqual(a.row, { ctx: 262144, out: 131072, reasoning: true }, '第一条赢，缺的字段由后一条补上');
+});
+
+/* 真实后果：某些平台的 /models 会把同一个 id 列两次。SQLite 上有 UNIQUE(key_id, id)，
+   第二条插入直接把整次拉取顶成 500，用户一个模型都看不到。 */
+test('API：/models 返回重复 id 时拉取照常成功', async () => {
+  const fetchImpl = () => Promise.resolve(new Response(JSON.stringify({
+    data: [
+      { id: 'dup-1', context_length: 262144 },
+      { id: 'dup-1', max_output_tokens: 131072 }
+    ]
+  }), { status: 200 }));
+  const { server, base } = await startServer(fetchImpl);
+  try {
+    const r0 = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-dup-0001' });
+    const id = r0.data.key.id;
+    const r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    const rows = (r.data.models || []).filter(m => m.id === 'dup-1');
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].ctx, 262144);
+    assert.strictEqual(rows[0].out, 131072);
+    assert.strictEqual(rows[0].outGtCtx, null);
+  } finally {
+    server.close();
+  }
+});

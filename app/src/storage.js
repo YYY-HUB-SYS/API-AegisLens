@@ -28,6 +28,33 @@ function normModel(m) {
   return r;
 }
 
+/* 告警位是数值的函数，不能各存各的：手改过 ctx 之后，上次拉取留下的「最大输出超过上下文」
+   会跟屏幕上正在显示的数字互相打脸。读取时按当前 ctx/out 重算，写入侧不必再管它新不新鲜。 */
+function deriveFlags(m) {
+  if (!m || typeof m !== 'object') return m;
+  m.outGtCtx = (m.ctx != null && m.out != null && m.out > m.ctx) || null;
+  return m;
+}
+
+/* 同一份 /models 响应里出现两次相同 id：SQLite 的 UNIQUE(key_id, id) 会把整次拉取顶成 500，
+   JSON 后端却两条都留下。一个平台的重复条目不该让用户一个模型都看不见 ——
+   留第一条，后面的只用来补第一条缺的字段。 */
+function dedupeById(models) {
+  const kept = [];
+  const byId = {};
+  (models || []).forEach(function (m) {
+    if (!m || typeof m !== 'object' || m.id == null) { kept.push(m); return; }
+    const k = String(m.id);
+    if (!byId[k]) { byId[k] = m; kept.push(m); return; }
+    const first = byId[k];
+    Object.keys(m).forEach(function (f) {
+      if (f === 'id') return;
+      if (first[f] == null && m[f] != null) first[f] = m[f];
+    });
+  });
+  return kept;
+}
+
 function normEps(platform, eps) {
   return (eps || []).map(function (e) {
     e = e || {};
@@ -118,7 +145,7 @@ function makeJsonStore(dataDir, masterKey) {
       balance: doc.balance || emptyBalance(),
       test: doc.test || null,
       modelsFetched: !!doc.modelsFetched,
-      models: doc.models || [],
+      models: (doc.models || []).map(deriveFlags),
       assigned: doc.assigned || [],
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
@@ -201,7 +228,7 @@ function makeJsonStore(dataDir, masterKey) {
     },
 
     replaceModels(id, rawModels) {
-      const models = (rawModels || []).map(normModel);
+      const models = dedupeById((rawModels || []).map(normModel));
       const d = find(id);
       if (!d) return null;
       d.models = models;
@@ -233,7 +260,7 @@ function makeJsonStore(dataDir, masterKey) {
     },
 
     upsertModels(id, rawModels) {
-      const models = (rawModels || []).map(normModel);
+      const models = dedupeById((rawModels || []).map(normModel));
       const d = find(id);
       if (!d) return null;
       d.models = d.models || [];
@@ -388,7 +415,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     return base;
   }
   function loadModels(id) {
-    return stmt.selModels.all(id).map(modelFromRow);
+    return stmt.selModels.all(id).map(modelFromRow).map(deriveFlags);
   }
   function loadAssigned(id) {
     return stmt.selAssigned.all(id).map(function (r) { return r.tool; });
@@ -508,7 +535,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     },
 
     replaceModels(id, rawModels) {
-      const models = (rawModels || []).map(normModel);
+      const models = dedupeById((rawModels || []).map(normModel));
       const cur = getRow(id);
       if (!cur) return null;
       stmt.delModels.run(id);
@@ -542,7 +569,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     },
 
     upsertModels(id, rawModels) {
-      const models = (rawModels || []).map(normModel);
+      const models = dedupeById((rawModels || []).map(normModel));
       const cur = getRow(id);
       if (!cur) return null;
       try {
