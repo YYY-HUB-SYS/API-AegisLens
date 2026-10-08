@@ -539,6 +539,11 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
   assert.ok(F.warnChips({ conflict: true }).includes('接口与内置表不一致'));
   assert.ok(F.warnChips({ outGtCtx: true }).includes('输出上限大于上下文'));
   assert.strictEqual(F.warnChips({ conflict: false, outGtCtx: false }), '');
+  // 5b) 结论必须在可见文案里，不能只活在 title —— 这两颗是非聚焦 span，键盘和触屏碰不到 title
+  const seen = (h) => h.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
+  assert.ok(/取接口值/.test(seen(F.warnChips({ conflict: true }))),
+    '「已采用哪个值」是看到不一致后的第一个问题，只写在 title 里等于对一半用户不存在');
+  assert.ok(/疑含思考链/.test(seen(F.warnChips({ outGtCtx: true }))), 'outGtCtx 的成因要可见，不能只靠悬停');
 
   // 6) 出口真的接进 DOM：三个函数都必须在 renderModelRow 里被调用
   const row = html.slice(html.indexOf('function renderModelRow'), html.indexOf('function manualSection'));

@@ -890,11 +890,13 @@
     return out.join('');
   }
 
-  /* 两个不一致标记是数据问题，必须显眼且说明后果，不能混进普通能力位 */
+  /* 两个不一致标记是数据问题，必须显眼且说明后果，不能混进普通能力位。
+     结论（取哪个值、为什么会这样）要写在可见文案里：这两颗是非聚焦的 span，
+     键盘和触屏都碰不到 title，只写在那儿等于对一半用户不存在。 */
   function warnChips(m) {
     var out = [];
-    if (m.conflict) out.push('<span class="m-warn" title="平台接口报的数值与内置表不一致，已采用接口值">接口与内置表不一致</span>');
-    if (m.outGtCtx) out.push('<span class="m-warn" title="平台报的最大输出大于上下文，数值多半有一侧含思考链">输出上限大于上下文</span>');
+    if (m.conflict) out.push('<span class="m-warn" title="平台接口报的数值与内置表不一致，已采用接口值">接口与内置表不一致 · 取接口值</span>');
+    if (m.outGtCtx) out.push('<span class="m-warn" title="平台报的最大输出大于上下文，数值多半有一侧含思考链">输出上限大于上下文 · 疑含思考链</span>');
     return out.join('');
   }
   function maskKey(k) {
