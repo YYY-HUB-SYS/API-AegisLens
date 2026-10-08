@@ -487,3 +487,67 @@ test('代码面与图标：浅色主题下不许再贴一块深色终端，图�
   assert.ok(/function eyeIcon\(revealed\)/.test(html) && /aria-label="' \+ \(revealed \? '隐藏明文'/.test(html),
     'SVG 图标要 aria-hidden 且按钮自带 aria-label');
 });
+
+test('模型能力位与按字段来源：七个已持久化字段都要有出口，且不许挤坏数值行', () => {
+  const html = readHomepage();
+  const at = html.indexOf('var SRC_LABEL');
+  const src = html.slice(at, html.indexOf('function maskKey', at));
+  assert.ok(at > -1 && src.length > 1200, '应能截到来源/能力位这一整段助手函数');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const F = new Function('esc', src + '; return { fieldSrcs: fieldSrcs, srcChips: srcChips, capChips: capChips, warnChips: warnChips };')(esc);
+
+  // 1) 同一字段的两个来源不同 -> 必须拆成两条，不能压成一个「平台接口」
+  const split = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'api', outSrc: 'web', src: 'api' });
+  assert.ok(split.includes('上下文 · 接口') && split.includes('输出 · 联网'),
+    'ctxSrc=api / outSrc=web 时要把两个出处分别标出来，实得：' + split);
+  assert.ok(split.includes('m-tag api split') && split.includes('m-tag web split'), '拆分标签要各自带来源色');
+
+  // 2) 两字段同源 -> 只留一条聚合标签，别每行挂两个重复标签
+  const same = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'api', outSrc: 'api', src: 'api' });
+  assert.strictEqual((same.match(/class="m-tag/g) || []).length, 1, '同源时只有一条标签：' + same);
+  assert.ok(same.includes('平台接口') && !same.includes('split'));
+
+  // 3) 旧记录只有整条 src，没有 ctxSrc/outSrc -> 按同源理解，不许退化成「参数未取到」
+  assert.deepEqual(F.fieldSrcs({ ctx: 8, out: 8, src: 'web' }), { ctxSrc: 'web', outSrc: 'web' });
+  assert.ok(F.srcChips({ ctx: 8, out: 8, src: 'web' }).includes('联网检索'));
+  assert.deepEqual(F.fieldSrcs({ ctx: null, out: null, src: 'unknown' }), { ctxSrc: null, outSrc: null },
+    '值没取到时不许把 unknown 当作有来源');
+
+  // 3b) 手动保存的旧记录：PATCH 只写 src 不写 ctxSrc，库里留着拉取时的 'api'，
+  //     照 ctxSrc 拆标签会把人手填的值标成平台报的
+  const stale = F.srcChips({ ctx: 4096, out: 2048, src: 'manual', ctxSrc: 'api', outSrc: 'api' });
+  assert.ok(stale.includes('手动填写') && !stale.includes('split'),
+    'src=manual 时走聚合标签，不许采用可能过期的按字段来源：' + stale);
+  assert.ok(F.srcChips({ ctx: 4096, out: 2048, src: 'manual', ctxSrc: 'api', outSrc: 'web' })
+    .includes('手动填写'), 'manual 优先于任何按字段来源');
+
+  // 4) 能力位：默认态（纯文本 / 无推理数据）不许制造噪声
+  assert.strictEqual(F.capChips({ modalitiesIn: ['text'] }), '', '纯文本是默认，不该每行都喊一遍');
+  assert.ok(F.capChips({ reasoning: true }).includes('支持推理'));
+  assert.ok(F.capChips({ reasoning: false }).includes('不支持推理') && F.capChips({ reasoning: false }).includes('off'));
+  assert.ok(F.capChips({ modalitiesIn: ['text', 'image'] }).includes('输入含 图片'));
+  assert.ok(F.capChips({ modalitiesIn: ['text', 'pdf'] }).includes('pdf'), '未登记的模态要原样吐出来');
+  assert.ok(F.capChips({ rpm: 180 }).includes('180 次/分钟'));
+  assert.strictEqual(F.capChips({ rpm: 0 }), '', '0 次/分钟不是限速信息');
+
+  // 5) 两个不一致标记走告警色，而不是混进普通能力位
+  assert.ok(F.warnChips({ conflict: true }).includes('接口与内置表不一致'));
+  assert.ok(F.warnChips({ outGtCtx: true }).includes('输出上限大于上下文'));
+  assert.strictEqual(F.warnChips({ conflict: false, outGtCtx: false }), '');
+
+  // 6) 出口真的接进 DOM：三个函数都必须在 renderModelRow 里被调用
+  const row = html.slice(html.indexOf('function renderModelRow'), html.indexOf('function manualSection'));
+  for (const name of ['srcChips(m)', 'capChips(m)', 'warnChips(m)']) {
+    assert.ok(row.includes(name), 'renderModelRow 没调用 ' + name);
+  }
+  for (const f of ['ctxSrc', 'outSrc', 'conflict', 'outGtCtx', 'reasoning', 'modalitiesIn', 'rpm']) {
+    assert.ok(src.includes('m.' + f), '字段 ' + f + ' 在渲染层没有任何读取');
+  }
+
+  // 7) 收缩压力只许落在模型 ID 上：数值胶囊整颗换行，不许被压扁（C 线 P0 的同一个坑）
+  assert.ok(/\.model-item \.param:not\(\.mid-param\) \{ flex-shrink: 0/.test(html),
+    '数值胶囊必须 flex-shrink:0，否则能力位一多就轮到"上下文 1024K"被挤掉字');
+  assert.ok(/\.m-extra\s*\{[^}]*flex-wrap:\s*wrap/.test(html), '.m-extra 要能整体换行');
+  assert.ok(/\.m-cap\s*\{[^}]*border:/.test(html), '能力位用描边而不是实心底色，避免和来源标签抢层级');
+});

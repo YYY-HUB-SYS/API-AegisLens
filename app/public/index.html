@@ -102,6 +102,9 @@
     --code-ink: #E8EAF4; --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* 打开抽屉会让页面刚好超出视口，滚动条一出现整块看板就窄 15px。
+     预留槽位，卡片宽度不随抽屉开关跳动。 */
+  html { scrollbar-gutter: stable; }
   body {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     background: var(--bg); color: var(--ink);
@@ -284,6 +287,22 @@
   .m-tag.unknown {
     color: var(--ink-3); background: transparent; border: 1px dashed var(--ink-3);
     border-radius: var(--r-chip); padding: 1px 6px;
+  }
+  /* 上下文与输出分属两个渠道时，两条并列而不是合成一条 */
+  .m-tag.split { border: 1px solid currentColor; padding: 1px 6px; }
+  .m-extra { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  /* 数值胶囊只许整颗换行、不许被压扁：收缩压力全落在模型 ID 那一颗上 */
+  .model-item .param:not(.mid-param) { flex-shrink: 0; }
+  .m-cap {
+    font-size: var(--fs-xs); font-weight: 700; color: var(--ink-2);
+    border: 1px solid var(--rule); border-radius: var(--r-chip); padding: 1px 7px;
+  }
+  .m-cap.off { color: var(--ink-3); border-style: dashed; }
+  .m-cap.num { font-family: var(--mono); }
+  .m-warn {
+    font-size: var(--fs-xs); font-weight: 700; color: var(--warn);
+    background: var(--warn-soft); border: 1px solid var(--warn-line);
+    border-radius: var(--r-chip); padding: 1px 7px; cursor: help;
   }
   .supp-edit { width: 100%; display: flex; gap: 7px; margin-top: 7px; align-items: center; }
   .supp-edit input {
@@ -504,6 +523,15 @@
     .kc-actions { margin-left: 0; }
     .stat { padding: 0 14px; }
     .stat .num { font-size: var(--fs-lg); }
+  }
+  /* 420 一档：URL 与三个动作按钮同处一行时，连 15px 的滚动条都能把它压掉一个字符。
+     这里让 URL 独占第一行，标签与兼容模式走第二行，动作组右对齐走第三行，按钮本身仍不换行。 */
+  @media (max-width: 560px) {
+    .param.url { row-gap: 4px; }
+    .param.url .val { flex: 1 1 100%; order: 1; }
+    .param.url .lbl2 { order: 2; }
+    .param.url .ep-style-tag { order: 3; }
+    .param.url .ep-acts { order: 4; flex: 1 1 100%; justify-content: flex-end; margin-left: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -802,6 +830,69 @@
     manual: '手动填写', builtin: '官方目录', unknown: '参数未取到'
   };
   var SRC_CLS = { api: ' api', web: ' web', builtin: ' builtin', unknown: ' unknown' };
+  /* 按字段拆来源时标签要短，否则一行塞不下两条 */
+  var SRC_SPLIT_LABEL = {
+    api: '接口', meta: '内置表', web: '联网', manual: '手动',
+    builtin: '官方目录', unknown: '未取到'
+  };
+  var MODALITY_LABEL = { text: '文本', image: '图片', audio: '音频', video: '视频', file: '文件' };
+
+  /* 上下文和最大输出可以来自不同渠道（接口只报上下文、输出靠联网补），
+     整条压成一个标签就会谎报另一个字段的出处。旧记录只有整条 src 时按两字段同源理解。
+     src='manual' 例外：手动保存只写 src 不写 ctxSrc/outSrc（见 api.js 的 PATCH 分支），
+     库里留着的是拉取时的 'api'，照它拆就等于把人手填的值标成平台报的。 */
+  function fieldSrcs(m) {
+    if (!m) return { ctxSrc: null, outSrc: null };
+    if (m.src === 'manual') return { ctxSrc: null, outSrc: null };
+    if (m.ctxSrc || m.outSrc) return { ctxSrc: m.ctxSrc || null, outSrc: m.outSrc || null };
+    var legacy = (m.src && m.src !== 'unknown') ? m.src : null;
+    return { ctxSrc: m.ctx != null ? legacy : null, outSrc: m.out != null ? legacy : null };
+  }
+
+  function srcChips(m) {
+    var fs = fieldSrcs(m);
+    if (fs.ctxSrc && fs.outSrc && fs.ctxSrc !== fs.outSrc) {
+      function one(field, src) {
+        var label = Object.prototype.hasOwnProperty.call(SRC_SPLIT_LABEL, src)
+          ? SRC_SPLIT_LABEL[src] : String(src);
+        var cls = (Object.prototype.hasOwnProperty.call(SRC_CLS, src) && SRC_CLS[src]) || '';
+        return '<span class="m-tag' + cls + ' split">' + field + ' · ' + esc(label) + '</span>';
+      }
+      return one('上下文', fs.ctxSrc) + one('输出', fs.outSrc);
+    }
+    var hasSrc = Object.prototype.hasOwnProperty.call(SRC_LABEL, m.src);
+    var srcLabel = hasSrc ? SRC_LABEL[m.src]
+      : '未识别来源 ' + (m.src == null || m.src === '' ? '（空）' : m.src);
+    var srcCls = (Object.prototype.hasOwnProperty.call(SRC_CLS, m.src) && SRC_CLS[m.src]) || '';
+    return '<span class="m-tag' + srcCls + '">' + srcLabel + '</span>';
+  }
+
+  /* 能力位只在"有得说"时出现：纯文本输入是默认，不必每行都喊一遍 */
+  function capChips(m) {
+    var out = [];
+    if (m.reasoning === true) out.push('<span class="m-cap">支持推理</span>');
+    else if (m.reasoning === false) out.push('<span class="m-cap off">不支持推理</span>');
+    var extra = Array.isArray(m.modalitiesIn)
+      ? m.modalitiesIn.filter(function (x) { return x !== 'text'; })
+      : [];
+    if (extra.length) {
+      out.push('<span class="m-cap">输入含 ' + esc(extra.map(function (x) {
+        return Object.prototype.hasOwnProperty.call(MODALITY_LABEL, x) ? MODALITY_LABEL[x] : String(x);
+      }).join(' / ')) + '</span>');
+    }
+    if (typeof m.rpm === 'number' && m.rpm > 0) {
+      out.push('<span class="m-cap num">' + esc(String(m.rpm)) + ' 次/分钟</span>');
+    }
+    return out.join('');
+  }
+
+  /* 两个不一致标记是数据问题，必须显眼且说明后果，不能混进普通能力位 */
+  function warnChips(m) {
+    var out = [];
+    if (m.conflict) out.push('<span class="m-warn" title="平台接口报的数值与内置表不一致，已采用接口值">接口与内置表不一致</span>');
+    if (m.outGtCtx) out.push('<span class="m-warn" title="平台报的最大输出大于上下文，数值多半有一侧含思考链">输出上限大于上下文</span>');
+    return out.join('');
+  }
   function maskKey(k) {
     if (!k || k.length <= 8) return k || '';
     return k.slice(0, 3) + '••••••••••••' + k.slice(-4);
@@ -1096,15 +1187,13 @@
           '<button class="btn small" data-act="cancel-supp">取消</button>' +
         '</div>';
     }
-    var hasSrc = Object.prototype.hasOwnProperty.call(SRC_LABEL, m.src);
-    var srcLabel = hasSrc ? SRC_LABEL[m.src]
-      : '未识别来源 ' + (m.src == null || m.src === '' ? '（空）' : m.src);
-    var srcCls = (Object.prototype.hasOwnProperty.call(SRC_CLS, m.src) && SRC_CLS[m.src]) || '';
+    var extraRow = capChips(m) + warnChips(m);
     return (
       '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
         '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
         ctxChip + outChip +
-        '<span class="m-tag' + srcCls + '">' + srcLabel + '</span>' +
+        srcChips(m) +
+        (extraRow ? '<div class="m-extra">' + extraRow + '</div>' : '') +
         noteChip +
         suppBtn +
         '<button class="btn ghost small" data-act="note-model" data-model="' + esc(m.id) + '">' + (m.note ? '编辑备注' : '备注') + '</button>' +
