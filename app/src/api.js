@@ -1,6 +1,7 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
-const { vaultMode, unlockDek, enablePassphrase, changePassphrase } = require('./crypto');
+const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret } = require('./crypto');
+const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
 
@@ -258,20 +259,70 @@ async function routeApi(req, res, ctx) {
   }
 
   /* 设完口令后当前会话仍可用（DEK 已在手），但开机即锁要等重启才生效——
-     不写成 restartRequired 就是骗用户「现在就安全了」 */
+     不写成 restartRequired 就是骗用户「现在就安全了」。
+     首次设口令同时发恢复信封：恢复码不落盘，这一次显示就是用户唯一的抄录机会 */
   if (req.method === 'POST' && path === '/api/vault/passphrase') {
     const b = await readBody(req);
     const hasVault = vaultMode(storage.dataDir) === 'envelope';
+    let recoveryCode = null;
     try {
-      if (hasVault) changePassphrase(storage.dataDir, str(b.current), str(b.next));
-      else enablePassphrase(storage.dataDir, str(b.next));
+      if (hasVault) {
+        changePassphrase(storage.dataDir, str(b.current), str(b.next));
+      } else {
+        const dek = loadOrCreateMasterKey(storage.dataDir);
+        enablePassphraseWith(storage.dataDir, dek, str(b.next));
+        recoveryCode = createRecoveryEnvelope(storage.dataDir, dek, createRecoveryKey()).display;
+      }
     } catch (e) {
       vault.audit.push({ kind: 'passphrase', status: 'fail', detail: String(e.message).slice(0, 60) });
       const st = /解锁口令不正确/.test(String(e.message)) ? 403 : 400;
       return json(res, st, { error: e.message });
     }
     vault.audit.push({ kind: 'passphrase', status: 'ok', detail: hasVault ? 'changed' : 'set' });
-    return json(res, 200, { ok: true, result: hasVault ? 'changed' : 'set', restartRequired: true });
+    return json(res, 200, {
+      ok: true,
+      result: hasVault ? 'changed' : 'set',
+      restartRequired: true,
+      recoveryCode: recoveryCode
+    });
+  }
+
+  /* 忘口令的出口：恢复码解出 DEK → 用新口令重新封装 → 旧恢复码当场作废换新的。
+     全程在锁定态可用（否则这条路就没意义），并复用解锁那一档限流 */
+  if (req.method === 'POST' && path === '/api/vault/recover') {
+    const b = await readBody(req);
+    const gateKey = 'unlock:' + clientIp(req);
+    const gate = throttle.unlock.check(gateKey);
+    if (!gate.allowed) {
+      vault.audit.push({ kind: 'recover', status: 'denied', detail: 'throttled' });
+      return json(res, 429, { error: '恢复尝试过于频繁，请稍后再试', retryAfterMs: gate.retryAfterMs });
+    }
+    let env;
+    try {
+      env = readRecoveryEnvelope(storage.dataDir);
+    } catch (e) {
+      return json(res, 500, { error: e.message });
+    }
+    if (!env) {
+      return json(res, 409, { error: '本机没有恢复信封，无法用恢复码重置口令' });
+    }
+    let dek;
+    let recoveryCodeOut = null;
+    try {
+      dek = openRecoveryEnvelope(env, str(b.recoveryCode));
+      enablePassphraseWith(storage.dataDir, dek, str(b.next));
+      const rotated = rotateRecoveryEnvelope(storage.dataDir, dek);
+      recoveryCodeOut = formatRecoveryKey(rotated.key);
+    } catch (e) {
+      if (dek) zeroSecret(dek);
+      throttle.unlock.failed(gateKey);
+      vault.audit.push({ kind: 'recover', status: 'fail', detail: String(e.message).slice(0, 60) });
+      return json(res, 400, { error: e.message });
+    }
+    vault.attach(dek, 'envelope');
+    throttle.unlock.passed(gateKey);
+    vault.audit.push({ kind: 'recover', status: 'ok', detail: 'code' });
+    return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: true });
   }
 
   /* 明文唯一出口。审计只记 id，绝不记口令本身 */

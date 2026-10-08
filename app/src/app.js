@@ -50,6 +50,11 @@ function createApp(opts) {
     credential: createThrottle({ maxFails: 20 })
   };
 
+  /* 闲置自动锁的驱动。不 unref 的话测试里 createApp 之后进程会挂住不退出；
+     免密模式下 lockIfIdle 恒为 false，这个定时器留着不做事也无害 */
+  const idleTimer = setInterval(function () { vault.lockIfIdle(); }, opts.idleLockTickMs || 30000);
+  if (idleTimer.unref) idleTimer.unref();
+
   /* 命中应用自带的静态资产返回 true（已自行应答） */
   function serveAppAsset(req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;

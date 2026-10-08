@@ -32,7 +32,8 @@ function harness(opts) {
       return Promise.resolve(new Response('{"error":"invalid"}', { status: 401 }));
     },
     vault: vault,
-    throttle: throttle
+    throttle: throttle,
+    idleLockTickMs: o.idleTickMs
   });
   return { dir: dir, mk: mk, storage: storage, vault: vault, throttle: throttle, server: server };
 }
@@ -330,5 +331,82 @@ test('凭证链路在锁定态一律 423，且列表响应里没有半个密文'
       assert.strictEqual(JSON.stringify(r.data).indexOf('enc:v1'), -1);
       assert.strictEqual(JSON.stringify(r.data).indexOf('pw-value-1'), -1);
     }
+  } finally { await close(h); }
+});
+
+test('设口令同时发恢复码：52 字符分组显示、信封落盘、换口令不再重复发', async () => {
+  const h = harness();
+  const base = await serve(h);
+  try {
+    const set = await call(base, 'POST', '/api/vault/passphrase', { next: 'correct-pass-1' });
+    assert.strictEqual(set.status, 200);
+    assert.strictEqual(typeof set.data.recoveryCode, 'string', '首次设口令必须给出恢复码');
+    assert.strictEqual(set.data.recoveryCode.replace(/[\s-]/g, '').length, 52, '256 位 = 52 个 base32 字符');
+    assert.strictEqual(set.data.recoveryCode.split(' ')[0].length, 5, '按 5 字符一组分组');
+    assert.ok(fs.existsSync(path.join(h.dir, 'recovery.env')), '恢复信封要落盘');
+    assert.ok(fs.readFileSync(path.join(h.dir, 'recovery.env'), 'utf8').startsWith('rec:v1:'));
+    assert.strictEqual(JSON.stringify(set.data.recoveryCode).indexOf('enc:v1'), -1);
+
+    const chg = await call(base, 'POST', '/api/vault/passphrase', { current: 'correct-pass-1', next: 'brand-new-pass' });
+    assert.strictEqual(chg.status, 200);
+    assert.strictEqual(chg.data.recoveryCode, null, '换口令不该顺手把恢复码再念一遍');
+  } finally { await close(h); }
+});
+
+test('忘口令用恢复码重置：旧口令作废、恢复码当场轮换、会话直接接上', async () => {
+  const h = harness({ locked: true });
+  const base = await serve(h);
+  try {
+    const set = await call(base, 'POST', '/api/vault/passphrase', { next: 'correct-pass-1' });
+    const code = set.data.recoveryCode;
+    h.vault.lock();
+
+    const rec = await call(base, 'POST', '/api/vault/recover', { recoveryCode: code, next: 'second-pass-9' });
+    assert.strictEqual(rec.status, 200, JSON.stringify(rec.data));
+    assert.strictEqual(rec.data.unlocked, true, '恢复成功就该是解锁状态，不能还要求再解一次');
+    assert.ok(rec.data.recoveryCode && rec.data.recoveryCode !== code, '恢复码必须轮换，旧码当场失效');
+
+    h.vault.lock();
+    const oldPw = await call(base, 'POST', '/api/vault/unlock', { passphrase: 'correct-pass-1' });
+    assert.strictEqual(oldPw.status, 400, '旧口令应当已经解不开');
+    const newPw = await call(base, 'POST', '/api/vault/unlock', { passphrase: 'second-pass-9' });
+    assert.strictEqual(newPw.status, 200);
+
+    h.vault.lock();
+    const oldCode = await call(base, 'POST', '/api/vault/recover', { recoveryCode: code, next: 'third-pass-11' });
+    assert.strictEqual(oldCode.status, 400);
+    assert.match(oldCode.data.error, /恢复码不正确/);
+  } finally { await close(h); }
+});
+
+test('恢复路径：没有信封给 409，错码打到上限后连正确码也要冷却', async () => {
+  const h = harness({ locked: true, unlockMaxFails: 2 });
+  const base = await serve(h);
+  const wrong = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+  try {
+    const none = await call(base, 'POST', '/api/vault/recover', { recoveryCode: wrong, next: 'whatever-1' });
+    assert.strictEqual(none.status, 409);
+    assert.match(none.data.error, /没有恢复信封/);
+
+    const set = await call(base, 'POST', '/api/vault/passphrase', { next: 'correct-pass-1' });
+    h.vault.lock();
+    assert.strictEqual((await call(base, 'POST', '/api/vault/recover', { recoveryCode: wrong, next: 'whatever-1' })).status, 400);
+    assert.strictEqual((await call(base, 'POST', '/api/vault/recover', { recoveryCode: wrong, next: 'whatever-1' })).status, 400);
+    const gated = await call(base, 'POST', '/api/vault/recover', { recoveryCode: set.data.recoveryCode, next: 'whatever-1' });
+    assert.strictEqual(gated.status, 429, '错码到上限后，正确恢复码也要先冷却');
+    assert.ok(gated.data.retryAfterMs > 0);
+  } finally { await close(h); }
+});
+
+test('闲置自动锁真的会自己锁上（定时器驱动，不靠请求带动）', async () => {
+  const h = harness({ locked: true, idleLockMs: 150, idleTickMs: 30 });
+  const base = await serve(h);
+  try {
+    h.vault.attach(require('node:crypto').randomBytes(32), 'envelope');
+    assert.strictEqual(h.vault.isUnlocked(), true);
+    await new Promise(function (r) { setTimeout(r, 400); });
+    assert.strictEqual(h.vault.isUnlocked(), false, '没人操作到点就该锁');
+    const denied = await call(base, 'GET', '/api/credentials');
+    assert.strictEqual(denied.status, 423);
   } finally { await close(h); }
 });
