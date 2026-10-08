@@ -51,13 +51,15 @@ function createVaultSession(opts) {
   const idleLockMs = numOr(o.idleLockMs, DEFAULT_IDLE_LOCK_MS);
   const audit = o.audit || createAuditSink({ now: now, maxEntries: o.auditMax });
   let dek = null;
+  let open = false;
   let mode = null;
   let lastSeenAt = 0;
 
   function detach(evtStatus, evtDetail) {
-    const was = dek !== null;
+    const was = open;
     if (dek) dek.fill(0);
     dek = null;
+    open = false;
     mode = null;
     if (was) audit.push({ kind: 'lock', status: evtStatus, detail: evtDetail });
     return was;
@@ -65,31 +67,44 @@ function createVaultSession(opts) {
 
   return {
     audit: audit,
-    isUnlocked: function () { return dek !== null; },
+    isUnlocked: function () { return open; },
     mode: function () { return mode; },
-    unlockedSince: function () { return dek ? lastSeenAt : null; },
+    unlockedSince: function () { return open ? lastSeenAt : null; },
+    /* 免密老安装走这条路：会话是开着的，但这里不持有 DEK——加解密能力在 store 里，
+       闸门只负责「要不要放明文出去」。 */
+    openLegacy: function () {
+      if (open && mode === 'legacy') return false;
+      detach('ok', 'replaced');
+      open = true;
+      mode = 'legacy';
+      lastSeenAt = now();
+      audit.push({ kind: 'unlock', status: 'ok', detail: 'legacy' });
+      return true;
+    },
     attach: function (nextDek, nextMode) {
       if (!Buffer.isBuffer(nextDek) || nextDek.length !== 32) throw vaultError('DEK 形状不对', 500);
       detach('ok', 'replaced');
       dek = nextDek;
-      mode = nextMode || 'legacy';
+      open = true;
+      mode = nextMode || 'envelope';
       lastSeenAt = now();
       audit.push({ kind: 'unlock', status: 'ok', detail: mode });
     },
     lock: function () { return detach('ok', 'manual'); },
     /* 任何一次取密钥都算「人还在用」，顺带把闲置计时推后 */
     key: function () {
-      if (!dek) throw vaultError('保险库未解锁', 423);
+      if (!dek) throw vaultError(open ? '免密模式不持有会话 DEK，明文请直接经存储层取' : '保险库未解锁', 423);
       lastSeenAt = now();
       return dek;
     },
     lockIfIdle: function () {
-      if (!dek) return false;
+      /* 免密模式没有「解锁」这回事，也就无从自动锁——锁了就只能重启，用户会以为数据丢了 */
+      if (!open || mode === 'legacy') return false;
       if (now() - lastSeenAt < idleLockMs) return false;
       return detach('ok', 'idle');
     },
     idleRemaining: function () {
-      if (!dek) return 0;
+      if (!open || mode === 'legacy') return 0;
       return Math.max(0, idleLockMs - (now() - lastSeenAt));
     }
   };

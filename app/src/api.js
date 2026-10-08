@@ -1,5 +1,6 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
+const { vaultMode, unlockDek, enablePassphrase, changePassphrase } = require('./crypto');
 
 function bad(status, message) {
   const e = new Error(message);
@@ -84,6 +85,12 @@ function poolWithKeys(storage, pool) {
     .map(function (id) { return storage.getKey(id); })
     .filter(Boolean);
   return rec;
+}
+
+/* 限流按来源地址分桶。服务只绑 127.0.0.1 时这里恒为回环地址，
+   将来放开局域网监听时它就是每设备一桶，不需要再改一遍。 */
+function clientIp(req) {
+  return (req.socket && req.socket.remoteAddress) || 'unknown';
 }
 
 function authNoteOf(v) {
@@ -183,6 +190,8 @@ async function routeApi(req, res, ctx) {
   const path = url.pathname;
   const storage = ctx.storage;
   const fetchImpl = ctx.fetchImpl;
+  const vault = ctx.vault;
+  const throttle = ctx.throttle;
   let m = null;
 
   const requireKey = function (id) {
@@ -202,6 +211,87 @@ async function routeApi(req, res, ctx) {
       dataDir: storage.dataDir,
       shadowStore: storage.shadowStore || null
     });
+  }
+
+  /* ── 保险库会话 ──
+     免密老安装永远 unlocked（openLegacy），设了口令之后才是真闸门。
+     这一层只挡「明文出不出得去」，解密能力一直在 store 里，不假装它是加密边界。 */
+  if (req.method === 'GET' && path === '/api/vault/status') {
+    return json(res, 200, {
+      unlocked: vault.isUnlocked(),
+      mode: vault.mode(),
+      passphraseSet: vaultMode(storage.dataDir) === 'envelope',
+      idleRemainingMs: vault.idleRemaining(),
+      recent: vault.audit.list().slice(-8)
+    });
+  }
+
+  if (req.method === 'POST' && path === '/api/vault/unlock') {
+    const gateKey = 'unlock:' + clientIp(req);
+    const gate = throttle.unlock.check(gateKey);
+    if (!gate.allowed) {
+      vault.audit.push({ kind: 'unlock', status: 'denied', detail: 'throttled' });
+      return json(res, 429, { error: '解锁尝试过于频繁，请稍后再试', retryAfterMs: gate.retryAfterMs });
+    }
+    /* 已经开着就不二次校验：否则界面上任何一次误点都会消耗一次失败额度 */
+    if (vault.isUnlocked()) return json(res, 200, { unlocked: true, mode: vault.mode() });
+    const b = await readBody(req);
+    let opened;
+    try {
+      opened = unlockDek(storage.dataDir, str(b.passphrase));
+    } catch (e) {
+      throttle.unlock.failed(gateKey);
+      vault.audit.push({ kind: 'unlock', status: 'fail', detail: String(e.message).slice(0, 60) });
+      return json(res, 400, { error: e.message });
+    }
+    vault.attach(opened.dek, opened.mode);
+    throttle.unlock.passed(gateKey);
+    return json(res, 200, { unlocked: true, mode: opened.mode });
+  }
+
+  if (req.method === 'POST' && path === '/api/vault/lock') {
+    return json(res, 200, { locked: true, wasUnlocked: vault.lock() });
+  }
+
+  /* 设完口令后当前会话仍可用（DEK 已在手），但开机即锁要等重启才生效——
+     不写成 restartRequired 就是骗用户「现在就安全了」 */
+  if (req.method === 'POST' && path === '/api/vault/passphrase') {
+    const b = await readBody(req);
+    const hasVault = vaultMode(storage.dataDir) === 'envelope';
+    try {
+      if (hasVault) changePassphrase(storage.dataDir, str(b.current), str(b.next));
+      else enablePassphrase(storage.dataDir, str(b.next));
+    } catch (e) {
+      vault.audit.push({ kind: 'passphrase', status: 'fail', detail: String(e.message).slice(0, 60) });
+      const st = /解锁口令不正确/.test(String(e.message)) ? 403 : 400;
+      return json(res, st, { error: e.message });
+    }
+    vault.audit.push({ kind: 'passphrase', status: 'ok', detail: hasVault ? 'changed' : 'set' });
+    return json(res, 200, { ok: true, result: hasVault ? 'changed' : 'set', restartRequired: true });
+  }
+
+  /* 明文唯一出口。审计只记 id，绝不记口令本身 */
+  if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/reveal$/.exec(path))) {
+    const gateKey = 'reveal:' + clientIp(req);
+    const gate = throttle.reveal.check(gateKey);
+    if (!gate.allowed) {
+      vault.audit.push({ kind: 'reveal', target: m[1], status: 'denied', detail: 'throttled' });
+      return json(res, 429, { error: '取用过于频繁，请稍后再试', retryAfterMs: gate.retryAfterMs });
+    }
+    if (!vault.isUnlocked()) {
+      throttle.reveal.failed(gateKey);
+      vault.audit.push({ kind: 'reveal', target: m[1], status: 'denied', detail: 'locked' });
+      return json(res, 423, { error: '保险库未解锁' });
+    }
+    const k = storage.getKey(Number(m[1]));
+    if (!k) {
+      throttle.reveal.failed(gateKey);
+      vault.audit.push({ kind: 'reveal', target: m[1], status: 'fail', detail: 'not-found' });
+      return json(res, 404, { error: '密钥不存在' });
+    }
+    throttle.reveal.passed(gateKey);
+    vault.audit.push({ kind: 'reveal', target: k.id, status: 'ok' });
+    return json(res, 200, { key: k.key, name: k.name, platform: k.platform });
   }
 
   if (req.method === 'GET' && path === '/api/keys') {

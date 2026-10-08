@@ -2,6 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { apiRouter } = require('./api');
+const { createVaultSession, createThrottle } = require('./vault');
 
 /* 只放行这几种后缀：不在表里的扩展名一律 404，避免 /vendor/ 变成任意文件读取口 */
 const VENDOR_TYPES = {
@@ -29,6 +30,15 @@ function createApp(opts) {
   const version = opts.version || '0.0.0';
   const publicDir = opts.publicDir;
   const vendorRoot = path.resolve(publicDir, 'vendor');
+
+  /* 没显式注入会话时按「免密老安装」开：现有安装的行为一字不改，
+     设过口令之后由 server.js 注入一个锁着的会话 */
+  const vault = opts.vault || createVaultSession({ idleLockMs: opts.idleLockMs });
+  if (!opts.vault) vault.openLegacy();
+  const throttle = opts.throttle || {
+    unlock: createThrottle({ maxFails: 5 }),
+    reveal: createThrottle({ maxFails: 30 })
+  };
 
   let indexHtml = null;
   try {
@@ -101,7 +111,9 @@ function createApp(opts) {
         storage: storage,
         fetchImpl: fetchImpl,
         version: version,
-        scheduler: opts.scheduler || null
+        scheduler: opts.scheduler || null,
+        vault: vault,
+        throttle: throttle
       });
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

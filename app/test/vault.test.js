@@ -168,3 +168,39 @@ test('凭证视图连密文都不给，只给有没有存过的布尔', () => {
   assert.ok(JSON.stringify(view).indexOf('enc:v1') === -1);
   assert.strictEqual(cred.passwordEnc, enc, '不得改写入参');
 });
+
+test('免密模式：会话开着但不持有 DEK，key() 明确拒而不是给空 Buffer', () => {
+  const s = vault.createVaultSession({ now: clock().now });
+  assert.strictEqual(s.openLegacy(), true);
+  assert.strictEqual(s.isUnlocked(), true);
+  assert.strictEqual(s.mode(), 'legacy');
+  assert.throws(() => s.key(), err => err.httpStatus === 423 && /免密模式/.test(err.message));
+  assert.strictEqual(s.openLegacy(), false, '重复 open 不该再记一条解锁');
+  assert.deepStrictEqual(s.audit.list().map(r => r.kind), ['unlock']);
+  assert.strictEqual(s.audit.list()[0].detail, 'legacy');
+});
+
+test('免密模式没有闲置锁：锁了就只能重启，用户会以为数据没了', () => {
+  const c = clock(0);
+  const s = vault.createVaultSession({ now: c.now, idleLockMs: 10 });
+  s.openLegacy();
+  c.advance(999999);
+  assert.strictEqual(s.idleRemaining(), 0);
+  assert.strictEqual(s.lockIfIdle(), false);
+  assert.strictEqual(s.isUnlocked(), true);
+  assert.strictEqual(s.lock(), true, '手动锁还是给的，免密下再 unlock 不需要口令');
+});
+
+test('legacy 切到 envelope：先落 lock 再落 unlock，闲置窗口才开始计时', () => {
+  const c = clock(0);
+  const s = vault.createVaultSession({ now: c.now, idleLockMs: 50 });
+  s.openLegacy();
+  s.attach(freshDek(), 'envelope');
+  assert.deepStrictEqual(
+    s.audit.list().map(r => r.kind + ':' + r.detail),
+    ['unlock:legacy', 'lock:replaced', 'unlock:envelope']
+  );
+  assert.strictEqual(s.idleRemaining(), 50);
+  c.advance(50);
+  assert.strictEqual(s.lockIfIdle(), true);
+});
