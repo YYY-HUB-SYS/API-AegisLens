@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-133%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-417%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/listens-on%20127.0.0.1%20only-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -64,7 +64,8 @@ add key → test connectivity → fetch models → generate config → record wh
 
 | | Capability | In one line |
 |---|---|---|
-| 🔐 | Encrypted storage | Only the key field is AES-256-GCM encrypted; every other field is plaintext, and the master key sits next to the data |
+| 🔐 | Encrypted storage | Only the secret fields are AES-256-GCM encrypted at rest; an optional unlock passphrase wraps the master key with a scrypt-derived key |
+| 🗝️ | Credential vault | Website logins, TOTP secrets (live codes), API keys and notes, field-level encrypted the same way, with a generator and reuse/weak-password checks |
 | 🧪 | Connectivity testing | Per endpoint, with latency and the exact failure reason on the card |
 | 🛰 | Model catalog | Automatic fetch plus a four-level fallback; Volcengine Ark Agent Plan ships with the official catalog |
 | 🔌 | Multiple endpoints | Up to 6 base URLs per key (OpenAI / Anthropic / custom compatibility mode) |
@@ -91,11 +92,15 @@ flowchart LR
 ```
 
 > [!IMPORTANT]
-> **There is no authentication in this app** — it is designed to run on your own machine.
-> The service binds to `127.0.0.1` and write requests are checked for same origin, but **any local process
-> can read the decrypted keys**. Exposing it through nginx to a LAN or the public internet means everyone
-> who can reach that address sees every key in plaintext. For remote use, take an SSH tunnel
-> (see the [deployment guide](./DEPLOYMENT_EN.md)).
+> **Threat model: other processes on this machine are out of scope.**
+> The service binds to `127.0.0.1`, and list endpoints **return only the last 4 characters** of a key;
+> plaintext comes out of exactly one route, `POST /api/keys/:id/reveal`, gated by the session, rate-limited
+> and audited. But **the default install is passphrase-free**: until you set an unlock passphrase, any local
+> process running as you can still reveal keys one by one. Once a passphrase is set, every credential route
+> answers `423` until you unlock. Key metadata (name, platform, endpoints, masked tail) stays visible even
+> while locked — it is what the page needs to render the cards, and it is not secret material.
+> Exposing it through nginx to a LAN or the public internet means everyone who can reach that address sees
+> this data. For remote use, take an SSH tunnel (see the [deployment guide](./DEPLOYMENT_EN.md)).
 
 ---
 
@@ -126,7 +131,7 @@ npm test
 Coverage: encryption, storage (both backends plus shadow-store detection), API integration and validation,
 platform adapters (catalog, balance domain matching, special auth), proxy and start scripts, frontend
 templates and modal behaviour. The exact count moves with the code — **trust the command output**.
-Measured on this fork on 2026-10-07 with Node v24.14.0: `tests 133 / pass 133 / fail 0`.
+Measured on this fork on 2026-10-09 with Node v24.14.0: `tests 417 / pass 417 / fail 0`.
 
 ---
 
@@ -150,8 +155,11 @@ Measured on this fork on 2026-10-07 with Node v24.14.0: `tests 133 / pass 133 / 
 
 We would rather list them here than let them surprise you.
 
-- **The master key lives next to the data** — whoever holds the whole `~/.api-aegislens` directory holds plaintext keys. Treat backups at that sensitivity level
-- **Exported JSON is plaintext** — the export file contains unencrypted keys; delete it once used. For routine backups, copy the data directory instead
+- **Without a passphrase, local processes can still reveal keys one by one** — the gate is open by default; lists show only the last 4 characters, but `reveal` needs no credential. Setting a passphrase is what closes this
+- **The DEK still sits next to the data by default** — a passphrase only wraps it. To reach "copying the directory gets you nothing", discard `master.key` from the UI (irreversible, and it is only allowed after a passphrase-verified unwrap succeeds)
+- **A forgotten passphrase means the recovery code is the only way out** — it is shown once when you set the passphrase and never stored. Lose both and the vault is permanently unreadable; there is no backdoor
+- **No KeePass (KDBX) import** — KDBX4 needs a full variant-KDF and HMAC-block implementation, outside the zero-dependency scope. Credentials also have **no** import path from other password managers; only this tool's own export format is accepted
+- **Exported JSON has no plaintext keys by default** — you must explicitly tick "include plaintext keys (at your own risk)", which reveals them one by one. For routine backups, copy the data directory instead
 - **Balance APIs cover three providers** — DeepSeek / Moonshot·Kimi / Zhipu. SiliconFlow's `/v1/user/info` was retired upstream on 2026-08-14 (410), so it is not listed
 - **Custom compatibility modes cannot be auto-tested** — when an endpoint style is neither `openai` nor `anthropic`, connectivity testing and model fetching ask you to handle it manually
 - **Online lookup is a guess** — the same model name has different limits at different providers, which is why platform-reported values win; anything resolved online stays labelled `web`
