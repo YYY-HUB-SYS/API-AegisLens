@@ -339,9 +339,13 @@ test('品牌：标识与主色对齐 logo，且内联版与 vendor 版几何一�
   assert.ok(fs.existsSync(brand), 'vendor 里要有独立可用的标识文件');
   const svg = fs.readFileSync(brand, 'utf8');
 
+  // 必须限定在 logo 那一段里取：全文第一个 d="..." 会被图标 sprite 抢先命中，
+  // 那样比的是「i-activity 的路径」和「vendor 标识」，断言的名字和内容就对不上了
+  const logoBlock = (html.match(/<svg class="logo"[\s\S]*?<\/svg>/) || [])[0];
+  assert.ok(logoBlock, '找不到顶栏内联标识 <svg class="logo">');
   const dOf = s => (s.match(/d="([^"]+)"/) || [])[1];
-  assert.ok(dOf(html) && dOf(svg), '两处都该有 path d');
-  assert.strictEqual(dOf(html), dOf(svg),
+  assert.ok(dOf(logoBlock) && dOf(svg), '两处都该有 path d');
+  assert.strictEqual(dOf(logoBlock), dOf(svg),
     '顶栏内联标识与 vendor 文件的路径数据必须一致，否则会各自漂移');
 
   assert.ok(html.includes('<svg class="logo"'), '顶栏应内联 SVG 标识');
@@ -564,15 +568,16 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
 test('弹层与提示的键盘/读屏出口：焦点要进得去、出得来、Tab 出不去', () => {
   const html = readHomepage();
 
-  // 1) 四个弹窗都要是可识别的模态，且 aria-labelledby 指向真实存在的 id
+  // 1) 每个弹窗都要是可识别的模态。数量不写死 —— 这条断言归结构，别线加弹窗不该让它红
   const overlays = [...html.matchAll(/<div class="modal"([^>]*)>/g)].map(m => m[1]);
-  assert.strictEqual(overlays.length, 4, '应有 4 个 .modal 面板，实得 ' + overlays.length);
-  overlays.forEach(attrs => {
-    assert.ok(/role="dialog"/.test(attrs), '缺 role=dialog：' + attrs);
-    assert.ok(/aria-modal="true"/.test(attrs), '缺 aria-modal');
-    assert.ok(/tabindex="-1"/.test(attrs), '面板要能被程序化聚焦');
+  assert.ok(overlays.length >= 4, '至少要有 4 个 .modal 面板，实得 ' + overlays.length);
+  const ids = [...html.matchAll(/id="([^"]+)"/g)].map(m => m[1]);
+  overlays.forEach((attrs, i) => {
+    assert.ok(/role="dialog"/.test(attrs), '第 ' + (i + 1) + ' 个弹窗缺 role=dialog');
+    assert.ok(/aria-modal="true"/.test(attrs), '第 ' + (i + 1) + ' 个弹窗缺 aria-modal');
+    assert.ok(/tabindex="-1"/.test(attrs), '第 ' + (i + 1) + ' 个弹窗缺 tabindex=-1，无法程序化聚焦');
     const id = (attrs.match(/aria-labelledby="([^"]+)"/) || [])[1];
-    assert.ok(id && new RegExp('id="' + id + '"').test(html), 'aria-labelledby 指向了不存在的 id：' + id);
+    assert.ok(id && ids.includes(id), '第 ' + (i + 1) + ' 个弹窗的 aria-labelledby 指向了不存在的 id：' + id);
   });
 
   // 2) 提示条要有活区，否则「已复制」「测试失败」对读屏完全静默
@@ -609,4 +614,31 @@ test('默认模型那一行要一眼认得出：实色描边 + 状态徽标，�
   assert.ok(!/disabled[^>]*>当前默认/.test(html),
     '「当前默认」是状态不是按钮，渲染成 disabled 会被读成"点不动的按钮"而不是"这行是默认"');
   assert.ok(/<span class="m-default">当前默认<\/span>/.test(html), '要用 span 徽标');
+});
+
+test('图标 sprite：每个 ic() 引用都要有对应 symbol，许可证随仓且不许外链', () => {
+  const html = readHomepage();
+  const vendor = path.join(__dirname, '..', 'public', 'vendor', 'icons');
+  assert.ok(fs.existsSync(path.join(vendor, 'LICENSE-ISC.txt')), 'Lucide 的 ISC 许可证必须随仓');
+  assert.ok(fs.existsSync(path.join(vendor, 'CREDITS.md')), '要写明来源仓库、commit SHA 与命名替换');
+
+  const symbols = new Set([...html.matchAll(/<symbol id="i-([a-z0-9-]+)"/g)].map(m => m[1]));
+  assert.ok(symbols.size >= 30, 'sprite 应已内联，实得 ' + symbols.size + ' 个 symbol');
+  // 取 ic() 里所有字面量名，三元形式（ic(dark ? 'moon' : 'sun')）也要算进来
+  const used = [...new Set([...html.matchAll(/\bic\(([^)]*)\)/g)]
+    .flatMap(call => [...call[1].matchAll(/'([a-z0-9-]+)'/g)].map(q => q[1])))];
+  assert.ok(used.length >= 6, '至少要有 6 个图标名在被引用，实得 ' + used.length + '：' + used.join(','));
+  const missing = used.filter(n => !symbols.has(n));
+  assert.deepStrictEqual(missing, [], '这些 ic() 名字没有对应 symbol，会静默画成空白：' + missing.join(', '));
+
+  // 呈现属性必须由引用处给：display:none 的容器不往 <use> 实例传递
+  assert.ok(/function ic\(name, size\)/.test(html) && /\.ic\s*\{/.test(html), '要有统一的 ic() 与 .ic 样式');
+  const icBody = html.slice(html.indexOf('function ic(name, size)'), html.indexOf('function eyeIcon'));
+  for (const attr of ['stroke="currentColor"', 'fill="none"', 'stroke-width="1.5"', 'aria-hidden="true"']) {
+    assert.ok(icBody.includes(attr), 'ic() 必须自带 ' + attr + '，否则图标不显示或读屏会念');
+  }
+  assert.ok(!/<use[^>]+href="https?:/.test(html) && !/url\(https?:[^)]*\.svg/.test(html),
+    '图标不许外链，必须内联或走本地 /vendor/');
+  // 被当图标用的 Unicode/emoji 不能回来
+  assert.ok(!/[\u2600\u263E\u25A4\u25A6]/.test(html), '☀☾▤ 已由 sprite 取代，不许退回 Unicode');
 });
