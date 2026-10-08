@@ -108,6 +108,62 @@ function emptyBalance(status) {
   return { value: null, status: status || 'pending', updatedAt: null };
 }
 
+/* ================= 观测历史 =================
+   密钥记录上只留最近一次（d.test 被整条覆盖），延迟趋势、余额走势因此无数据可画。
+   每次真实观测另存一行；pending / unsupported 是能力位与重置标记而不是观测结果，
+   进表只会把曲线钉在零点上。两个后端共用这套行结构，字段名一律 camelCase。 */
+const HISTORY_MAX_PER_KEY = 1000;
+const HISTORY_DEFAULT_LIMIT = 200;
+const HISTORY_DETAIL_MAX = 200;
+
+function historyLimit(v) {
+  if (v === undefined || v === null || v === '') return HISTORY_DEFAULT_LIMIT;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 1) return HISTORY_DEFAULT_LIMIT;
+  return Math.min(Math.floor(n), HISTORY_MAX_PER_KEY);
+}
+
+function detailOf(v) {
+  const s = String(v == null ? '' : v).trim();
+  return s ? s.slice(0, HISTORY_DETAIL_MAX) : null;
+}
+
+/* 通过的测试每次都是同一句「密钥可用」，只有失败原因值得留下 */
+function testHistoryOf(test) {
+  const t = test || {};
+  return {
+    kind: 'test',
+    status: t.status,
+    latency: t.latency,
+    detail: t.status === 'pass' ? null : (t.msg || t.code)
+  };
+}
+
+function balanceHistoryOf(balance) {
+  const b = balance || {};
+  if (b.status === 'pending' || b.status === 'unsupported') return null;
+  return {
+    kind: 'balance',
+    status: b.status,
+    value: b.value,
+    detail: b.status === 'ok' ? null : (b.msg || b.code)
+  };
+}
+
+function historyRow(seq, keyId, at, entry) {
+  const e = entry || {};
+  return {
+    id: seq,
+    keyId: keyId,
+    at: at,
+    kind: e.kind == null ? null : String(e.kind),
+    status: e.status == null ? null : String(e.status),
+    latency: Number.isFinite(e.latency) ? Math.round(e.latency) : null,
+    value: e.value == null ? null : Number(e.value),
+    detail: detailOf(e.detail)
+  };
+}
+
 /* ================= JSON 文件后端 ================= */
 
 function makeJsonStore(dataDir, masterKey) {
@@ -118,12 +174,32 @@ function makeJsonStore(dataDir, masterKey) {
   } else {
     data = { nextId: 1, keys: [] };
   }
+  /* 老库没有 history 字段：按现有文件里已用过的最大 id 续上，避免重启后新行撞号 */
+  if (!Array.isArray(data.history)) data.history = [];
+  if (typeof data.nextHistoryId !== 'number') {
+    data.nextHistoryId = data.history.reduce(function (max, r) {
+      return Math.max(max, Number(r && r.id) || 0);
+    }, 0) + 1;
+  }
   function persist() {
     const tmp = file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
     fs.renameSync(tmp, file);
   }
   function find(id) { return data.keys.find(function (x) { return x.id === id; }) || null; }
+  function trimHistory(keyId) {
+    let seen = 0;
+    for (let i = data.history.length - 1; i >= 0; i--) {
+      if (data.history[i].keyId !== keyId) continue;
+      if (++seen > HISTORY_MAX_PER_KEY) data.history.splice(i, 1);
+    }
+  }
+  function pushHistory(keyId, entry, at) {
+    const row = historyRow(data.nextHistoryId++, keyId, at, entry);
+    data.history.push(row);
+    trimHistory(keyId);
+    return row;
+  }
   function epsOf(doc) {
     if (Array.isArray(doc.endpoints)) return normEps(doc.platform, doc.endpoints);
     return legacyEps(doc.platform, doc.base || '');
@@ -210,11 +286,14 @@ function makeJsonStore(dataDir, masterKey) {
     saveBalance(id, balance) {
       const d = find(id);
       if (!d) return null;
+      const at = nowIso();
       d.balance = {
         value: balance.value == null ? null : Number(balance.value),
         status: balance.status || 'ok',
-        updatedAt: nowIso()
+        updatedAt: at
       };
+      const entry = balanceHistoryOf(balance);
+      if (entry) pushHistory(id, entry, at);
       persist();
       return toRec(d);
     },
@@ -222,9 +301,27 @@ function makeJsonStore(dataDir, masterKey) {
     saveTest(id, test) {
       const d = find(id);
       if (!d) return null;
-      d.test = Object.assign({ at: nowIso() }, test);
+      const at = nowIso();
+      d.test = Object.assign({ at: at }, test);
+      pushHistory(id, testHistoryOf(test), at);
       persist();
       return toRec(d);
+    },
+
+    appendHistory(id, entry) {
+      if (!find(id)) return null;
+      const at = nowIso();
+      const row = pushHistory(id, entry, at);
+      persist();
+      return Object.assign({}, row);
+    },
+
+    listHistory(id, opts) {
+      const o = opts || {};
+      let rows = data.history.filter(function (r) { return r.keyId === id; });
+      if (o.kind) rows = rows.filter(function (r) { return r.kind === o.kind; });
+      const lim = historyLimit(o.limit);
+      return rows.slice(Math.max(0, rows.length - lim)).map(function (r) { return Object.assign({}, r); });
     },
 
     replaceModels(id, rawModels) {
@@ -306,6 +403,7 @@ function makeJsonStore(dataDir, masterKey) {
       const before = data.keys.length;
       data.keys = data.keys.filter(function (x) { return x.id !== id; });
       if (data.keys.length === before) return false;
+      data.history = data.history.filter(function (r) { return r.keyId !== id; });
       persist();
       return true;
     }
@@ -353,7 +451,18 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  key_id INTEGER NOT NULL,',
     '  tool TEXT NOT NULL,',
     '  PRIMARY KEY (key_id, tool)',
-    ');'
+    ');',
+    'CREATE TABLE IF NOT EXISTS history (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  key_id INTEGER NOT NULL,',
+    '  at TEXT NOT NULL,',
+    '  kind TEXT NOT NULL,',
+    '  status TEXT,',
+    '  latency INTEGER,',
+    '  value REAL,',
+    '  detail TEXT',
+    ');',
+    'CREATE INDEX IF NOT EXISTS history_key_kind ON history (key_id, kind, id);'
   ].join('\n'));
   try {
     db.exec('ALTER TABLE keys ADD COLUMN endpoints_json TEXT');
@@ -383,7 +492,12 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selAssigned: db.prepare('SELECT tool FROM assigned WHERE key_id = ? ORDER BY rowid'),
     insAssigned: db.prepare('INSERT OR IGNORE INTO assigned (key_id, tool) VALUES (?, ?)'),
     delAssigned: db.prepare('DELETE FROM assigned WHERE key_id = ? AND tool = ?'),
-    delAssignedAll: db.prepare('DELETE FROM assigned WHERE key_id = ?')
+    delAssignedAll: db.prepare('DELETE FROM assigned WHERE key_id = ?'),
+    insHistory: db.prepare('INSERT INTO history (key_id, at, kind, status, latency, value, detail) VALUES (?, ?, ?, ?, ?, ?, ?)'),
+    selHistory: db.prepare('SELECT * FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?'),
+    selHistoryKind: db.prepare('SELECT * FROM history WHERE key_id = ? AND kind = ? ORDER BY id DESC LIMIT ?'),
+    trimHistory: db.prepare('DELETE FROM history WHERE key_id = ? AND id NOT IN (SELECT id FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?)'),
+    delHistory: db.prepare('DELETE FROM history WHERE key_id = ?')
   };
 
   /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
@@ -419,6 +533,27 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   }
   function loadAssigned(id) {
     return stmt.selAssigned.all(id).map(function (r) { return r.tool; });
+  }
+  function historyFromRow(r) {
+    return {
+      id: Number(r.id),
+      keyId: Number(r.key_id),
+      at: r.at,
+      kind: r.kind == null ? null : r.kind,
+      status: r.status == null ? null : r.status,
+      latency: r.latency == null ? null : r.latency,
+      value: r.value == null ? null : r.value,
+      detail: r.detail == null ? null : r.detail
+    };
+  }
+  /* 行 id 由 SQLite 的 AUTOINCREMENT 分配，historyRow 里的 seq 只是占位 */
+  function pushHistory(keyId, entry, at) {
+    const shaped = historyRow(0, keyId, at, entry);
+    const r = stmt.insHistory.run(
+      keyId, shaped.at, shaped.kind, shaped.status, shaped.latency, shaped.value, shaped.detail
+    );
+    stmt.trimHistory.run(keyId, keyId, HISTORY_MAX_PER_KEY);
+    return Object.assign(shaped, { id: Number(r.lastInsertRowid) });
   }
   function epsOfRow(row) {
     if (row.endpoints_json) {
@@ -519,19 +654,39 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     saveBalance(id, balance) {
       const cur = getRow(id);
       if (!cur) return null;
+      const at = nowIso();
       stmt.setBalance.run(
         balance.value == null ? null : Number(balance.value),
         balance.status || 'ok',
-        nowIso(), id
+        at, id
       );
+      const entry = balanceHistoryOf(balance);
+      if (entry) pushHistory(id, entry, at);
       return toRec(getRow(id));
     },
 
     saveTest(id, test) {
       const cur = getRow(id);
       if (!cur) return null;
-      stmt.setTest.run(JSON.stringify(Object.assign({ at: nowIso() }, test)), id);
+      const at = nowIso();
+      stmt.setTest.run(JSON.stringify(Object.assign({ at: at }, test)), id);
+      pushHistory(id, testHistoryOf(test), at);
       return toRec(getRow(id));
+    },
+
+    appendHistory(id, entry) {
+      const cur = getRow(id);
+      if (!cur) return null;
+      return pushHistory(id, entry, nowIso());
+    },
+
+    listHistory(id, opts) {
+      const o = opts || {};
+      const lim = historyLimit(o.limit);
+      const rows = o.kind
+        ? stmt.selHistoryKind.all(id, String(o.kind), lim)
+        : stmt.selHistory.all(id, lim);
+      return rows.map(historyFromRow).reverse();
     },
 
     replaceModels(id, rawModels) {
@@ -620,6 +775,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return false;
       stmt.delModels.run(id);
       stmt.delAssignedAll.run(id);
+      stmt.delHistory.run(id);
       stmt.delKey.run(id);
       return true;
     }
