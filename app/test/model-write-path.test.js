@@ -206,3 +206,49 @@ test('API：/models 返回重复 id 时拉取照常成功', async () => {
     server.close();
   }
 });
+
+/* 导入是唯一不过 merge 的写入口：人手带的文件里 src=manual 却两个字段都写着 api，
+   这种组合 PATCH 已经产不出来，照原样收进库就等于把脏行重新造一遍。 */
+test('API：导入把 src=manual 而字段来源全是 api 的行补平，合法混合原样通过', async () => {
+  const { server, base } = await startServer(SOURCED_FETCH);
+  try {
+    const r = await call(base, 'POST', '/api/import', {
+      keys: [{ platform: 'deepseek', key: 'sk-import-dirty-01', name: 'dirty-row', models: [
+        { id: 'legacy-dirty', ctx: 128000, out: 8192, src: 'manual', ctxSrc: 'api', outSrc: 'api' },
+        { id: 'legit-mixed', ctx: 200000, out: 4096, src: 'manual', ctxSrc: 'manual', outSrc: 'api' },
+        { id: 'plain-api', ctx: 65536, out: 4096, src: 'api', ctxSrc: 'api', outSrc: 'api' }
+      ] }]
+    });
+    assert.strictEqual(r.status, 200);
+    const list = await call(base, 'GET', '/api/keys');
+    const key = list.data.keys.find(k => k.name === 'dirty-row');
+    const by = id => key.models.find(m => m.id === id);
+    assert.strictEqual(by('legacy-dirty').ctxSrc, 'manual', '改过哪个字段无从考证，两个都保守记 manual');
+    assert.strictEqual(by('legacy-dirty').outSrc, 'manual');
+    assert.strictEqual(by('legit-mixed').ctxSrc, 'manual');
+    assert.strictEqual(by('legit-mixed').outSrc, 'api', '已经是合法混合的别乱动');
+    assert.strictEqual(by('plain-api').ctxSrc, 'api', 'src 不是 manual 的一律不碰');
+    assert.strictEqual(by('plain-api').outSrc, 'api');
+  } finally {
+    server.close();
+  }
+});
+
+/* 「存量脏行不用迁移」这句的前提：重新拉取会把 manual 行的按字段来源刷成 manual。
+   代价是没被改过的 out 也一起降级成 manual —— 保守方向，不会谎报平台报过。 */
+test('API：手改过的行重新拉取后按字段来源自愈', async () => {
+  const { server, base } = await startServer(SOURCED_FETCH);
+  try {
+    const r0 = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-selfheal-01' });
+    const id = r0.data.key.id;
+    await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    await call(base, 'PATCH', '/api/keys/' + id + '/models/probe-model', { ctx: 123456 });
+    const r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    const m = r.data.models.find(x => x.id === 'probe-model');
+    assert.strictEqual(m.ctx, 123456, '手改的值得活过重新拉取');
+    assert.strictEqual(m.ctxSrc, 'manual');
+    assert.strictEqual(m.outSrc, 'manual', '自愈是整行降级，不是逐字段保住 api');
+  } finally {
+    server.close();
+  }
+});

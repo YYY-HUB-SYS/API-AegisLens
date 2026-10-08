@@ -82,13 +82,24 @@ function authNoteOf(v) {
   return s;
 }
 
-function parseTokens(v, field) {
-  if (v === undefined || v === null || v === '') return undefined;
+function parseTokens(v, field) {  if (v === undefined || v === null || v === '') return undefined;
   const n = Number(v);
   if (!Number.isInteger(n) || n <= 0 || n > 100000000) {
     throw bad(400, field + '必须是正整数（tokens 数量）');
   }
   return n;
+}
+
+/* 导入的是人手带过来的文件，可能带着修复前 PATCH 造出来的组合：src=manual 却两个字段都写着 'api'。
+   这种组合 PATCH 现在产不出来，留在库里只会让前端一直按脏行降级显示。导入时就地补平 ——
+   究竟改过哪个字段已无从考证，宁可少说一个来源，也不谎称那是平台报的。 */
+function sanitizeImportedModel(m) {
+  if (!m || typeof m !== 'object' || m.src !== 'manual') return m;
+  if (m.ctxSrc === 'manual' || m.outSrc === 'manual') return m;
+  const r = Object.assign({}, m);
+  if (r.ctx != null) r.ctxSrc = 'manual';
+  if (r.out != null) r.outSrc = 'manual';
+  return r;
 }
 
 async function enrichUnknowns(models, fetchImpl) {
@@ -452,7 +463,7 @@ async function routeApi(req, res, ctx) {
             : 'unsupported'
         });
         if (Array.isArray(item.models) && item.models.length) {
-          storage.replaceModels(rec.id, item.models);
+          storage.replaceModels(rec.id, item.models.map(sanitizeImportedModel));
         }
         if (Array.isArray(item.assigned) && item.assigned.length) {
           item.assigned.forEach(function (t) {
