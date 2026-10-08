@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>API-AegisLens</title>
+<link rel="icon" type="image/svg+xml" href="/vendor/brand/aegislens-icon.svg">
 <script>
   /* 内联在 style 之前：等主脚本再设就晚了，会先闪一下浅色 */
   (function () {
@@ -40,10 +41,10 @@
     --rule: #DFE2EC;
     --rule-soft: #EDEFF5;
     /* 主色只服务动作与焦点，占比克制 */
-    --accent: #4B3FE3;
-    --accent-ink: #372BB8;
-    --accent-soft: rgba(75, 63, 227, 0.08);
-    --accent-line: rgba(75, 63, 227, 0.30);
+    --accent: #3E3BC8;
+    --accent-ink: #2E2B9B;
+    --accent-soft: rgba(62, 59, 200, 0.08);
+    --accent-line: rgba(62, 59, 200, 0.30);
     /* 语义色：模型参数来源与状态各有其色，不靠灰度表达差异 */
     --api: #0B7A52;
     --api-soft: rgba(11, 122, 82, 0.10);
@@ -63,7 +64,7 @@
     --on-accent: #FFFFFF; --on-danger: #FFFFFF;
     --card-hover-border: #C6CBDD; --card-hover-bg: #FDFDFF;
     --warn-line: rgba(180, 116, 9, 0.28); --warn-line-strong: rgba(180, 116, 9, 0.5);
-    --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(75, 63, 227, 0.16);
+    --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(62, 59, 200, 0.16);
     --overlay-ink: rgba(20, 22, 35, 0.5);
     --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.26);
     --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.28);
@@ -77,8 +78,8 @@
     --bg: #0E1015; --surface: #171A21; --surface-2: #1D212A;
     --ink: #E9ECF4; --ink-2: #A9B1C4; --ink-3: #8D96AB;
     --rule: #2A2F3A; --rule-soft: #232833;
-    --accent: #7C6FF5; --accent-ink: #B4ABFF;
-    --accent-soft: rgba(124, 111, 245, 0.16); --accent-line: rgba(124, 111, 245, 0.42);
+    --accent: #8B85EE; --accent-ink: #B4ABFF;
+    --accent-soft: rgba(139, 133, 238, 0.16); --accent-line: rgba(139, 133, 238, 0.42);
     --api: #3FD9A0; --api-soft: rgba(63, 217, 160, 0.14);
     --web: #7FB2FF; --web-soft: rgba(127, 178, 255, 0.14);
     --warn: #F0B65E; --warn-soft: rgba(240, 182, 94, 0.14);
@@ -86,7 +87,7 @@
     --on-accent: #0B0D12; --on-danger: #1A0A08;
     --card-hover-border: #3A4150; --card-hover-bg: #1B1F28;
     --warn-line: rgba(240, 182, 94, 0.34); --warn-line-strong: rgba(240, 182, 94, 0.6);
-    --warn-line-hover: rgba(240, 182, 94, 0.22); --accent-line-soft: rgba(124, 111, 245, 0.28);
+    --warn-line-hover: rgba(240, 182, 94, 0.22); --accent-line-soft: rgba(139, 133, 238, 0.28);
     --overlay-ink: rgba(6, 7, 10, 0.66);
     --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
     --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
@@ -112,9 +113,8 @@
   }
   .brand { display: flex; align-items: center; gap: 11px; }
   .brand .logo {
-    width: 34px; height: 34px; border-radius: var(--r-ctl); flex-shrink: 0;
-    background: var(--accent); color: var(--on-accent); font-weight: 800; font-size: var(--fs-lg);
-    display: flex; align-items: center; justify-content: center; letter-spacing: -0.02em;
+    width: 30px; height: 34px; flex-shrink: 0; color: var(--accent);
+    transition: color var(--t) var(--ease);
   }
   .brand h1 { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
   .brand .sub { font-size: var(--fs-sm); color: var(--ink-2); }
@@ -485,7 +485,7 @@
 <div class="wrap">
   <header class="topbar">
     <div class="brand">
-      <div class="logo">K</div>
+      <svg class="logo" viewBox="0 0 400 448" role="img" aria-label="AegisLens 标识"><path fill="currentColor" fill-rule="evenodd" d="M174.00 4.88L150.00 6.69L128.00 9.60L101.00 14.60L70.00 22.63L54.00 27.71L40.00 33.66L31.00 39.55L21.50 49.00L15.74 57.00L12.65 63.00L8.70 74.00L6.63 86.00L6.57 219.00L8.51 241.00L10.50 252.00L15.47 271.00L20.58 285.00L29.50 304.00L37.66 318.00L45.76 330.00L57.59 345.00L79.00 367.43L100.00 385.45L115.00 396.50L136.00 410.48L156.00 422.50L185.00 437.38L200.00 443.57L232.00 428.50L254.00 416.17L280.00 399.40L303.00 382.30L319.00 368.52L342.46 344.00L360.36 320.00L370.30 303.00L377.50 288.00L384.50 268.00L388.39 253.00L391.44 234.00L392.51 217.00L392.42 86.00L391.28 78.00L388.51 68.00L384.39 59.00L378.46 50.00L367.00 38.56L359.00 33.50L350.00 29.51L329.00 22.54L306.00 16.57L265.00 8.71L223.00 4.63L175.00 4.81ZM188.00 33.89L171.00 34.61L141.00 37.64L99.00 45.58L80.00 50.68L59.00 57.59L51.00 61.79L44.58 68.00L38.63 78.00L36.57 86.00L36.56 223.00L38.69 241.00L40.70 250.00L44.59 264.00L49.57 277.00L54.80 288.00L64.63 305.00L78.67 324.00L100.00 346.34L109.00 354.41L132.00 372.26L160.00 390.41L189.00 406.34L200.00 411.40L229.00 396.32L254.00 381.34L270.00 370.32L288.00 356.32L305.00 340.61L321.28 323.00L333.17 307.00L343.42 290.00L351.30 273.00L356.38 258.00L360.34 242.00L362.40 227.00L362.72 94.00L362.44 85.00L361.29 80.00L356.19 70.00L346.00 60.54L335.00 55.64L304.00 46.64L265.00 38.62L231.00 34.68L207.00 33.60L189.00 33.81ZM186.00 259.07L185.60 260.00L190.62 269.00L223.46 326.00L225.00 327.54L235.00 325.44L249.00 320.28L262.00 313.44L275.00 304.44L287.68 293.00L296.50 283.00L303.35 273.00L310.46 260.00L310.00 259.09L187.00 259.29ZM189.00 86.56L188.90 88.00L211.59 128.00L249.70 194.00L251.00 194.36L290.20 127.00L289.68 126.00L278.00 114.50L269.00 107.63L261.00 102.53L247.00 95.59L233.00 90.61L218.00 87.54L209.00 86.48L190.00 86.47ZM148.00 222.03L114.63 279.00L109.07 290.00L119.07 300.00L131.00 309.49L150.00 320.20L158.00 323.38L168.00 326.50L182.00 329.48L194.00 330.50L209.92 330.00L210.13 329.00L149.00 222.51ZM84.00 170.62L82.80 172.00L80.57 180.00L77.69 199.00L77.50 215.00L78.51 226.00L82.62 244.00L86.53 255.00L93.53 269.00L98.50 277.00L100.00 277.53L158.35 178.00L161.67 171.00L85.00 170.61ZM170.00 89.94L160.00 92.51L144.00 99.46L130.00 107.73L121.00 114.60L110.84 124.00L100.68 136.00L93.59 147.00L88.54 157.00L212.68 157.00L176.38 93.00L174.00 89.39L171.00 89.50ZM299.00 138.46L237.09 245.00L315.00 245.54L316.52 244.00L319.46 232.00L321.37 217.00L321.44 200.00L320.28 190.00L318.40 180.00L313.44 164.00L307.47 151.00L299.86 139.00Z"/></svg>
       <div>
         <h1>API-AegisLens</h1>
         <div class="sub">本地密钥管理 · 加密存储</div>

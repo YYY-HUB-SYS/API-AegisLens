@@ -329,3 +329,25 @@ test('手动添加的模型必须立刻出现在清单里，不被"尚未拉取"
   assert.ok(!/else if \(!k\.modelsFetched\) \{/.test(before.slice(before.indexOf('function renderDrawer'))),
     '不能再有"只看 modelsFetched 就出空状态"的分支，那会藏掉手动添加的模型');
 });
+
+test('品牌：标识与主色对齐 logo，且内联版与 vendor 版几何一致', () => {
+  const html = readHomepage();
+  const brand = path.join(__dirname, '..', 'public', 'vendor', 'brand', 'aegislens-icon.svg');
+  assert.ok(fs.existsSync(brand), 'vendor 里要有独立可用的标识文件');
+  const svg = fs.readFileSync(brand, 'utf8');
+
+  const dOf = s => (s.match(/d="([^"]+)"/) || [])[1];
+  assert.ok(dOf(html) && dOf(svg), '两处都该有 path d');
+  assert.strictEqual(dOf(html), dOf(svg),
+    '顶栏内联标识与 vendor 文件的路径数据必须一致，否则会各自漂移');
+
+  assert.ok(html.includes('<svg class="logo"'), '顶栏应内联 SVG 标识');
+  assert.ok(!html.includes('<div class="logo">K</div>'),
+    '改名前遗留的字母 K 标识应已被替换');
+  assert.ok(/<link rel="icon"[^>]+\/vendor\/brand\//.test(html),
+    'favicon 应指向本地 vendor，不许外链');
+  assert.ok(html.includes('--accent: #3E3BC8'), '浅色主色对齐 logo 实测色');
+  assert.ok(html.includes('--accent: #8B85EE'), '深色主色为 logo 色的提亮版');
+  assert.ok(!/rgba\(75, 63, 227/.test(html) && !html.includes('#4B3FE3') && !html.includes('#7C6FF5'),
+    '旧主色的派生 rgba 也要一并换掉，否则软底和描边会留着上一个颜色');
+});
