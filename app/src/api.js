@@ -76,6 +76,16 @@ function autoName(keyValue) {
 
 function str(v) { return String(v == null ? '' : v).trim(); }
 
+/* 账号池只持久化成员 id；给前端展示时现取完整密钥记录（含脱敏展示所需字段），
+   池里某个密钥已被删除时过滤掉，不把 null 塞进 keys 数组 */
+function poolWithKeys(storage, pool) {
+  const rec = Object.assign({}, pool);
+  rec.keys = (pool.keyIds || [])
+    .map(function (id) { return storage.getKey(id); })
+    .filter(Boolean);
+  return rec;
+}
+
 function authNoteOf(v) {
   const s = str(v);
   if (s.length > 500) throw bad(400, '特殊认证说明最长 500 字符');
@@ -465,6 +475,89 @@ async function routeApi(req, res, ctx) {
       patch.intervalMinutes = Math.round(n);
     }
     return json(res, 200, { schedule: ctx.scheduler.configure(patch) });
+  }
+
+  if (req.method === 'GET' && path === '/api/pools') {
+    return json(res, 200, {
+      pools: storage.listPools().map(function (p) { return poolWithKeys(storage, p); })
+    });
+  }
+
+  if (req.method === 'POST' && path === '/api/pools') {
+    const b = await readBody(req);
+    const name = str(b.name);
+    if (!name) throw bad(400, '请填写账号池名称');
+    if (name.length > 40) throw bad(400, '账号池名称最长 40 字符');
+    if (storage.listPools().some(function (p) { return p.name === name; })) {
+      throw bad(409, '已存在同名账号池');
+    }
+    let keyIds = [];
+    if (b.keyIds !== undefined) {
+      if (!Array.isArray(b.keyIds)) throw bad(400, 'keyIds 应为数组');
+      b.keyIds.forEach(function (raw) {
+        const id = Number(raw);
+        if (!Number.isInteger(id) || !storage.getKey(id)) throw bad(400, '密钥不存在：' + raw);
+        if (keyIds.indexOf(id) < 0) keyIds.push(id);
+      });
+    }
+    const pool = storage.createPool({ name: name, keyIds: keyIds });
+    return json(res, 201, { pool: poolWithKeys(storage, pool) });
+  }
+
+  if (req.method === 'PUT' && (m = /^\/api\/pools\/(\d+)$/.exec(path))) {
+    const id = Number(m[1]);
+    const cur = storage.getPool(id);
+    if (!cur) throw bad(404, '账号池不存在');
+    const b = await readBody(req);
+    const patch = {};
+    if (b.name !== undefined) {
+      const name = str(b.name);
+      if (!name) throw bad(400, '请填写账号池名称');
+      if (name.length > 40) throw bad(400, '账号池名称最长 40 字符');
+      if (storage.listPools().some(function (p) { return p.id !== id && p.name === name; })) {
+        throw bad(409, '已存在同名账号池');
+      }
+      patch.name = name;
+    }
+    if (b.keyIds !== undefined) {
+      if (!Array.isArray(b.keyIds)) throw bad(400, 'keyIds 应为数组');
+      const keyIds = [];
+      b.keyIds.forEach(function (raw) {
+        const kid = Number(raw);
+        if (!Number.isInteger(kid) || !storage.getKey(kid)) throw bad(400, '密钥不存在：' + raw);
+        if (keyIds.indexOf(kid) < 0) keyIds.push(kid);
+      });
+      patch.keyIds = keyIds;
+    }
+    if (!Object.keys(patch).length) throw bad(400, '没有可更新的字段');
+    return json(res, 200, { pool: poolWithKeys(storage, storage.updatePool(id, patch)) });
+  }
+
+  if (req.method === 'DELETE' && (m = /^\/api\/pools\/(\d+)$/.exec(path))) {
+    const id = Number(m[1]);
+    if (!storage.getPool(id)) throw bad(404, '账号池不存在');
+    storage.deletePool(id);
+    return json(res, 200, { ok: true });
+  }
+
+  if (req.method === 'POST' && (m = /^\/api\/pools\/(\d+)\/keys$/.exec(path))) {
+    const id = Number(m[1]);
+    const cur = storage.getPool(id);
+    if (!cur) throw bad(404, '账号池不存在');
+    const b = await readBody(req);
+    const keyId = Number(b.keyId);
+    if (!Number.isInteger(keyId) || !storage.getKey(keyId)) throw bad(400, '密钥不存在：' + b.keyId);
+    if ((cur.keyIds || []).indexOf(keyId) >= 0) throw bad(409, '该密钥已在账号池中');
+    return json(res, 200, { pool: poolWithKeys(storage, storage.addPoolKey(id, keyId)) });
+  }
+
+  if (req.method === 'DELETE' && (m = /^\/api\/pools\/(\d+)\/keys\/(\d+)$/.exec(path))) {
+    const id = Number(m[1]);
+    const keyId = Number(m[2]);
+    if (!storage.getPool(id)) throw bad(404, '账号池不存在');
+    let pool = storage.removePoolKey(id, keyId);
+    if (!pool) pool = storage.getPool(id); /* key 本就不在池中：幂等返回当前池 */
+    return json(res, 200, { pool: poolWithKeys(storage, pool) });
   }
 
   if (req.method === 'POST' && path === '/api/import') {
