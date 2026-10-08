@@ -200,7 +200,7 @@
   .params { display: flex; gap: 8px; flex-wrap: wrap; }
   .param {
     display: inline-flex; align-items: center; gap: 7px;
-    max-width: 100%; min-width: 0;
+    max-width: 100%; min-width: 0; flex-wrap: wrap; row-gap: 3px;
     border: 1px solid var(--rule-soft); border-radius: var(--r-ctl);
     padding: 4px 6px 4px 11px; background: var(--surface-2);
   }
@@ -208,6 +208,15 @@
     font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600;
     max-width: 340px; min-width: 0; flex: 1 1 auto;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  /* 上一轮为了修「复制/模型」被逐字断行给按钮加了 nowrap，结果窄屏下
+     所有收缩压力都落到 URL 上，420px 时它只剩 18%。现在 URL 保底 14 字符，     动作按钮成组、整组换行。 */
+  .param.url .val { flex: 1 1 14ch; min-width: 14ch; }
+  .param.url .ep-style-tag { flex-shrink: 0; }
+  .param.key .val { flex: 0 0 auto; }
+  .ep-acts {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-left: auto; flex-shrink: 0;
   }
   .copy-btn {
     border: none; background: transparent; color: var(--ink-3);
@@ -964,21 +973,25 @@
             (k.reg ? '<span class="m-item">注册于 <b>' + esc(k.reg) + '</b></span>' : '') +
           '</div>' +
           '<div class="params">' +
-            '<span class="param" data-copy="' + esc(k.key) + '">' +
+            '<span class="param key" data-copy="' + esc(k.key) + '">' +
               '<span class="lbl2">Key</span>' +
               '<span class="val">' + esc(revealed ? k.key : maskKey(k.key)) + '</span>' +
-              '<button class="eye" data-act="reveal" title="' + (revealed ? '隐藏' : '显示明文') + '">' + (revealed ? '🙈' : '👁') + '</button>' +
-              '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
+              '<span class="ep-acts">' +
+                '<button class="eye" data-act="reveal" title="' + (revealed ? '隐藏' : '显示明文') + '">' + (revealed ? '🙈' : '👁') + '</button>' +
+                '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
+              '</span>' +
             '</span>' +
             (k.endpoints || []).map(function (ep, i) {
               if (!ep.url) return '';
-              return '<span class="param" data-copy="' + esc(ep.url) + '" title="' + esc(styleLabel(ep.style)) + ' 端点，点击复制按钮取地址">' +
+              return '<span class="param url" data-copy="' + esc(ep.url) + '" title="' + esc(styleLabel(ep.style)) + ' 端点，点击复制按钮取地址">' +
                 '<span class="lbl2">端点 ' + (i + 1) + '</span>' +
                 '<span class="val">' + esc(ep.url) + '</span>' +
                 '<span class="ep-style-tag" title="' + esc(styleLabel(ep.style)) + '">' + esc(styleShort(ep.style)) + '</span>' +
-                '<button class="copy-btn" data-act="copy" title="复制 ' + esc(ep.url) + '">复制</button>' +
-                '<button class="btn ghost small" data-act="ep-test" data-idx="' + i + '" title="只测这一条端点，不影响其他端点">测这条</button>' +
-                '<button class="btn ghost small" data-act="ep-models" data-idx="' + i + '" title="从这一条端点拉取模型清单">拉模型</button>' +
+                '<span class="ep-acts">' +
+                  '<button class="copy-btn" data-act="copy" title="复制 ' + esc(ep.url) + '">复制</button>' +
+                  '<button class="btn ghost small" data-act="ep-test" data-idx="' + i + '" title="只测这一条端点，不影响其他端点">测这条</button>' +
+                  '<button class="btn ghost small" data-act="ep-models" data-idx="' + i + '" title="从这一条端点拉取模型清单">拉模型</button>' +
+                '</span>' +
               '</span>';
             }).join('') +
             (k.model ? '<span class="param" data-copy="' + esc(k.model) + '"><span class="lbl2">默认模型</span><span class="val">' + esc(k.model) + '</span><button class="copy-btn" data-act="copy">复制</button></span>' : '') +

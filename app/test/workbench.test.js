@@ -460,3 +460,17 @@ test('标识两版：顶栏六片叶、favicon 简化版，同盾牌不同复杂
   assert.ok(/prefers-color-scheme:\s*dark/.test(small),
     '独立 SVG 当 favicon 时 currentColor 不生效，必须自带深浅两色');
 });
+
+test('P0 回归：窄屏不许再拿 URL 换按钮，收缩压力不得全落在 URL 上', () => {
+  const html = readHomepage();
+  assert.ok(/\.param\.url \.val \{[^}]*min-width:\s*14ch/.test(html),
+    '端点 URL 要有 14ch 下限。上一轮 .val 是 min-width:0，成了唯一可压缩项，' +
+    '420px 下 https://api.deepseek.com/anthropic 只剩 18%');
+  assert.ok(/\.ep-acts \{[^}]*flex-shrink:\s*0/.test(html),
+    '动作按钮要成组且不可压缩，整组换行而不是把 URL 挤没');
+  assert.ok(/\.param \{[^}]*flex-wrap:\s*wrap/.test(html), '.param 必须允许换行');
+  assert.ok(/\.param\.key \.val \{[^}]*flex:\s*0 0 auto/.test(html),
+    'Key 不许截断：省略号切掉尾巴，而尾巴正是自动命名唯一的识别点');
+  const markup = html.slice(html.indexOf("'<span class=\"param url\""), html.indexOf("'<span class=\"param url\"") + 900);
+  assert.ok(markup.includes('class="ep-acts"'), '端点三个按钮要包在 .ep-acts 里');
+});
