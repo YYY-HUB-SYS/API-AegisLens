@@ -1,4 +1,5 @@
 const META_MODELS = require('./meta-models.json');
+const shape = require('./model-shape.js');
 const http = require('node:http');
 const https = require('node:https');
 const tls = require('node:tls');
@@ -239,8 +240,20 @@ function modelsUrl(style, base) {
    带上工具 UA 即可通过，对官方 API 无副作用 */
 const TOOL_UA = 'claude-cli/1.0.23 (external, cli)';
 
+/* 但公开模型目录域会反过来嗅探 UA：实测 openrouter.ai 带工具 UA 时，
+   /models 从「465 条、条条带 context_length」退化成「10 条、零上下文、
+   整套 schema 更换」。工具 UA 是为过中转站客户端指纹而存在的，对这类
+   公开目录不该发出去。 */
+const PUBLIC_CATALOG_HOSTS = /(^|\.)(openrouter\.ai|models\.dev)$/i;
+
+function toolUaFor(url) {
+  const h = url ? hostOf(url) : '';
+  return (h && PUBLIC_CATALOG_HOSTS.test(h)) ? null : TOOL_UA;
+}
+
 function authHeaders(style, key, url) {
-  const h = { 'User-Agent': TOOL_UA };
+  const ua = toolUaFor(url);
+  const h = ua ? { 'User-Agent': ua } : {};
   const override = url ? authOverrideOf(url) : null;
   if (override) {
     h[override.header] = key;
@@ -347,27 +360,38 @@ async function fetchModels(platform, ep, key, opts) {
     }
     throw fail(502, platformError(res.status), String(res.status));
   }
-  const list = (res.body && Array.isArray(res.body.data)) ? res.body.data : [];
+  const list = shape.modelList(res.body);
   const models = [];
   for (let i = 0; i < list.length; i++) {
     const item = list[i] || {};
-    const id = String(item.id || '').trim();
+    const id = shape.modelId(item);
     if (!id) continue;
-    /* 平台自己在 /models 里给的参数优先，内置元表只兜它没给的部分：
-       SenseNova 等端点会返回 context_length / max_output_length，
-       而联网检索命中的常是同名模型在别处的上限，两者不一致时以前者为准 */
-    const apiCtx = posInt(item.context_length);
-    const apiOut = posInt(item.max_output_length);
-    const meta = lookupMeta(platform, id);
-    const ctx = apiCtx != null ? apiCtx : (meta ? meta.ctx : null);
-    const out = apiOut != null ? apiOut : (meta ? meta.out : null);
-    models.push({
+    /* 平台自报值优先，内置元表只兜它没给的那一项。字段名与层级十一家各不相同
+       （实测档案见 test/fixtures/model-responses/FINDINGS.md），所以按形状寻址
+       而非按平台写死字段名。 */
+    const got = shape.extractLimits(item);
+    const caps = shape.extractCaps(item);
+    const meta = lookupMeta(platform, id) || {};
+    const rec = {
       id: id,
-      ctx: ctx,
-      out: out,
-      src: (apiCtx != null || apiOut != null) ? 'api' : (meta ? 'meta' : 'api'),
+      ctx: got.ctx != null ? got.ctx : (meta.ctx != null ? meta.ctx : null),
+      out: got.out != null ? got.out : (meta.out != null ? meta.out : null),
+      /* 来源按字段各记各的：ctx 来自平台、out 来自联网，就不该整条标成同一个 */
+      ctxSrc: got.ctx != null ? 'api' : (meta.ctx != null ? 'meta' : null),
+      outSrc: got.out != null ? 'api' : (meta.out != null ? 'meta' : null),
+      /* 两个来源都有值却不一致时保留平台值并标记，不静默择一 */
+      conflict: (got.ctx != null && meta.ctx != null && got.ctx !== meta.ctx) ||
+        (got.out != null && meta.out != null && got.out !== meta.out) || null,
+      outGtCtx: got.outGtCtx || null,
       note: null
-    });
+    };
+    if (caps.reasoning !== null) rec.reasoning = caps.reasoning;
+    if (caps.modalitiesIn) rec.modalitiesIn = caps.modalitiesIn;
+    if (caps.rpm !== null) rec.rpm = caps.rpm;
+    /* 任一数值来自平台就整体显示「平台接口」（与 README 一致），
+       两边都没提到时才是 'unknown'，不再回落成 'api' 谎称平台报过 */
+    rec.src = shape.summarizeSrc(rec.ctxSrc, rec.outSrc);
+    models.push(rec);
   }
   return models;
 }
@@ -431,6 +455,30 @@ async function chatAuthFallback(style, base, key, opts, t0) {
   return { status: 'fail', code: String(res.status), msg: platformError(res.status) };
 }
 
+const publicModelsCache = {};
+
+/**
+ * 该端点的 /models 是否不校验密钥。AUTH_OVERRIDES 里的 publicModels 是已知名单（快路径，
+ * 省一次请求）；名单外的用一次**不带任何认证**的探测现场判定：也返回 2xx 就说明
+ * 这个端点压根不看密钥，"能拉到模型"不等于"密钥有效"。按主机名缓存，避免每次测试都多打一发。
+ */
+async function modelsEndpointIsPublic(style, url, opts) {
+  const override = authOverrideOf(url);
+  if (override && override.publicModels) return true;
+  const host = hostOf(url);
+  if (!host) return false;
+  if (publicModelsCache[host] !== undefined) return publicModelsCache[host];
+  let pub = false;
+  try {
+    const res = await requestJson(modelsUrl(style, url), {}, opts);
+    pub = !!res.ok;
+  } catch (e) {
+    pub = false;
+  }
+  publicModelsCache[host] = pub;
+  return pub;
+}
+
 async function testKey(platform, ep, key, opts) {
   const style = (ep && ep.style) || inferStyle(platform);
   const url = (ep && ep.url) || '';
@@ -441,14 +489,26 @@ async function testKey(platform, ep, key, opts) {
     return { status: 'fail', code: 'UNSUPPORTED_STYLE', msg: '「' + style + '」为自定义兼容模式，暂不支持自动测试' };
   }
   const t0 = Date.now();
-  /* 模型列表完全公开的平台（如小红书 Dots）：/models 不校验密钥，
-     无效密钥也会返回 200，须改用对话接口做真实鉴权探测 */
+  /* /models 完全公开的端点（实测：小红书 Dots、LongCat、ModelScope 用故意改坏的
+     key 照样返回 200）上"拉取成功"证明不了密钥可用，必须改走对话接口鉴权探测。
+     已知名单走快路径直接跳过列表请求；名单外的等 fetchModels 成功后再探测，
+     失败路径一次都不多发。 */
   const override = authOverrideOf(url);
   if (override && override.publicModels) {
     return chatAuthFallback(style, url, key, opts, t0);
   }
   try {
     await fetchModels(platform, ep, key, opts);
+    /* 拉到了不等于密钥有效——这个端点可能压根不看密钥。用一次不带认证的
+       同址请求判定：若公开，本次成功只证明"地址可达"，不能宣称密钥可用。
+       不去猜对话路径（各家路径不一，猜错会把"未验证"误报成"无效"，那是另一种谎），
+       已确认对话路径可用的平台走上面 AUTH_OVERRIDES 快路径做真实鉴权探测。 */
+    if (await modelsEndpointIsPublic(style, url, opts)) {
+      return {
+        status: 'pass', unverified: true, latency: Date.now() - t0,
+        msg: '该端点的模型列表不校验密钥，本次仅确认地址可达，未验证密钥有效性'
+      };
+    }
     const msg = isArkAgentPlanUrl(url)
       ? '火山方舟 Agent Plan 端点，已按官方内置模型目录确认密钥可用'
       : 'GET ' + modelsUrl(style, url) + ' 返回正常，密钥可用';
@@ -495,28 +555,39 @@ function supportsBalanceUrl(url) { return !!matchBalanceApi(url); }
 function mergeModels(prev, fetched) {
   const prevById = {};
   (prev || []).forEach(function (m) { prevById[m.id] = m; });
+  /* 一律在 fetched 原件上扩展而非重建：能力位、按字段来源、conflict / outGtCtx
+     标记都是挂在记录上的，重建会把它们抹掉 */
   const out = fetched.map(function (f) {
     const old = prevById[f.id];
+    const nf = shape.fieldSrcs(f);
     if (old && old.src === 'manual') {
-      return {
-        id: f.id,
+      return Object.assign({}, f, {
         ctx: old.ctx != null ? old.ctx : f.ctx,
         out: old.out != null ? old.out : f.out,
+        ctxSrc: old.ctx != null ? 'manual' : nf.ctxSrc,
+        outSrc: old.out != null ? 'manual' : nf.outSrc,
         src: 'manual',
         note: old.note || null
-      };
+      });
     }
     if (old) {
-      const ctx = f.ctx != null ? f.ctx : old.ctx;
-      const out = f.out != null ? f.out : old.out;
-      const fromOld = (f.ctx == null || f.out == null) && (old.ctx != null || old.out != null);
-      return { id: f.id, ctx: ctx, out: out, src: fromOld ? old.src : f.src, note: old.note || null };
+      const no = shape.fieldSrcs(old);
+      const ctxSrc = f.ctx != null ? nf.ctxSrc : no.ctxSrc;
+      const outSrc = f.out != null ? nf.outSrc : no.outSrc;
+      return Object.assign({}, f, {
+        ctx: f.ctx != null ? f.ctx : old.ctx,
+        out: f.out != null ? f.out : old.out,
+        ctxSrc: ctxSrc,
+        outSrc: outSrc,
+        src: shape.summarizeSrc(ctxSrc, outSrc),
+        note: old.note || null
+      });
     }
-    return { id: f.id, ctx: f.ctx, out: f.out, src: f.src, note: null };
+    return f;
   });
   (prev || []).forEach(function (m) {
     if (m.src === 'manual' && !fetched.some(function (f) { return f.id === m.id; })) {
-      out.push({ id: m.id, ctx: m.ctx, out: m.out, src: 'manual', note: m.note });
+      out.push(m);
     }
   });
   return out;

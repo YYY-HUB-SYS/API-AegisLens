@@ -1,4 +1,5 @@
 var cnData = require('./cn-models');
+var shape = require('./model-shape.js');
 
 const PROVIDERS = [
   {
@@ -198,7 +199,17 @@ function applyToModels(models, found) {
     const outv = m.out != null ? m.out : hit.out;
     if (ctx === m.ctx && outv === m.out) return m;
     changed.push(m.id);
-    return { id: m.id, ctx: ctx, out: outv, src: m.src === 'manual' ? 'manual' : 'web', note: m.note == null ? null : m.note };
+    /* 在原件上扩展而非重建：能力位与按字段来源都是挂在原记录上的，
+       重建会把它们连同 conflict / outGtCtx 标记一起丢掉 */
+    const r = Object.assign({}, m);
+    const fs = shape.fieldSrcs(m);
+    r.ctx = ctx;
+    r.out = outv;
+    r.ctxSrc = (m.ctx != null) ? fs.ctxSrc : (hit.ctx != null ? 'web' : fs.ctxSrc);
+    r.outSrc = (m.out != null) ? fs.outSrc : (hit.out != null ? 'web' : fs.outSrc);
+    r.src = (m.src === 'manual') ? 'manual' : shape.summarizeSrc(r.ctxSrc, r.outSrc);
+    if (r.note == null) r.note = null;
+    return r;
   });
   return { models: out, changed: changed };
 }

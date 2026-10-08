@@ -198,6 +198,41 @@ function modelId(item) {
   return String(raw || '').trim();
 }
 
+/**
+ * 整条记录的来源标签。两条规则：
+ * ① 任一数值来自平台就显示「平台接口」（README 既定语义，也是信任序裁定的结果）；
+ * ② 否则取两个字段里**最不可信**的那个 —— 混合来源时宁可低估，
+ *    不能让"ctx 来自内置表 + out 来自联网"整条显示成「内置表」。
+ * 两边都没提到是 'unknown'，不再回落成 'api' 谎称平台报过。
+ */
+const SRC_TRUST = { web: 0, meta: 1, manual: 2 };
+
+function summarizeSrc(ctxSrc, outSrc) {
+  if (ctxSrc === 'api' || outSrc === 'api') return 'api';
+  const s = [ctxSrc, outSrc].filter(Boolean);
+  if (!s.length) return 'unknown';
+  return s.slice().sort(function (a, b) {
+    return (SRC_TRUST[a] === undefined ? -1 : SRC_TRUST[a]) - (SRC_TRUST[b] === undefined ? -1 : SRC_TRUST[b]);
+  })[0];
+}
+
+/**
+ * 取一条记录的按字段来源；库里已存的旧记录只有整条 src、没有 ctxSrc/outSrc，
+ * 那就按「两个字段同源」理解，避免重新拉取时把 'web'/'manual' 退化成 'unknown'。
+ * 旧数据里"值为空却标 api"的那种谎，在这里会自然落成 'unknown'。
+ */
+function fieldSrcs(m) {
+  if (!m) return { ctxSrc: null, outSrc: null };
+  if (m.ctxSrc || m.outSrc) {
+    return { ctxSrc: m.ctxSrc || null, outSrc: m.outSrc || null };
+  }
+  const legacy = (m.src && m.src !== 'unknown') ? m.src : null;
+  return {
+    ctxSrc: (m.ctx != null) ? legacy : null,
+    outSrc: (m.out != null) ? legacy : null
+  };
+}
+
 /** 响应体里的模型数组：顶层键十一家都是 data，但 {"models":[...]} 与裸数组也真实存在 */
 function modelList(body) {
   if (Array.isArray(body)) return body;
@@ -211,6 +246,8 @@ module.exports = {
   extractLimits: extractLimits,
   extractCaps: extractCaps,
   modelId: modelId,
+  summarizeSrc: summarizeSrc,
+  fieldSrcs: fieldSrcs,
   modelList: modelList,
   numericLeaf: numericLeaf,
   MIN_TOKENS: MIN_TOKENS,

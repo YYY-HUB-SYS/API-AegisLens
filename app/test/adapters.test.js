@@ -25,7 +25,10 @@ test('fetchModels：OpenAI 风格响应解析 + 元数据库补参数', async ()
 
   const unknown = models.find(m => m.id === 'unknown-model');
   assert.strictEqual(unknown.ctx, null);
-  assert.strictEqual(unknown.src, 'api');
+  assert.strictEqual(unknown.src, 'unknown',
+    '平台与元表都没给值时不该标 api —— 旧行为会让卡片显示「平台接口」配空白数字');
+  assert.strictEqual(unknown.ctxSrc, null);
+  assert.strictEqual(unknown.outSrc, null);
 });
 
 test('fetchModels：平台自带的 context_length / max_output_length 优先于内置元表', async () => {
@@ -535,4 +538,39 @@ test('mergeModels：保留手动模型参数与备注，追加仅手动添加的
   assert.ok(mine, '手动添加的模型应保留');
   assert.strictEqual(mine.src, 'manual');
   assert.strictEqual(mine.ctx, 999);
+});
+
+test('testKey：/models 不校验密钥时不谎报「密钥可用」（未登记域名走现场探测）', async () => {
+  const calls = [];
+  const f = (url, opts) => {
+    const h = (opts && opts.headers) || {};
+    calls.push({ url: String(url), auth: h.Authorization || 'none' });
+    if (String(url).endsWith('/models')) return Promise.resolve(res({ data: [{ id: 'm1' }] }));
+    return Promise.resolve(res({}, 404));
+  };
+  const t = await adapters.testKey('custom',
+    { url: 'https://relay.example.net/v1', style: 'openai' }, 'sk-x', { fetchImpl: f });
+  assert.strictEqual(calls.length, 2, '一次带认证拉取 + 一次无认证探测');
+  assert.strictEqual(calls[0].auth, 'Bearer sk-x');
+  assert.strictEqual(calls[1].auth, 'none', '探测必须不带任何认证，否则测不出"公开"');
+  assert.strictEqual(t.status, 'pass', '地址确实可达，不该误报失败');
+  assert.strictEqual(t.unverified, true);
+  assert.ok(t.msg.indexOf('不校验密钥') >= 0 && t.msg.indexOf('未验证') >= 0, JSON.stringify(t.msg));
+});
+
+test('authHeaders：公开目录域不发工具 UA，中转站照发', async () => {
+  const seen = {};
+  const f = (url, opts) => {
+    const h = (opts && opts.headers) || {};
+    seen[String(url)] = h['User-Agent'] || 'none';
+    return Promise.resolve(res({ data: [{ id: 'deepseek/deepseek-chat', context_length: 131072 }] }));
+  };
+  await adapters.fetchModels('custom',
+    { url: 'https://openrouter.ai/api/v1', style: 'openai' }, 'sk-or', { fetchImpl: f });
+  assert.strictEqual(seen['https://openrouter.ai/api/v1/models'], 'none',
+    'openrouter.ai 嗅探 UA：带 claude-cli 时从 465 条含上下文退化成 10 条零上下文');
+  await adapters.fetchModels('custom',
+    { url: 'https://api.deepseek.com/v1', style: 'openai' }, 'sk-ds', { fetchImpl: f });
+  assert.ok(String(seen['https://api.deepseek.com/v1/models']).indexOf('claude-cli') === 0,
+    '中转站仍需工具 UA 过客户端指纹检测，不能一刀切去掉');
 });

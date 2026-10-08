@@ -258,7 +258,8 @@ test('API 集成：拉取自动联网补全 + enrich 端点 + 手动补充 + 断
     assert.strictEqual(r.status, 200, '断网时拉取本身不应失败');
     const flash = r.data.models.find(m => m.id === 'deepseek-v4-flash');
     assert.strictEqual(flash.ctx, null, '断网时参数保持未知');
-    assert.strictEqual(flash.src, 'api');
+    assert.strictEqual(flash.src, 'unknown',
+      '值为空就不该标 api：旧行为是"断网补不到 → 卡片显示平台接口 + 空白"');
     assert.ok(r.data.enrich.error, '应返回联网失败说明');
     assert.deepStrictEqual(r.data.enrich.notFound, ['deepseek-v4-flash', 'totally-unknown']);
   } finally {
