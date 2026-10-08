@@ -351,3 +351,34 @@ test('品牌：标识与主色对齐 logo，且内联版与 vendor 版几何一�
   assert.ok(!/rgba\(75, 63, 227/.test(html) && !html.includes('#4B3FE3') && !html.includes('#7C6FF5'),
     '旧主色的派生 rgba 也要一并换掉，否则软底和描边会留着上一个颜色');
 });
+
+test('模型来源标签：后端每个 src 值都要有显式出口，兜底不许冒充数据源', () => {
+  const html = readHomepage();
+  const from = html.indexOf('var SRC_LABEL = {');
+  assert.ok(from > -1, 'SRC_LABEL 映射应存在');
+  const block = html.slice(from, html.indexOf('var SRC_CLS'));
+  const keys = [...block.matchAll(/(\w+):\s*'[^']+'/g)].map(m => m[1]);
+
+  // 后端 src 值的产生点分散在 src: / ctxSrc: / outSrc: 与三元表达式里，
+  // 用正则从赋值点自动收集不可靠（ctxSrc: x !== null ? 'api' : null 这种根本抓不到）。
+  // 所以这里显式列出期望集，再逐个断言它在后端源码里仍作为字面量存在：
+  // 改名漂移会立刻报，但它不等于穷尽覆盖，新增值仍要靠人把名字加进这张表。
+  const EXPECTED = ['api', 'meta', 'web', 'manual', 'builtin', 'unknown'];
+  const srcDir = path.join(__dirname, '..', 'src');
+  const allSrc = fs.readdirSync(srcDir).filter(x => x.endsWith('.js'))
+    .map(f => fs.readFileSync(path.join(srcDir, f), 'utf8')).join('\n');
+  for (const v of EXPECTED) {
+    assert.ok(allSrc.includes("'" + v + "'"),
+      '期望的 src 值 ' + v + ' 在后端源码里已找不到字面量，可能已被改名或删除，' +
+      '请同步前端 SRC_LABEL');
+  }
+  const missing = EXPECTED.filter(v => !keys.includes(v));
+  assert.deepStrictEqual(missing, [],
+    '这些 src 值没有显式标签，会掉进兜底被误标：' + missing);
+
+  assert.ok(!/m\.src === 'builtin' \? '官方目录' : '元数据库'/.test(html),
+    '旧的"兜底即元数据库"写法应已被替换');
+  assert.ok(html.includes("'未识别来源 '"), '未识别值应原样显示而不是归类');
+  assert.ok(/\.m-tag\.unknown\s*\{[^}]*dashed/.test(html),
+    'unknown 要有可辨识的虚线样式，不能和正常来源长得一样');
+});

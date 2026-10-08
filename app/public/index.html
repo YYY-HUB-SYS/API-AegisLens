@@ -257,6 +257,11 @@
   .m-tag.api { color: var(--api); background: var(--api-soft); }
   .m-tag.web { color: var(--web); background: var(--web-soft); }
   .m-tag.builtin { color: var(--warn); background: var(--warn-soft); }
+  /* 参数没取到用虚线框表达"这里缺东西"，而不是给个实心底色假装正常 */
+  .m-tag.unknown {
+    color: var(--ink-3); background: transparent; border: 1px dashed var(--ink-3);
+    border-radius: var(--r-chip); padding: 1px 6px;
+  }
   .supp-edit { width: 100%; display: flex; gap: 7px; margin-top: 7px; align-items: center; }
   .supp-edit input {
     width: 150px; border: 1px solid var(--accent-line); border-radius: var(--r-chip);
@@ -756,6 +761,15 @@
     return 'ok';
   }
   var ST_LABEL = { ok: '有效', warn: '临期', exp: '已过期', revoked: '已停用' };
+  /* 来源必须逐个显式列出。原先是三段三元表达式加一个兜底 '元数据库'，
+     后端新增的 src='unknown'（参数取不到时的诚实值）会被静默标成「元数据库」，
+     等于把"我不知道"渲染成"我有内置元数据"。未识别值现在原样吐出来，
+     宁可难看也不假装知道。 */
+  var SRC_LABEL = {
+    api: '平台接口', meta: '元数据库', web: '联网检索',
+    manual: '手动填写', builtin: '官方目录', unknown: '参数未取到'
+  };
+  var SRC_CLS = { api: ' api', web: ' web', builtin: ' builtin', unknown: ' unknown' };
   function maskKey(k) {
     if (!k || k.length <= 8) return k || '';
     return k.slice(0, 3) + '••••••••••••' + k.slice(-4);
@@ -1045,11 +1059,10 @@
           '<button class="btn small" data-act="cancel-supp">取消</button>' +
         '</div>';
     }
-    var srcLabel = m.src === 'api' ? '平台接口'
-    : m.src === 'manual' ? '手动填写'
-    : m.src === 'web' ? '联网检索'
-    : m.src === 'builtin' ? '官方目录' : '元数据库';
-    var srcCls = m.src === 'api' ? ' api' : m.src === 'web' ? ' web' : m.src === 'builtin' ? ' builtin' : '';
+    var hasSrc = Object.prototype.hasOwnProperty.call(SRC_LABEL, m.src);
+    var srcLabel = hasSrc ? SRC_LABEL[m.src]
+      : '未识别来源 ' + (m.src == null || m.src === '' ? '（空）' : m.src);
+    var srcCls = (Object.prototype.hasOwnProperty.call(SRC_CLS, m.src) && SRC_CLS[m.src]) || '';
     return (
       '<div class="model-item' + (isDefault ? ' default' : '') + '">' +
         '<span class="param mid-param" data-copy="' + esc(m.id) + '"><span class="val">' + esc(m.id) + '</span><button class="copy-btn" data-act="copy" title="复制模型 ID">复制</button></span>' +
