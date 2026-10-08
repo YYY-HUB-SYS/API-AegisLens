@@ -382,3 +382,24 @@ test('模型来源标签：后端每个 src 值都要有显式出口，兜底不
   assert.ok(/\.m-tag\.unknown\s*\{[^}]*dashed/.test(html),
     'unknown 要有可辨识的虚线样式，不能和正常来源长得一样');
 });
+
+test('入场动效不许把内容藏没：默认态可见，开关由 JS 加', () => {
+  const html = readHomepage();
+  assert.ok(!/<main class="board[^"]*(first-paint|rise-in)/.test(html),
+    'HTML 里不能预置入场类名，否则动画不跑（后台标签页、无头渲染）时卡片会停在 opacity:0');
+  assert.ok(html.includes("classList.add('rise-in')"), '类名应由 JS 在 render() 之后加');
+  const at = html.indexOf('.board.rise-in .keycard');
+  assert.ok(at > -1 && /animation:\s*rise[^;]*backwards/.test(html.slice(at, at + 120)),
+    '有 JS 兜底之后，backwards 才是安全的');
+});
+
+test('字阶：层级阶梯比值要达标，注释不许替代码撒谎', () => {
+  const html = readHomepage();
+  const m = html.match(/--fs-xs:\s*([\d.]+)px;\s*--fs-sm:\s*([\d.]+)px;\s*--fs-base:\s*([\d.]+)px;\s*--fs-lg:\s*([\d.]+)px;\s*--fs-xl:\s*([\d.]+)px/);
+  assert.ok(m, '应能解析五档字号');
+  const v = m.slice(1).map(Number);
+  assert.ok(v[3] / v[2] >= 1.25, 'base→lg 应 >= 1.25，实测 ' + (v[3] / v[2]).toFixed(3));
+  assert.ok(v[4] / v[3] >= 1.25, 'lg→xl 应 >= 1.25，实测 ' + (v[4] / v[3]).toFixed(3));
+  assert.ok(!/相邻档差\s*>=\s*1\.18/.test(html),
+    '旧注释声称相邻档差 >= 1.18，实测三档只有 1.12~1.14，属于注释撒谎');
+});

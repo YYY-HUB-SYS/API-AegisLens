@@ -55,8 +55,11 @@
     --danger: #B3261E;
     --danger-soft: rgba(179, 38, 30, 0.09);
     --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-    /* 字号五档，相邻档差 >= 1.18 */
-    --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 14px; --fs-lg: 16px; --fs-xl: 20px;
+    /* 11 / 12.5 / 14 是"读"的那一层，密度优先，靠字重和颜色区分，不靠字号拉开。
+       层级阶梯是 14 → 18 → 24，比值 1.286 与 1.333，都在 1.25 以上。
+       原先这条注释声称相邻档差不小于 1.18，实测只有 1.136 / 1.120 / 1.143 / 1.250，
+       四档里三档不达标：注释在替代码撒谎。 */
+    --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 14px; --fs-lg: 18px; --fs-xl: 24px;
     --r-card: 12px; --r-ctl: 8px; --r-chip: 6px; --r-pill: 999px;
     --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
     --z-modal: 60; --z-toast: 70;
@@ -173,11 +176,11 @@
   }
   .keycard:hover { border-color: var(--card-hover-border); background: var(--card-hover-bg); }
   .keycard:focus-within { border-color: var(--accent-line); }
-  .board.first-paint .keycard { animation: rise 340ms var(--ease) backwards; }
-  .board.first-paint .keycard:nth-child(2) { animation-delay: 45ms; }
-  .board.first-paint .keycard:nth-child(3) { animation-delay: 90ms; }
-  .board.first-paint .keycard:nth-child(4) { animation-delay: 135ms; }
-  .board.first-paint .keycard:nth-child(n+5) { animation-delay: 180ms; }
+  .board.rise-in .keycard { animation: rise 340ms var(--ease) backwards; }
+  .board.rise-in .keycard:nth-child(2) { animation-delay: 45ms; }
+  .board.rise-in .keycard:nth-child(3) { animation-delay: 90ms; }
+  .board.rise-in .keycard:nth-child(4) { animation-delay: 135ms; }
+  .board.rise-in .keycard:nth-child(n+5) { animation-delay: 180ms; }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 
   .kc-main { display: flex; flex-direction: column; gap: 10px; }
@@ -512,7 +515,7 @@
 
   <div class="stats" id="stats"></div>
   <div class="filter-bar" id="filter-bar"></div>
-  <main class="board first-paint" id="board"></main>
+  <main class="board" id="board"></main>
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
     <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p>
@@ -1973,8 +1976,13 @@
     document.getElementById('foot-meta').textContent =
       'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
     render();
-    /* 入场动效只跑一次：之后任何 render() 都不该让卡片重新淡入 */
-    setTimeout(function () { document.getElementById('board').classList.remove('first-paint'); }, 700);
+    /* 入场开关由 JS 加，不写死在 HTML 上：默认态必须是"可见"。
+       原先 HTML 自带 first-paint + 动画用 backwards 填充，动画不跑时
+       （后台标签页、无头渲染）卡片会停在 opacity:0，等于把内容藏没了。
+       只跑一次：之后任何 render() 都不该让卡片重新淡入。 */
+    var board = document.getElementById('board');
+    board.classList.add('rise-in');
+    setTimeout(function () { board.classList.remove('rise-in'); }, 760);
   }).catch(function (e) {
     document.getElementById('foot-meta').textContent = '服务连接失败：' + e.message;
     toast('服务连接失败，请检查后台服务是否在运行', 'warn');
