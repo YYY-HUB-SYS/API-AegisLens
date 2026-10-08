@@ -57,4 +57,18 @@ function resolveProxy() {
 
 const proxy = resolveProxy();
 
-module.exports = { dataDir, port, proxy, resolveProxy };
+/* 定时调度默认关：一旦开启，服务每次活着的时候都会周期性朝全部厂商发真实请求，
+   这件事得用户自己点（AKM_SCHEDULE_ENABLED 或界面上的开关）。
+   间隔只认分钟，上下限由 api.js 那对常量夹住，这里不做二次判断。 */
+const SCHEDULE_DEFAULT_INTERVAL_MINUTES = 60;
+
+function readScheduleConfig() {
+  const flag = String(process.env.AKM_SCHEDULE_ENABLED || '').trim().toLowerCase();
+  const raw = Number(process.env.AKM_SCHEDULE_INTERVAL_MINUTES);
+  return {
+    enabled: flag === '1' || flag === 'true' || flag === 'on' || flag === 'yes',
+    intervalMinutes: Number.isFinite(raw) && raw > 0 ? raw : SCHEDULE_DEFAULT_INTERVAL_MINUTES
+  };
+}
+
+module.exports = { dataDir, port, proxy, resolveProxy, schedule: readScheduleConfig() };

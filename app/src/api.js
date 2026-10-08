@@ -122,6 +122,52 @@ async function enrichUnknowns(models, fetchImpl) {
   return { enriched: applied.changed.length, notFound: stillUnknown, error: error, models: applied.models };
 }
 
+/* ================= 可被定时器复用的执行路径 =================
+   测试与批量刷新原先只活在路由里，定时器要跑同一条路就得把这段逻辑抄一遍——
+   抄一份就会改一份，所以核心函数放在路由之外，路由只做 HTTP 拆装。 */
+
+async function testKeyAt(storage, k, rawIndex, opts) {
+  const at = endpointAt(k, rawIndex);
+  const test = await adapters.testKey(k.platform, at.ep, k.key, { fetchImpl: opts && opts.fetchImpl });
+  test.epIndex = at.idx;
+  test.epUrl = at.ep.url;
+  test.epStyle = at.ep.style;
+  return storage.saveTest(k.id, test);
+}
+
+async function refreshBalances(storage, opts) {
+  const fetchImpl = opts && opts.fetchImpl;
+  const keys = storage.listKeys();
+  let updated = 0;
+  let failed = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
+    if (!eps.some(function (e) { return adapters.supportsBalanceUrl(e.url); })) {
+      /* 自愈：无匹配端点但状态遗留为 fail/ok/pending（如平台余额接口下线）时归位 */
+      if (k.balance.status !== 'unsupported') {
+        storage.saveBalance(k.id, { value: null, status: 'unsupported' });
+      }
+      continue;
+    }
+    try {
+      const bal = await adapters.fetchBalanceForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
+      if (bal) {
+        storage.saveBalance(k.id, bal);
+        updated++;
+      }
+    } catch (e) {
+      storage.saveBalance(k.id, { value: null, status: 'fail', msg: e.message });
+      failed++;
+    }
+  }
+  return { keys: storage.listKeys(), updated: updated, failed: failed };
+}
+
+/* 下限挡住「每秒朝全部厂商打一轮」，上限挡住配成一年一跑的定时器；调度器与接口共用这一对数 */
+const SCHEDULE_INTERVAL_MIN_MINUTES = 1;
+const SCHEDULE_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
+
 async function routeApi(req, res, ctx) {
   const url = new URL(req.url, 'http://127.0.0.1');
   const path = url.pathname;
@@ -260,12 +306,7 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/test$/.exec(path))) {
     const k = requireKey(m[1]);
     const tb = await readBody(req).catch(function () { return {}; });
-    const at = endpointAt(k, tb.endpointIndex);
-    const test = await adapters.testKey(k.platform, at.ep, k.key, { fetchImpl: fetchImpl });
-    test.epIndex = at.idx;
-    test.epUrl = at.ep.url;
-    test.epStyle = at.ep.style;
-    const rec = storage.saveTest(k.id, test);
+    const rec = await testKeyAt(storage, k, tb.endpointIndex, { fetchImpl: fetchImpl });
     return json(res, 200, { test: rec.test });
   }
 
@@ -391,31 +432,39 @@ async function routeApi(req, res, ctx) {
   }
 
   if (req.method === 'POST' && path === '/api/refresh-balances') {
-    const keys = storage.listKeys();
-    let updated = 0;
-    let failed = 0;
-    for (let i = 0; i < keys.length; i++) {
-      const k = keys[i];
-      const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
-      if (!eps.some(function (e) { return adapters.supportsBalanceUrl(e.url); })) {
-        /* 自愈：无匹配端点但状态遗留为 fail/ok/pending（如平台余额接口下线）时归位 */
-        if (k.balance.status !== 'unsupported') {
-          storage.saveBalance(k.id, { value: null, status: 'unsupported' });
-        }
-        continue;
-      }
-      try {
-        const bal = await adapters.fetchBalanceForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
-        if (bal) {
-          storage.saveBalance(k.id, bal);
-          updated++;
-        }
-      } catch (e) {
-        storage.saveBalance(k.id, { value: null, status: 'fail' });
-        failed++;
-      }
+    return json(res, 200, await refreshBalances(storage, { fetchImpl: fetchImpl }));
+  }
+
+  if (req.method === 'GET' && (m = /^\/api\/keys\/(\d+)\/history$/.exec(path))) {
+    const k = requireKey(m[1]);
+    const kind = str(url.searchParams.get('kind'));
+    if (kind && kind !== 'test' && kind !== 'balance') throw bad(400, 'kind 只支持 test 或 balance');
+    return json(res, 200, {
+      history: storage.listHistory(k.id, { kind: kind, limit: url.searchParams.get('limit') })
+    });
+  }
+
+  if (req.method === 'GET' && path === '/api/schedule') {
+    if (!ctx.scheduler) throw bad(404, '当前进程未挂载调度器');
+    return json(res, 200, { schedule: ctx.scheduler.status() });
+  }
+
+  if (req.method === 'POST' && path === '/api/schedule') {
+    if (!ctx.scheduler) throw bad(404, '当前进程未挂载调度器');
+    const b = await readBody(req);
+    const patch = {};
+    if (b.enabled !== undefined) {
+      if (typeof b.enabled !== 'boolean') throw bad(400, 'enabled 需为 true 或 false');
+      patch.enabled = b.enabled;
     }
-    return json(res, 200, { keys: storage.listKeys(), updated: updated, failed: failed });
+    if (b.intervalMinutes !== undefined) {
+      const n = Number(b.intervalMinutes);
+      if (!Number.isFinite(n) || n < SCHEDULE_INTERVAL_MIN_MINUTES || n > SCHEDULE_INTERVAL_MAX_MINUTES) {
+        throw bad(400, '间隔分钟数需在 ' + SCHEDULE_INTERVAL_MIN_MINUTES + ' 到 ' + SCHEDULE_INTERVAL_MAX_MINUTES + ' 之间');
+      }
+      patch.intervalMinutes = Math.round(n);
+    }
+    return json(res, 200, { schedule: ctx.scheduler.configure(patch) });
   }
 
   if (req.method === 'POST' && path === '/api/import') {
@@ -501,4 +550,10 @@ async function apiRouter(req, res, ctx) {
   }
 }
 
-module.exports = { apiRouter: apiRouter };
+module.exports = {
+  apiRouter: apiRouter,
+  refreshBalances: refreshBalances,
+  testKeyAt: testKeyAt,
+  SCHEDULE_INTERVAL_MIN_MINUTES: SCHEDULE_INTERVAL_MIN_MINUTES,
+  SCHEDULE_INTERVAL_MAX_MINUTES: SCHEDULE_INTERVAL_MAX_MINUTES
+};

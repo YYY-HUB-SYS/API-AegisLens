@@ -97,7 +97,12 @@ function createApp(opts) {
     }
     if (serveVendor(req, res)) return;
     if (req.url.startsWith('/api/')) {
-      return apiRouter(req, res, { storage: storage, fetchImpl: fetchImpl, version: version });
+      return apiRouter(req, res, {
+        storage: storage,
+        fetchImpl: fetchImpl,
+        version: version,
+        scheduler: opts.scheduler || null
+      });
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not Found');
