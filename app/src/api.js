@@ -352,6 +352,8 @@ async function routeApi(req, res, ctx) {
     const upd = { id: mid };
     if (ctx !== undefined) upd.ctx = ctx;
     if (out !== undefined) upd.out = out;
+    if (ctx !== undefined) upd.ctxSrc = 'manual';
+    if (out !== undefined) upd.outSrc = 'manual';
     if (ctx !== undefined || out !== undefined) upd.src = 'manual';
     if (b.note !== undefined) upd.note = str(b.note) || null;
     const rec = storage.upsertModel(k.id, upd);

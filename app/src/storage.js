@@ -9,6 +9,25 @@ const MODEL_EXTRA = ['ctxSrc', 'outSrc', 'conflict', 'outGtCtx', 'reasoning', 'm
 
 function nowIso() { return new Date().toISOString(); }
 
+/* ctx/out 进库只认三种形态：正整数、null（已确认为空）、undefined（本次不动）。
+   /api/import 会把用户 JSON 里的字段原样递进来，SQLite 顺手把 '1e5' 变成 100000
+   却把 'abc' 留在 INTEGER 列里，JSON 后端则两个都不动 —— 同一条数据在两个后端连类型
+   都不一样，消费方没法假设。归一放在这一层，两个后端才谈得上一致。 */
+function normTokens(v) {
+  if (v === undefined || v === null) return v;
+  if (typeof v !== 'number' && typeof v !== 'string') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+function normModel(m) {
+  if (!m || typeof m !== 'object') return m;
+  const r = Object.assign({}, m);
+  if (m.ctx !== undefined) r.ctx = normTokens(m.ctx);
+  if (m.out !== undefined) r.out = normTokens(m.out);
+  return r;
+}
+
 function normEps(platform, eps) {
   return (eps || []).map(function (e) {
     e = e || {};
@@ -181,7 +200,8 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
-    replaceModels(id, models) {
+    replaceModels(id, rawModels) {
+      const models = (rawModels || []).map(normModel);
       const d = find(id);
       if (!d) return null;
       d.models = models;
@@ -191,7 +211,8 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
-    upsertModel(id, m) {
+    upsertModel(id, raw) {
+      const m = normModel(raw);
       const d = find(id);
       if (!d) return null;
       d.models = d.models || [];
@@ -211,7 +232,8 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
-    upsertModels(id, models) {
+    upsertModels(id, rawModels) {
+      const models = (rawModels || []).map(normModel);
       const d = find(id);
       if (!d) return null;
       d.models = d.models || [];
@@ -485,7 +507,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       return toRec(getRow(id));
     },
 
-    replaceModels(id, models) {
+    replaceModels(id, rawModels) {
+      const models = (rawModels || []).map(normModel);
       const cur = getRow(id);
       if (!cur) return null;
       stmt.delModels.run(id);
@@ -497,7 +520,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       return toRec(getRow(id));
     },
 
-    upsertModel(id, m) {
+    upsertModel(id, raw) {
+      const m = normModel(raw);
       const cur = getRow(id);
       if (!cur) return null;
       const hit = stmt.selModel.get(id, m.id);
@@ -517,7 +541,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       return toRec(getRow(id));
     },
 
-    upsertModels(id, models) {
+    upsertModels(id, rawModels) {
+      const models = (rawModels || []).map(normModel);
       const cur = getRow(id);
       if (!cur) return null;
       try {
