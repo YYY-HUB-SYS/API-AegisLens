@@ -272,7 +272,12 @@
     background: var(--surface); transition: border-color var(--t-fast) var(--ease);
   }
   .model-item:hover { border-color: var(--rule); }
-  .model-item.default { border-color: var(--accent-line); background: var(--accent-soft); }
+  .model-item.default { border-color: var(--accent); background: var(--accent-soft); }
+  /* 「当前默认」是状态不是按钮，灰成禁用态就等于没标；描边实色 + 主色文字才压得住那一行 */
+  .m-default {
+    margin-left: auto; font-size: var(--fs-xs); font-weight: 700; color: var(--accent-ink);
+    border: 1px solid var(--accent); border-radius: var(--r-chip); padding: 2px 8px; white-space: nowrap;
+  }
   .mid-param .val { min-width: 0; }
   .mspec { font-size: var(--fs-sm); color: var(--ink-2); }
   .mspec b { color: var(--ink); font-family: var(--mono); font-weight: 700; }
@@ -1204,7 +1209,7 @@
         suppBtn +
         '<button class="btn ghost small" data-act="note-model" data-model="' + esc(m.id) + '">' + (m.note ? '编辑备注' : '备注') + '</button>' +
         (isDefault
-          ? '<button class="btn small" disabled>当前默认</button>'
+          ? '<span class="m-default">当前默认</span>'
           : '<button class="btn small" data-act="set-model" data-model="' + esc(m.id) + '">设为默认</button>') +
         editBar +
         suppBar +

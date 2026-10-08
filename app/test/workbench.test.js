@@ -600,3 +600,13 @@ test('弹层与提示的键盘/读屏出口：焦点要进得去、出得来、T
   assert.ok(/closeOverlay\(btn\.dataset\.close\)/.test(html), '关闭按钮走 data-close');
   assert.ok(/closeOverlay\(ov\.id\)/.test(html.slice(html.indexOf(".querySelectorAll('.overlay')"))), '点遮罩关闭也要走 closeOverlay');
 });
+
+test('默认模型那一行要一眼认得出：实色描边 + 状态徽标，不许退回灰掉的禁用按钮', () => {
+  const html = readHomepage();
+  assert.ok(/\.model-item\.default\s*\{\s*border-color:\s*var\(--accent\)/.test(html),
+    '默认行描边必须用实色 --accent。上一版用 --accent-line（浅色只有 30% 透明），浅色下几乎看不出哪行是当前默认');
+  assert.ok(/\.m-default\s*\{[^}]*border:\s*1px solid var\(--accent\)/.test(html), '徽标要自带实色描边');
+  assert.ok(!/disabled[^>]*>当前默认/.test(html),
+    '「当前默认」是状态不是按钮，渲染成 disabled 会被读成"点不动的按钮"而不是"这行是默认"');
+  assert.ok(/<span class="m-default">当前默认<\/span>/.test(html), '要用 span 徽标');
+});
