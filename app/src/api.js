@@ -82,7 +82,8 @@ function authNoteOf(v) {
   return s;
 }
 
-function parseTokens(v, field) {  if (v === undefined || v === null || v === '') return undefined;
+function parseTokens(v, field) {
+  if (v === undefined || v === null || v === '') return undefined;
   const n = Number(v);
   if (!Number.isInteger(n) || n <= 0 || n > 100000000) {
     throw bad(400, field + '必须是正整数（tokens 数量）');
