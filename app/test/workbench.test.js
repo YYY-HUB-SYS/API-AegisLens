@@ -288,7 +288,10 @@ test('CSS 变量不得有悬空引用（改令牌名时最容易漏）', () => {
 test('双列是开关：属性、按钮、持久化与栅格规则齐备', () => {
   const html = readHomepage();
   assert.ok(html.includes(':root[data-cols="2"] .board'), '双列应挂在 #board 上，挂在 .group 上等于把单卡压窄');
-  assert.ok(html.includes('repeat(2, minmax(0, 1fr))'), '两列要用 minmax(0,1fr) 才允许收缩');
+  assert.ok(/:root\[data-cols="2"\] \.board \{[^}]*columns:\s*2/.test(html),
+    '两列要用多列流。grid 按行对齐，一组 3 张卡挨着一组 1 张卡时，矮的那侧会空出一整行');
+  assert.ok(/:root\[data-cols="2"\] \.group[^{]*\{[^}]*break-inside:\s*avoid/.test(html),
+    '组不许被劈成两半，否则平台标题会和它的卡片分落到两列');
   assert.ok(html.includes('id="btn-cols"'), '顶栏要有双列开关');
   assert.ok(html.includes("localStorage.getItem('aegis-cols')"), '列数选择要持久化');
   assert.ok(html.slice(0, html.indexOf('<style>')).includes("setAttribute('data-cols'"),
@@ -402,4 +405,58 @@ test('字阶：层级阶梯比值要达标，注释不许替代码撒谎', () =>
   assert.ok(v[4] / v[3] >= 1.25, 'lg→xl 应 >= 1.25，实测 ' + (v[4] / v[3]).toFixed(3));
   assert.ok(!/相邻档差\s*>=\s*1\.18/.test(html),
     '旧注释声称相邻档差 >= 1.18，实测三档只有 1.12~1.14，属于注释撒谎');
+});
+
+test('端点兼容模式：界面给可读标签，自定义值必须能原样存回', () => {
+  const html = readHomepage();
+  assert.ok(!html.includes('list="style-list"'), '不该再留裸文本框让人手打 openai/anthropic');
+  assert.ok(html.includes('<select class="ep-style"'), '兼容模式应是下拉');
+  assert.ok(/sel\.value === '__custom'[\s\S]{0,140}ep-style-custom'\)\.value\.trim\(\)/.test(html),
+    '收集时必须取自定义框的值，否则自定义兼容名会被静默丢掉');
+  assert.ok(html.includes("custom.value = style || ''"), '编辑已有的自定义端点时自定义框要回填');
+  assert.ok(/custom\.style\.display = sel\.value === '__custom'/.test(html),
+    '只有选自定义才该出现输入框，否则每行都挂一个空框');
+});
+
+test('内联脚本必须能通过语法解析，且 addEpRow 要自己造出行元素', () => {
+  const html = readHomepage();
+  // 页面里有两段 <script>：head 里的主题预置，和 body 末尾的主脚本。取最长那段。
+  const body = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+    .map(m => m[1]).sort((a, b) => b.length - a.length)[0];
+  assert.ok(body && body.length > 20000, '应截到主脚本主体，实际 ' + (body || '').length);
+  try { new Function(body); }
+  catch (e) { assert.fail('内联脚本语法不过：' + e.message); }
+
+  const at = html.indexOf('function addEpRow(url, style) {');
+  const fn = html.slice(at, html.indexOf('function ', at + 10));
+  assert.ok(/var row = document\.createElement\('div'\)/.test(fn),
+    'addEpRow 必须自己 createElement。上一轮改动把这一行挤掉了，' +
+    '结果 row 未定义、整个表单的端点行渲染不出来，而字符串断言全绿。');
+});
+
+test('epStyleOptions 产出的属性必须能被浏览器正确解析', () => {
+  const html = readHomepage();
+  const at = html.indexOf('var EP_STYLE_KNOWN');
+  const src = html.slice(at, html.indexOf('function addEpRow', at));
+  const fn = new Function(src + '; return epStyleOptions;')();
+  const onAnthropic = fn('anthropic');
+  assert.ok(/<option value="anthropic" selected>/.test(onAnthropic),
+    '选中项要生成合法属性。上一轮多打了一个引号变成 selected"="">，浏览器不认，' +
+    '所有下拉退回第一项 openai，保存时把 anthropic 端点静默覆盖掉了');
+  assert.ok(!/selected"/.test(onAnthropic), '不许出现 selected" 这种断裂属性');
+  assert.ok(/<option value="__custom">/.test(onAnthropic), '已知值时自定义项不该被选中');
+  assert.ok(/<option value="__custom" selected>/.test(fn('mycompat')), '未知值必须落到自定义项');
+});
+
+test('标识两版：顶栏六片叶、favicon 简化版，同盾牌不同复杂度', () => {
+  const read = f => fs.readFileSync(path.join(__dirname, '..', 'public', 'vendor', 'brand', f), 'utf8');
+  const full = read('aegislens-icon.svg'), small = read('aegislens-favicon.svg');
+  const subs = s => ((s.match(/d="[^"]*"/)[0].match(/Z/g) || []).length);
+  assert.strictEqual(subs(full), 8, '原版 = 盾牌 2 环 + 6 片叶');
+  assert.strictEqual(subs(small), 4, '简化版 = 盾牌 2 环 + 实心盘 + 六边形孔');
+  assert.strictEqual(full.match(/viewBox="([^"]+)"/)[1], small.match(/viewBox="([^"]+)"/)[1],
+    '两版 viewBox 必须一致，否则换 favicon 时尺寸会跳');
+  assert.ok(readHomepage().includes('/vendor/brand/aegislens-favicon.svg'), 'favicon 应指向简化版');
+  assert.ok(/prefers-color-scheme:\s*dark/.test(small),
+    '独立 SVG 当 favicon 时 currentColor 不生效，必须自带深浅两色');
 });
