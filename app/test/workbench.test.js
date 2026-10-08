@@ -555,3 +555,43 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
   assert.ok(/\.m-extra\s*\{[^}]*flex-wrap:\s*wrap/.test(html), '.m-extra 要能整体换行');
   assert.ok(/\.m-cap\s*\{[^}]*border:/.test(html), '能力位用描边而不是实心底色，避免和来源标签抢层级');
 });
+
+test('弹层与提示的键盘/读屏出口：焦点要进得去、出得来、Tab 出不去', () => {
+  const html = readHomepage();
+
+  // 1) 四个弹窗都要是可识别的模态，且 aria-labelledby 指向真实存在的 id
+  const overlays = [...html.matchAll(/<div class="modal"([^>]*)>/g)].map(m => m[1]);
+  assert.strictEqual(overlays.length, 4, '应有 4 个 .modal 面板，实得 ' + overlays.length);
+  overlays.forEach(attrs => {
+    assert.ok(/role="dialog"/.test(attrs), '缺 role=dialog：' + attrs);
+    assert.ok(/aria-modal="true"/.test(attrs), '缺 aria-modal');
+    assert.ok(/tabindex="-1"/.test(attrs), '面板要能被程序化聚焦');
+    const id = (attrs.match(/aria-labelledby="([^"]+)"/) || [])[1];
+    assert.ok(id && new RegExp('id="' + id + '"').test(html), 'aria-labelledby 指向了不存在的 id：' + id);
+  });
+
+  // 2) 提示条要有活区，否则「已复制」「测试失败」对读屏完全静默
+  assert.ok(/id="toasts"[^>]*aria-live="polite"/.test(html), '#toasts 必须 aria-live');
+
+  // 3) 开弹窗把焦点送进去、关弹窗还回来，且归还点脱离文档时不硬 focus
+  const open = html.slice(html.indexOf('function openOverlay'), html.indexOf('function closeOverlay'));
+  assert.ok(/overlayReturnFocus = document\.activeElement/.test(open), '要记归还点');
+  assert.ok(/if \(!wasOpen\)/.test(open), '弹窗之间切换时不许覆盖最初的归还点');
+  assert.ok(/panel\.focus\(\)/.test(open), '开弹窗必须把焦点送进面板');
+  const close = html.slice(html.indexOf('function closeOverlay'), html.indexOf("querySelectorAll('[data-close]')"));
+  assert.ok(/document\.contains\(back\)/.test(close), '看板重渲染后归还点是脱离文档的旧节点，focus() 会静默无效，必须先判');
+  assert.ok(/if \(document\.querySelector\('\.overlay\.show'\)\) return/.test(close), '还有弹窗开着时不该抢焦点');
+
+  // 4) Tab 必须被关在当前弹窗里
+  const kb = html.slice(html.indexOf('var FOCUSABLE'), html.indexOf('/* ================= 启动'));
+  assert.ok(/FOCUSABLE/.test(kb) && /ev\.key !== 'Tab'/.test(kb), 'keydown 里要有 Tab 环绕');
+  assert.ok(/ev\.preventDefault\(\)/.test(kb), '环绕到首尾要阻止默认');
+  assert.ok(/!ov\.contains\(cur\)/.test(kb), '焦点还在弹窗外时要先拉回来');
+
+  // 5) 关闭路径只能走 closeOverlay，否则 ESC / 遮罩关闭不还焦点
+  const raw = [...html.matchAll(/classList\.remove\('show'\)/g)].length;
+  assert.strictEqual(raw, 2, '裸关只允许 openOverlay 的互斥清理与 closeOverlay 自己，实得 ' + raw + ' 处');
+  assert.ok(/closeOverlay\(ov\.id\)/.test(kb), 'ESC 必须走 closeOverlay 才会归还焦点');
+  assert.ok(/closeOverlay\(btn\.dataset\.close\)/.test(html), '关闭按钮走 data-close');
+  assert.ok(/closeOverlay\(ov\.id\)/.test(html.slice(html.indexOf(".querySelectorAll('.overlay')"))), '点遮罩关闭也要走 closeOverlay');
+});

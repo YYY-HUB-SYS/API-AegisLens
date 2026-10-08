@@ -582,7 +582,7 @@
 
 <!-- 新增/编辑密钥 -->
 <div class="overlay" id="overlay-form">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="form-title" tabindex="-1">
     <h3 id="form-title">新增密钥</h3>
     <p class="sub">Key 名称、注册时间、有效期均为可选；Key 名称留空将自动取密钥末 4 位。</p>
     <div class="form-grid">
@@ -641,7 +641,7 @@
 
 <!-- 生成配置 -->
 <div class="overlay" id="overlay-config">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" tabindex="-1">
     <h3 id="config-title">生成配置</h3>
     <p class="sub" id="config-sub"></p>
     <div class="seg" id="seg-tool">
@@ -660,12 +660,12 @@
   </div>
 </div>
 
-<div class="toasts" id="toasts"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <!-- 导出 -->
 <div class="overlay" id="overlay-export">
-  <div class="modal">
-    <h3>导出密钥</h3>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title" tabindex="-1">
+    <h3 id="export-title">导出密钥</h3>
     <p class="sub">选择要导出的密钥，仅导出选中项。导出文件为 JSON 格式，可在另一台电脑导入恢复。</p>
     <div class="export-select-all">
       <input type="checkbox" id="export-select-all" checked>
@@ -682,8 +682,8 @@
 
 <!-- 导入 -->
 <div class="overlay" id="overlay-import">
-  <div class="modal">
-    <h3>导入密钥</h3>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="import-title" tabindex="-1">
+    <h3 id="import-title">导入密钥</h3>
     <p class="sub" id="import-sub">请选择要导入的 JSON 文件。</p>
     <div id="import-body"></div>
     <div class="btn-row" id="import-actions">
@@ -2084,13 +2084,26 @@
 
   /* ================= Modal 通用 ================= */
 
+  var overlayReturnFocus = null;
   function openOverlay(id) {
     /* 弹层互斥：叠两层会让底下那层透出来，且 ESC / 点遮罩会一次关掉两层 */
+    var wasOpen = document.querySelector('.overlay.show');
     document.querySelectorAll('.overlay.show').forEach(function (ov) { ov.classList.remove('show'); });
-    document.getElementById(id).classList.add('show');
+    /* 只在从"无弹窗"进入时记归还点；弹窗之间切换要留住最初那个，否则关掉后焦点会掉回弹窗里 */
+    if (!wasOpen) overlayReturnFocus = document.activeElement;
+    var ov = document.getElementById(id);
+    ov.classList.add('show');
+    /* 不把焦点送进弹窗的话，键盘用户按 Tab 会从文档顶部重新走一遍背后的整张看板 */
+    var panel = ov.querySelector('.modal');
+    if (panel) panel.focus();
   }
   function closeOverlay(id) {
     document.getElementById(id).classList.remove('show');
+    if (document.querySelector('.overlay.show')) return;
+    /* 看板重渲染会把触发按钮换成新节点，那时归还点已脱离文档，focus() 静默无效 */
+    var back = overlayReturnFocus;
+    overlayReturnFocus = null;
+    if (back && document.contains(back)) back.focus();
   }
 
   document.querySelectorAll('[data-close]').forEach(function (btn) {
@@ -2101,9 +2114,23 @@
       if (ev.target === ov) closeOverlay(ov.id);
     });
   });
+  var FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])';
   document.addEventListener('keydown', function (ev) {
     if (ev.key === 'Escape') {
-      document.querySelectorAll('.overlay.show').forEach(function (ov) { ov.classList.remove('show'); });
+      document.querySelectorAll('.overlay.show').forEach(function (ov) { closeOverlay(ov.id); });
+      return;
+    }
+    if (ev.key !== 'Tab') return;
+    var ov = document.querySelector('.overlay.show');
+    if (!ov) return;
+    var list = ov.querySelectorAll(FOCUSABLE);
+    if (!list.length) return;
+    var first = list[0], last = list[list.length - 1], cur = document.activeElement;
+    /* 焦点还在弹窗外（例如刚用鼠标点遮罩打开）时，先把 Tab 拉回弹窗内再谈环绕 */
+    if (!ov.contains(cur)) { ev.preventDefault(); first.focus(); return; }
+    if (ev.shiftKey ? cur === first : cur === last) {
+      ev.preventDefault();
+      (ev.shiftKey ? last : first).focus();
     }
   });
 
