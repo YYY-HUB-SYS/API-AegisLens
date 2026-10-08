@@ -164,6 +164,102 @@ function historyRow(seq, keyId, at, entry) {
   };
 }
 
+/* ================= 凭证保险库 =================
+   四个 *_enc 列存的是 crypto.js 给出的密文：这一层不加解密、不校验 enc:v1: 前缀、
+   不改写内容，密文进密文出，解不解是 api 层的事。title/username/url/folder/tags 保持明文，
+   跟 keys 表「除 key_enc 外全明文」的做法一致。
+   两个后端共用下面这套归一/成行函数，SQLite 侧只多一层 snake_case 列名映射 ——
+   models.extra 那次只改一边导致两条后端行为不一致，这里从结构上堵掉。 */
+const CRED_PLAIN = ['title', 'username', 'url', 'folder', 'tags'];
+const CRED_ENC = ['passwordEnc', 'secretEnc', 'totpEnc', 'noteEnc'];
+/* 入参两种拼法都认（表列名是 snake_case，记录形状跟 keys 一样是 camelCase），出参一律 camelCase */
+const CRED_ENC_COLUMN = { passwordEnc: 'password_enc', secretEnc: 'secret_enc', totpEnc: 'totp_enc', noteEnc: 'note_enc' };
+
+function credText(v) { return v == null ? '' : String(v); }
+
+/* 密文原样存：null 还是 null（这一项没录），'' 还是 ''（encryptField 对空串就返回 ''），
+   其余走 String()——对字符串本身是恒等，所以 enc:v1: 前缀和正文一个字节都不会被动到 */
+function credCipher(v) { return v == null ? null : (v === '' ? '' : String(v)); }
+
+/* id 在两个后端走的比较路径不同：SQLite 的 INTEGER 亲和会把 '2' 自己变成 2，
+   JSON 侧是 === 严格比，传字符串就查不到。统一收成数字，api 层传哪种都不会一条后端命中一条不命中。 */
+function credId(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/* 新建用的全量字段：明文缺省空串，密文缺省 null，时间戳由后端补 */
+function credNew(input) {
+  const i = input || {};
+  const doc = { createdAt: null, updatedAt: null, lastUsedAt: null };
+  CRED_PLAIN.forEach(function (f) { doc[f] = credText(i[f]); });
+  CRED_ENC.forEach(function (f) { doc[f] = credCipher(i[f] === undefined ? i[CRED_ENC_COLUMN[f]] : i[f]); });
+  return doc;
+}
+
+/* 补丁只带出现的字段（undefined=这次不动），id/createdAt/updatedAt/lastUsedAt 由存储层自己管，
+   从白名单这里就挡掉了 */
+function credPatch(patch) {
+  const p = patch || {};
+  const out = {};
+  CRED_PLAIN.forEach(function (f) {
+    if (p[f] !== undefined) out[f] = credText(p[f]);
+  });
+  CRED_ENC.forEach(function (f) {
+    const v = p[f] === undefined ? p[CRED_ENC_COLUMN[f]] : p[f];
+    if (v !== undefined) out[f] = credCipher(v);
+  });
+  return out;
+}
+
+/* 两个后端唯一的出口：字段顺序、缺省值都在这一处定死，读回来的行形状因此不可能分叉 */
+function credRecord(c) {
+  return {
+    id: c.id == null ? null : Number(c.id),
+    title: credText(c.title),
+    username: credText(c.username),
+    url: credText(c.url),
+    folder: credText(c.folder),
+    tags: credText(c.tags),
+    passwordEnc: credCipher(c.passwordEnc),
+    secretEnc: credCipher(c.secretEnc),
+    totpEnc: credCipher(c.totpEnc),
+    noteEnc: credCipher(c.noteEnc),
+    createdAt: c.createdAt == null ? null : String(c.createdAt),
+    updatedAt: c.updatedAt == null ? null : String(c.updatedAt),
+    lastUsedAt: c.lastUsedAt == null ? null : String(c.lastUsedAt)
+  };
+}
+
+/* 口令复用检测要的「同一 username 出现在几条记录里」。
+   空白 username 不计：否则每条没填账号的记录都算「复用」，那是噪声不是信号。
+   大小写和前后空格一律不归一——归一方式稍有差别，两个后端就会各自判出不同的组。
+   排序放在 JS 侧做（SQLite 的 BINARY collation 按 UTF-8 字节序，和字符串比较在个别字符上不同），
+   两侧才拿得到同一份顺序。 */
+function credUsernameCounts(pairs) {
+  const out = [];
+  (pairs || []).forEach(function (p) {
+    const u = p.username == null ? '' : String(p.username);
+    const n = Number(p.count);
+    if (!u || !Number.isFinite(n) || n < 1) return;
+    out.push({ username: u, count: n });
+  });
+  out.sort(function (a, b) { return a.username < b.username ? -1 : (a.username > b.username ? 1 : 0); });
+  return out;
+}
+
+function countUsernamesByUsername(list) {
+  const counted = new Map();
+  list.forEach(function (raw) {
+    const u = credText(raw);
+    if (!u) return;
+    counted.set(u, (counted.get(u) || 0) + 1);
+  });
+  const pairs = [];
+  counted.forEach(function (count, username) { pairs.push({ username: username, count: count }); });
+  return credUsernameCounts(pairs);
+}
+
 /* ================= JSON 文件后端 ================= */
 
 function makeJsonStore(dataDir, masterKey) {
@@ -181,12 +277,30 @@ function makeJsonStore(dataDir, masterKey) {
       return Math.max(max, Number(r && r.id) || 0);
     }, 0) + 1;
   }
+  /* credentials 同理：老库没这张表时补上，id 序列从已用过的最大值续 */
+  if (!Array.isArray(data.credentials)) data.credentials = [];
+  if (typeof data.nextCredentialId !== 'number') {
+    data.nextCredentialId = data.credentials.reduce(function (max, r) {
+      return Math.max(max, Number(r && r.id) || 0);
+    }, 0) + 1;
+  }
+  /* pools 同理：账号池是后加的能力，旧文件直接初始化为空 */
+  if (!Array.isArray(data.pools)) data.pools = [];
+  if (typeof data.nextPoolId !== 'number') {
+    data.nextPoolId = data.pools.reduce(function (max, p) {
+      return Math.max(max, Number(p && p.id) || 0);
+    }, 0) + 1;
+  }
   function persist() {
     const tmp = file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
     fs.renameSync(tmp, file);
   }
   function find(id) { return data.keys.find(function (x) { return x.id === id; }) || null; }
+  function findCred(id) {
+    const n = credId(id);
+    return data.credentials.find(function (x) { return x.id === n; }) || null;
+  }
   function trimHistory(keyId) {
     let seen = 0;
     for (let i = data.history.length - 1; i >= 0; i--) {
@@ -223,6 +337,18 @@ function makeJsonStore(dataDir, masterKey) {
       modelsFetched: !!doc.modelsFetched,
       models: (doc.models || []).map(deriveFlags),
       assigned: doc.assigned || [],
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt
+    };
+  }
+
+  /* 账号池只存成员 id 列表；成员密钥的完整记录由 API 层用 storage.getKey 现取，
+     避免这里为了展示把解密后的 key 也带出来 */
+  function toPool(doc) {
+    return {
+      id: doc.id,
+      name: doc.name,
+      keyIds: Array.isArray(doc.keyIds) ? doc.keyIds.slice() : [],
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -404,8 +530,139 @@ function makeJsonStore(dataDir, masterKey) {
       data.keys = data.keys.filter(function (x) { return x.id !== id; });
       if (data.keys.length === before) return false;
       data.history = data.history.filter(function (r) { return r.keyId !== id; });
+      /* 密钥删除后从所有账号池里摘除，避免池里残留指向已删密钥的 id */
+      data.pools.forEach(function (p) {
+        const idx = p.keyIds.indexOf(id);
+        if (idx >= 0) p.keyIds.splice(idx, 1);
+      });
       persist();
       return true;
+    },
+
+    /* ---------- 账号池（与 SQLite 后端同名方法、同结果） ---------- */
+
+    listPools() { return data.pools.map(toPool); },
+
+    getPool(id) {
+      const d = data.pools.find(function (p) { return p.id === id; });
+      return d ? toPool(d) : null;
+    },
+
+    createPool(input) {
+      const doc = {
+        id: data.nextPoolId++,
+        name: input.name,
+        keyIds: Array.isArray(input.keyIds) ? input.keyIds.filter(Number.isInteger) : [],
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      };
+      data.pools.push(doc);
+      persist();
+      return toPool(doc);
+    },
+
+    updatePool(id, patch) {
+      const d = data.pools.find(function (p) { return p.id === id; });
+      if (!d) return null;
+      if (patch.name !== undefined) d.name = patch.name;
+      if (patch.keyIds !== undefined) {
+        d.keyIds = Array.isArray(patch.keyIds) ? patch.keyIds.filter(Number.isInteger) : [];
+      }
+      d.updatedAt = nowIso();
+      persist();
+      return toPool(d);
+    },
+
+    deletePool(id) {
+      const before = data.pools.length;
+      data.pools = data.pools.filter(function (p) { return p.id !== id; });
+      if (data.pools.length === before) return false;
+      persist();
+      return true;
+    },
+
+    addPoolKey(poolId, keyId) {
+      const d = data.pools.find(function (p) { return p.id === poolId; });
+      if (!d) return null;
+      if (d.keyIds.indexOf(keyId) >= 0) return null;
+      d.keyIds.push(keyId);
+      d.updatedAt = nowIso();
+      persist();
+      return toPool(d);
+    },
+
+    removePoolKey(poolId, keyId) {
+      const d = data.pools.find(function (p) { return p.id === poolId; });
+      if (!d) return null;
+      const idx = d.keyIds.indexOf(keyId);
+      if (idx < 0) return null;
+      d.keyIds.splice(idx, 1);
+      d.updatedAt = nowIso();
+      persist();
+      return toPool(d);
+    },
+
+    /* ---------- 凭证保险库（与 SQLite 后端同名方法、同结果；密文原样进原样出） ---------- */
+
+    createCredential(input) {
+      const doc = credNew(input);
+      doc.id = data.nextCredentialId++;
+      doc.createdAt = nowIso();
+      doc.updatedAt = doc.createdAt;
+      data.credentials.push(doc);
+      persist();
+      return credRecord(doc);
+    },
+
+    getCredential(id) {
+      const d = findCred(id);
+      return d ? credRecord(d) : null;
+    },
+
+    listCredentials() {
+      return data.credentials.slice()
+        .sort(function (a, b) { return Number(a.id) - Number(b.id); })
+        .map(credRecord);
+    },
+
+    updateCredential(id, patch) {
+      const d = findCred(id);
+      if (!d) return null;
+      const p = credPatch(patch);
+      Object.keys(p).forEach(function (f) { d[f] = p[f]; });
+      d.updatedAt = nowIso();
+      persist();
+      return credRecord(d);
+    },
+
+    touchCredential(id) {
+      const d = findCred(id);
+      if (!d) return null;
+      d.updatedAt = nowIso();
+      persist();
+      return credRecord(d);
+    },
+
+    /* 只是「用了一次」，不算改动记录：只动 last_used_at，updated_at 保持原值 */
+    setCredentialLastUsed(id) {
+      const d = findCred(id);
+      if (!d) return null;
+      d.lastUsedAt = nowIso();
+      persist();
+      return credRecord(d);
+    },
+
+    deleteCredential(id) {
+      const n = credId(id);
+      const before = data.credentials.length;
+      data.credentials = data.credentials.filter(function (x) { return x.id !== n; });
+      if (data.credentials.length === before) return false;
+      persist();
+      return true;
+    },
+
+    credentialUsernameCounts() {
+      return countUsernamesByUsername(data.credentials.map(function (d) { return d.username; }));
     }
   };
 }
@@ -462,7 +719,35 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  value REAL,',
     '  detail TEXT',
     ');',
-    'CREATE INDEX IF NOT EXISTS history_key_kind ON history (key_id, kind, id);'
+    'CREATE INDEX IF NOT EXISTS history_key_kind ON history (key_id, kind, id);',
+    /* 凭证保险库：四个 *_enc 列存 crypto.js 的密文，这一层不碰加解密；
+       其余列明文，跟 keys 表的做法一致。老库没这张表时 IF NOT EXISTS 直接补建 */
+    'CREATE TABLE IF NOT EXISTS credentials (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  title TEXT DEFAULT \'\',',
+    '  username TEXT DEFAULT \'\',',
+    '  url TEXT DEFAULT \'\',',
+    '  folder TEXT DEFAULT \'\',',
+    '  tags TEXT DEFAULT \'\',',
+    '  password_enc TEXT,',
+    '  secret_enc TEXT,',
+    '  totp_enc TEXT,',
+    '  note_enc TEXT,',
+    '  created_at TEXT,',
+    '  updated_at TEXT,',
+    '  last_used_at TEXT',
+    ');',
+    'CREATE TABLE IF NOT EXISTS pools (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  name TEXT NOT NULL,',
+    '  created_at TEXT,',
+    '  updated_at TEXT',
+    ');',
+    'CREATE TABLE IF NOT EXISTS pool_keys (',
+    '  pool_id INTEGER NOT NULL,',
+    '  key_id INTEGER NOT NULL,',
+    '  PRIMARY KEY (pool_id, key_id)',
+    ');'
   ].join('\n'));
   try {
     db.exec('ALTER TABLE keys ADD COLUMN endpoints_json TEXT');
@@ -497,7 +782,26 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selHistory: db.prepare('SELECT * FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?'),
     selHistoryKind: db.prepare('SELECT * FROM history WHERE key_id = ? AND kind = ? ORDER BY id DESC LIMIT ?'),
     trimHistory: db.prepare('DELETE FROM history WHERE key_id = ? AND id NOT IN (SELECT id FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?)'),
-    delHistory: db.prepare('DELETE FROM history WHERE key_id = ?')
+    delHistory: db.prepare('DELETE FROM history WHERE key_id = ?'),
+    insCredential: db.prepare('INSERT INTO credentials (title, username, url, folder, tags, password_enc, secret_enc, totp_enc, note_enc, created_at, updated_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    selCredential: db.prepare('SELECT * FROM credentials WHERE id = ?'),
+    selAllCredentials: db.prepare('SELECT * FROM credentials ORDER BY id'),
+    updCredential: db.prepare('UPDATE credentials SET title = ?, username = ?, url = ?, folder = ?, tags = ?, password_enc = ?, secret_enc = ?, totp_enc = ?, note_enc = ?, updated_at = ? WHERE id = ?'),
+    touchCredential: db.prepare('UPDATE credentials SET updated_at = ? WHERE id = ?'),
+    setCredentialLastUsed: db.prepare('UPDATE credentials SET last_used_at = ? WHERE id = ?'),
+    delCredential: db.prepare('DELETE FROM credentials WHERE id = ?'),
+    selCredentialUsernames: db.prepare('SELECT username, COUNT(*) AS count FROM credentials GROUP BY username'),
+    selAllPools: db.prepare('SELECT * FROM pools ORDER BY id'),
+    selPool: db.prepare('SELECT * FROM pools WHERE id = ?'),
+    insPool: db.prepare('INSERT INTO pools (name, created_at, updated_at) VALUES (?, ?, ?)'),
+    updPool: db.prepare('UPDATE pools SET name = ?, updated_at = ? WHERE id = ?'),
+    delPool: db.prepare('DELETE FROM pools WHERE id = ?'),
+    delPoolKeys: db.prepare('DELETE FROM pool_keys WHERE pool_id = ?'),
+    delPoolKeyByKey: db.prepare('DELETE FROM pool_keys WHERE key_id = ?'),
+    selPoolKeys: db.prepare('SELECT key_id FROM pool_keys WHERE pool_id = ? ORDER BY rowid'),
+    insPoolKey: db.prepare('INSERT OR IGNORE INTO pool_keys (pool_id, key_id) VALUES (?, ?)'),
+    delPoolKey: db.prepare('DELETE FROM pool_keys WHERE pool_id = ? AND key_id = ?'),
+    touchPool: db.prepare('UPDATE pools SET updated_at = ? WHERE id = ?')
   };
 
   /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
@@ -596,6 +900,36 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     };
   }
   function getRow(id) { return stmt.selectOne.get(id) || null; }
+
+  /* 账号池只存成员 id 列表；成员密钥的完整记录由 API 层用 getKey 现取 */
+  function toPool(row) {
+    return {
+      id: Number(row.id),
+      name: row.name,
+      keyIds: stmt.selPoolKeys.all(row.id).map(function (r) { return Number(r.key_id); }),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    };
+  }
+
+  /* snake_case 列 → camelCase 内部 doc，再走和 JSON 后端同一个 credRecord() 出口 */
+  function credentialFromRow(row) {
+    const c = {
+      id: row.id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      lastUsedAt: row.last_used_at
+    };
+    CRED_PLAIN.forEach(function (f) { c[f] = row[f]; });
+    CRED_ENC.forEach(function (f) { c[f] = row[CRED_ENC_COLUMN[f]]; });
+    return c;
+  }
+  function credentialRecord(row) { return row ? credRecord(credentialFromRow(row)) : null; }
+  /* id 先经 credId 收成数字：非数字一律当查不到，免得把 NaN 绑进 SQL */
+  function getCredRow(id) {
+    const n = credId(id);
+    return Number.isFinite(n) ? (stmt.selCredential.get(n) || null) : null;
+  }
 
   return {
     backend: 'sqlite',
@@ -776,8 +1110,127 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       stmt.delModels.run(id);
       stmt.delAssignedAll.run(id);
       stmt.delHistory.run(id);
+      stmt.delPoolKeyByKey.run(id);
       stmt.delKey.run(id);
       return true;
+    },
+
+    /* ---------- 账号池（与 JSON 后端同名方法、同结果） ---------- */
+
+    listPools() { return stmt.selAllPools.all().map(toPool); },
+
+    getPool(id) {
+      const r = stmt.selPool.get(id);
+      return r ? toPool(r) : null;
+    },
+
+    createPool(input) {
+      const now = nowIso();
+      const r = stmt.insPool.run(input.name, now, now);
+      const poolId = Number(r.lastInsertRowid);
+      (Array.isArray(input.keyIds) ? input.keyIds : []).forEach(function (kid) {
+        stmt.insPoolKey.run(poolId, kid);
+      });
+      return toPool(stmt.selPool.get(poolId));
+    },
+
+    updatePool(id, patch) {
+      const cur = stmt.selPool.get(id);
+      if (!cur) return null;
+      stmt.updPool.run(patch.name !== undefined ? patch.name : cur.name, nowIso(), id);
+      if (patch.keyIds !== undefined) {
+        stmt.delPoolKeys.run(id);
+        (Array.isArray(patch.keyIds) ? patch.keyIds : []).forEach(function (kid) {
+          stmt.insPoolKey.run(id, kid);
+        });
+      }
+      return toPool(stmt.selPool.get(id));
+    },
+
+    deletePool(id) {
+      const cur = stmt.selPool.get(id);
+      if (!cur) return false;
+      stmt.delPoolKeys.run(id);
+      stmt.delPool.run(id);
+      return true;
+    },
+
+    addPoolKey(poolId, keyId) {
+      const cur = stmt.selPool.get(poolId);
+      if (!cur) return null;
+      const r = stmt.insPoolKey.run(poolId, keyId);
+      if (r.changes === 0) return null;
+      stmt.touchPool.run(nowIso(), poolId);
+      return toPool(stmt.selPool.get(poolId));
+    },
+
+    removePoolKey(poolId, keyId) {
+      const cur = stmt.selPool.get(poolId);
+      if (!cur) return null;
+      const r = stmt.delPoolKey.run(poolId, keyId);
+      if (r.changes === 0) return null;
+      stmt.touchPool.run(nowIso(), poolId);
+      return toPool(stmt.selPool.get(poolId));
+    },
+
+    /* ---------- 凭证保险库（与 JSON 后端同名方法、同结果；密文原样进原样出） ---------- */
+
+    createCredential(input) {
+      const now = nowIso();
+      const doc = credNew(input);
+      const r = stmt.insCredential.run(
+        doc.title, doc.username, doc.url, doc.folder, doc.tags,
+        doc.passwordEnc, doc.secretEnc, doc.totpEnc, doc.noteEnc,
+        now, now, null
+      );
+      return credentialRecord(getCredRow(Number(r.lastInsertRowid)));
+    },
+
+    getCredential(id) { return credentialRecord(getCredRow(id)); },
+
+    listCredentials() { return stmt.selAllCredentials.all().map(credentialRecord); },
+
+    updateCredential(id, patch) {
+      const cur = getCredRow(id);
+      if (!cur) return null;
+      const merged = Object.assign(credentialFromRow(cur), credPatch(patch));
+      /* 四个密文列再走一次 credCipher：对字符串是恒等，只是挡住 undefined 绑进 SQL（node:sqlite 会抛） */
+      stmt.updCredential.run(
+        credText(merged.title), credText(merged.username), credText(merged.url),
+        credText(merged.folder), credText(merged.tags),
+        credCipher(merged.passwordEnc), credCipher(merged.secretEnc),
+        credCipher(merged.totpEnc), credCipher(merged.noteEnc),
+        nowIso(), cur.id
+      );
+      return credentialRecord(getCredRow(cur.id));
+    },
+
+    touchCredential(id) {
+      const cur = getCredRow(id);
+      if (!cur) return null;
+      stmt.touchCredential.run(nowIso(), cur.id);
+      return credentialRecord(getCredRow(cur.id));
+    },
+
+    /* 只是「用了一次」，不算改动记录：只动 last_used_at，updated_at 保持原值 */
+    setCredentialLastUsed(id) {
+      const cur = getCredRow(id);
+      if (!cur) return null;
+      stmt.setCredentialLastUsed.run(nowIso(), cur.id);
+      return credentialRecord(getCredRow(cur.id));
+    },
+
+    deleteCredential(id) {
+      const cur = getCredRow(id);
+      if (!cur) return false;
+      stmt.delCredential.run(cur.id);
+      return true;
+    },
+
+    credentialUsernameCounts() {
+      return credUsernameCounts(stmt.selCredentialUsernames.all().map(function (r) {
+        return { username: r.username, count: r.count };
+      }));
     }
   };
 }
