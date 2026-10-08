@@ -73,9 +73,10 @@
     --overlay-ink: rgba(20, 22, 35, 0.5);
     --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.26);
     --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.28);
-    /* 配置代码块与提示条两套主题下都保持深色，不跟随反转 */
-    --code-bg: #141623; --code-ink: #E8EAF4;
-    --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
+    /* 代码面跟随主题。浅色四色对 code-bg 实测 14.41 / 5.69 / 5.15 / 5.16；
+       code-bg 与弹窗白底只差 1.15，靠 .config-pre 的 1px 描边分界。 */
+    --code-bg: #EDEFF5; --code-ink: #1B1E2B;
+    --code-k: #0B6B48; --code-c: #5C6478; --code-s: #8A5A00;
     --toast-bg: #1E2233; --toast-warn: #6E4700; --toast-ok: #0A5F41;
   }
   :root[data-theme="dark"] {
@@ -98,6 +99,7 @@
     --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
     /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
     --code-bg: #232833; --toast-bg: #2A3040;
+    --code-ink: #E8EAF4; --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -234,6 +236,7 @@
   .eye {
     border: none; background: transparent; cursor: pointer; color: var(--ink-3);
     font-size: var(--fs-sm); padding: 3px 6px; border-radius: var(--r-chip);
+    display: inline-flex; align-items: center; justify-content: center;
     transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
   .eye:hover { background: var(--accent-soft); color: var(--accent-ink); }
@@ -737,6 +740,14 @@
     var n = String(k.name || '');
     return n.indexOf(prefix) === 0 && n.length > prefix.length ? n.slice(prefix.length) : n;
   }
+  var EYE_OUTLINE = '<path fill="none" stroke="currentColor" stroke-width="1.5" d="M1.5 8C3.3 4.8 5.6 3.2 8 3.2' +
+    's4.7 1.6 6.5 4.8c-1.8 3.2-4.1 4.8-6.5 4.8S3.3 11.2 1.5 8Z"/>';
+  function eyeIcon(revealed) {
+    var inner = revealed
+      ? '<path stroke="currentColor" stroke-width="1.5" d="M2.9 13.1 13.1 2.9"/>'
+      : '<circle cx="8" cy="8" r="2.1" fill="currentColor"/>';
+    return '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' + EYE_OUTLINE + inner + '</svg>';
+  }
   function autoTailOf(v) {
     var s = String(v == null ? '' : v);
     return s.length >= 4 ? s.slice(-4) : s;
@@ -987,7 +998,7 @@
               '<span class="lbl2">Key</span>' +
               '<span class="val">' + esc(revealed ? k.key : maskKey(k.key)) + '</span>' +
               '<span class="ep-acts">' +
-                '<button class="eye" data-act="reveal" title="' + (revealed ? '隐藏' : '显示明文') + '">' + (revealed ? '🙈' : '👁') + '</button>' +
+                '<button class="eye" data-act="reveal" aria-label="' + (revealed ? '隐藏明文' : '显示明文') + '" title="' + (revealed ? '隐藏' : '显示明文') + '">' + eyeIcon(revealed) + '</button>' +
                 '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
               '</span>' +
             '</span>' +

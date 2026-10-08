@@ -474,3 +474,16 @@ test('P0 回归：窄屏不许再拿 URL 换按钮，收缩压力不得全落在
   const markup = html.slice(html.indexOf("'<span class=\"param url\""), html.indexOf("'<span class=\"param url\"") + 900);
   assert.ok(markup.includes('class="ep-acts"'), '端点三个按钮要包在 .ep-acts 里');
 });
+
+test('代码面与图标：浅色主题下不许再贴一块深色终端，图标不许用 emoji', () => {
+  const html = readHomepage();
+  const lightBlock = html.slice(0, html.indexOf(':root[data-theme="dark"]'));
+  assert.ok(/--code-bg:\s*#EDEFF5/.test(lightBlock),
+    '浅色的 code-bg 必须是浅面。原先两套主题共用 #141623，浅色弹窗里像另一套主题没跟上');
+  const darkBlock = html.slice(html.indexOf(':root[data-theme="dark"]'));
+  assert.ok(/--code-bg:\s*#232833/.test(darkBlock) && /--code-k:\s*#7FE0B4/.test(darkBlock),
+    '深色侧要显式拿回为深底调的亮语法色，否则会继承浅色的深字配色');
+  assert.ok(!/🙈|👁/.test(html), '显示/隐藏明文改用内联 SVG，emoji 跨字体渲染不一致');
+  assert.ok(/function eyeIcon\(revealed\)/.test(html) && /aria-label="' \+ \(revealed \? '隐藏明文'/.test(html),
+    'SVG 图标要 aria-hidden 且按钮自带 aria-label');
+});
