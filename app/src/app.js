@@ -32,9 +32,10 @@ function createApp(opts) {
   const vendorRoot = path.resolve(publicDir, 'vendor');
 
   /* 没显式注入会话时按「免密老安装」开：现有安装的行为一字不改，
-     设过口令之后由 server.js 注入一个锁着的会话 */
+     设过口令之后由 server.js 注入一个锁着的会话。DEK 交给会话持有，
+     免密与口令两条解密路径因此是同一套，不留特判 */
   const vault = opts.vault || createVaultSession({ idleLockMs: opts.idleLockMs });
-  if (!opts.vault) vault.openLegacy();
+  if (!opts.vault) vault.openLegacy(opts.dek);
   const throttle = opts.throttle || {
     unlock: createThrottle({ maxFails: 5 }),
     reveal: createThrottle({ maxFails: 30 })

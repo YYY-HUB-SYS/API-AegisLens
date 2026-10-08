@@ -204,3 +204,25 @@ test('legacy 切到 envelope：先落 lock 再落 unlock，闲置窗口才开始
   c.advance(50);
   assert.strictEqual(s.lockIfIdle(), true);
 });
+
+test('免密会话带 DEK 时 key() 直接可用——凭证解密出口不必为免密特判', () => {
+  const s = vault.createVaultSession({ now: clock().now });
+  const dek = freshDek();
+  s.openLegacy(dek);
+  assert.strictEqual(s.mode(), 'legacy');
+  assert.strictEqual(s.isUnlocked(), true);
+  assert.deepStrictEqual(s.key(), dek);
+  assert.strictEqual(s.openLegacy(dek), false, '同一把 DEK 重复开不该重记审计');
+  const other = freshDek();
+  assert.strictEqual(s.openLegacy(other), true);
+  assert.deepStrictEqual(s.key(), other);
+  assert.strictEqual(s.audit.list().filter(r => r.kind === 'lock').length, 1, '换 DEK 要先落一条 lock');
+  assert.throws(() => s.openLegacy('not-a-buffer'), err => err.httpStatus === 500);
+  assert.throws(() => s.openLegacy(Buffer.alloc(31)), err => err.httpStatus === 500);
+  assert.strictEqual(s.key(), other, '传错形状不能把已经开着的会话搞坏');
+  // 调用方常写 openLegacy(opts.dek)，缺席时是 undefined，不能被当成一把坏 DEK 抛错
+  assert.doesNotThrow(() => s.openLegacy(undefined));
+  assert.strictEqual(s.mode(), 'legacy');
+  assert.throws(() => s.key(), err => err.httpStatus === 423, '没给 DEK 就是没有 DEK');
+  assert.doesNotThrow(() => s.openLegacy(null));
+});

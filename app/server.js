@@ -17,7 +17,8 @@ const app = createApp({
   storage: storage,
   publicDir: path.join(__dirname, 'public'),
   version: pkg.version,
-  scheduler: scheduler
+  scheduler: scheduler,
+  dek: masterKey
 });
 
 app.on('error', function (e) {

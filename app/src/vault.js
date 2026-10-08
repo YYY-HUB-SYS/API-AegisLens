@@ -70,11 +70,19 @@ function createVaultSession(opts) {
     isUnlocked: function () { return open; },
     mode: function () { return mode; },
     unlockedSince: function () { return open ? lastSeenAt : null; },
-    /* 免密老安装走这条路：会话是开着的，但这里不持有 DEK——加解密能力在 store 里，
-       闸门只负责「要不要放明文出去」。 */
-    openLegacy: function () {
-      if (open && mode === 'legacy') return false;
+    /* 免密老安装走这条路：不做闲置锁，但**照样持有 DEK**——盘上本来就有 master.key，
+       收进会话不多暴露什么，反而让所有解密出口只有一条路径；否则免密下每个出口
+       都要特判「没有会话 DEK」，那就长成两套规则了。 */
+    openLegacy: function (legacyDek) {
+      // 调用方常写 openLegacy(opts.dek)，opts.dek 缺席时是 undefined 而不是「没传参数」，
+      // 按 arguments.length 判会把它当成一把坏掉的 DEK 直接抛错
+      const given = legacyDek !== undefined && legacyDek !== null;
+      if (given && (!Buffer.isBuffer(legacyDek) || legacyDek.length !== 32)) {
+        throw vaultError('DEK 形状不对', 500);
+      }
+      if (open && mode === 'legacy' && (given ? dek === legacyDek : !dek)) return false;
       detach('ok', 'replaced');
+      dek = given ? legacyDek : null;
       open = true;
       mode = 'legacy';
       lastSeenAt = now();
