@@ -226,3 +226,20 @@ test('免密会话带 DEK 时 key() 直接可用——凭证解密出口不必�
   assert.throws(() => s.key(), err => err.httpStatus === 423, '没给 DEK 就是没有 DEK');
   assert.doesNotThrow(() => s.openLegacy(null));
 });
+
+test('免密借来的 DEK 锁定后不得清零——那是存储层唯一的密钥', () => {
+  const s = vault.createVaultSession({});
+  const borrowed = freshDek();
+  const copy = Buffer.from(borrowed);
+  s.openLegacy(borrowed);
+  assert.deepStrictEqual(s.key(), copy);
+  s.lock();
+  assert.deepStrictEqual(borrowed, copy, '清零借来的 DEK 会让整库永久解不开');
+  s.openLegacy(borrowed);
+  assert.deepStrictEqual(s.key(), copy, '再解锁还得能用同一把接着解');
+  // 对照：只有会话自己 attach 的才归它负责销毁
+  const mine = freshDek();
+  s.attach(mine, 'envelope');
+  s.lock();
+  assert.ok(mine.every(function (b) { return b === 0; }));
+});

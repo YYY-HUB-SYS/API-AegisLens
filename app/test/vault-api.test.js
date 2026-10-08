@@ -16,7 +16,9 @@ function harness(opts) {
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const vault = createVaultSession({ idleLockMs: o.idleLockMs === undefined ? 60000 : o.idleLockMs });
-  if (!o.locked) vault.openLegacy();
+  /* 免密会话照样持有 DEK，和 server.js 的真实接法一致：
+     否则凭证路由的 ctx.vault.key() 会在测试里永远 423，照不出真问题 */
+  if (!o.locked) vault.openLegacy(mk);
   const throttle = {
     unlock: createThrottle({ maxFails: o.unlockMaxFails == null ? 3 : o.unlockMaxFails }),
     reveal: createThrottle({ maxFails: o.revealMaxFails == null ? 3 : o.revealMaxFails })
@@ -25,6 +27,10 @@ function harness(opts) {
     storage: storage,
     publicDir: path.join(__dirname, '..', 'public'),
     version: 'test',
+    /* 默认给个坏用的 fetch：不传就会走真网络，测试不该碰外网 */
+    fetchImpl: o.fetchImpl || function () {
+      return Promise.resolve(new Response('{"error":"invalid"}', { status: 401 }));
+    },
     vault: vault,
     throttle: throttle
   });
@@ -186,4 +192,143 @@ test('已解锁会话里 envelope 的闲置窗口有读数，legacy 恒为 0', a
     assert.ok(st.data.idleRemainingMs > 0 && st.data.idleRemainingMs <= 30000);
     await close(h);
   } catch (e) { await close(h); throw e; }
+});
+
+/* 掩码收口的负例。不写这一组的话，「GET 不再吐明文」这件事只是我说了一句——
+   api.test.js 全绿也证明不了：它断言的 data.key 是记录对象，不是 Key 字符串。 */
+test('明文出口收口：八处出口一律不回 Key 字符串，reveal 仍能拿到', async () => {
+  const h = harness();
+  const base = await serve(h);
+  const secret = 'sk-mask-check-9182';
+  const importedSecret = 'sk-imported-check-77xz';
+  try {
+    const created = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: secret, name: 'maskme' });
+    assert.strictEqual(created.status, 201);
+    assert.strictEqual(created.data.key.key, undefined, '创建响应里不该有 key 字段');
+    assert.strictEqual(created.data.key.keyMasked, '9182');
+    const id = created.data.key.id;
+
+    const list = await call(base, 'GET', '/api/keys');
+    assert.strictEqual(JSON.stringify(list.data).indexOf(secret), -1, '列表泄露明文');
+
+    /* 改端点让余额支持从有变无，专门走 PUT 里那条 saveBalance 早返回分支 */
+    const put = await call(base, 'PUT', '/api/keys/' + id, {
+      endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }]
+    });
+    assert.strictEqual(JSON.stringify(put.data).indexOf(secret), -1, 'PUT 早返回分支泄露明文');
+    assert.strictEqual(put.data.key.keyMasked, '9182');
+
+    const refreshed = await call(base, 'POST', '/api/refresh-balances', {});
+    assert.strictEqual(JSON.stringify(refreshed.data).indexOf(secret), -1, '余额刷新返回泄露明文');
+
+    const pool = await call(base, 'POST', '/api/pools', { name: '池一', keyIds: [id] });
+    assert.strictEqual(JSON.stringify(pool.data).indexOf(secret), -1, '池子创建返回泄露明文');
+    assert.strictEqual(pool.data.pool.keys[0].keyMasked, '9182');
+    const pools = await call(base, 'GET', '/api/pools');
+    assert.strictEqual(JSON.stringify(pools.data).indexOf(secret), -1, '池子列表泄露明文');
+
+    const tested = await call(base, 'POST', '/api/keys/' + id + '/test', {});
+    assert.strictEqual(JSON.stringify(tested.data).indexOf(secret), -1, '测试结果返回泄露明文');
+
+    const imp = await call(base, 'POST', '/api/import', {
+      keys: [{ name: 'imp1', platform: 'deepseek', key: importedSecret }]
+    });
+    assert.strictEqual(imp.status, 200);
+    assert.strictEqual(imp.data.imported, 1, '导入计数是数字，明细在 keys 里');
+    assert.strictEqual(imp.data.keys[0].key, undefined, '导入明细里不该有 key 字段');
+    assert.strictEqual(imp.data.keys[0].keyMasked, '77xz');
+    assert.strictEqual(JSON.stringify(imp.data).indexOf(importedSecret), -1, '导入返回泄露明文');
+
+    /* 唯一明文出口仍然给得出明文，否则上面那一堆掩码就是把功能砍了 */
+    const revealed = await call(base, 'POST', '/api/keys/' + id + '/reveal', {});
+    assert.strictEqual(revealed.status, 200);
+    assert.strictEqual(revealed.data.key, secret);
+    const revealedImp = await call(base, 'POST', '/api/keys/' + imp.data.keys[0].id + '/reveal', {});
+    assert.strictEqual(revealedImp.data.key, importedSecret);
+  } finally { await close(h); }
+});
+
+/* PUT 不带 key 到底覆不覆盖——前端「没碰过就不提交」全压在这条语义上，
+   不能靠读代码说了算，起服务实跑一遍 */
+test('PUT 不带 key 时原 Key 保持不变，带 key 才换', async () => {
+  const h = harness();
+  const base = await serve(h);
+  try {
+    const created = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-keepme-a1b2', name: 'keep' });
+    const id = created.data.key.id;
+    const upd = await call(base, 'PUT', '/api/keys/' + id, { name: '改个名' });
+    assert.strictEqual(upd.status, 200);
+    assert.strictEqual(upd.data.key.name, '改个名');
+    const r1 = await call(base, 'POST', '/api/keys/' + id + '/reveal', {});
+    assert.strictEqual(r1.data.key, 'sk-keepme-a1b2', '只改名字不该把 Key 抹掉');
+    await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-replaced-c3d4' });
+    const r2 = await call(base, 'POST', '/api/keys/' + id + '/reveal', {});
+    assert.strictEqual(r2.data.key, 'sk-replaced-c3d4');
+  } finally { await close(h); }
+});
+
+/* 凭证链路的端到端：真 storage + 真会话 + 真派发，假对象测不出接线问题 */
+test('凭证端到端：建→列(无密文)→reveal→TOTP→复用检测→删', async () => {
+  const h = harness();
+  const base = await serve(h);
+  try {
+    const made = await call(base, 'POST', '/api/credentials', {
+      title: '内网门户', username: 'ops', url: 'https://intra.corp',
+      password: 'p@ss-12345', totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', tags: '公司,内网'
+    });
+    assert.strictEqual(made.status, 201, JSON.stringify(made.data));
+    const cid = made.data.credential.id;
+    assert.strictEqual(made.data.credential.passwordEnc, undefined);
+    assert.strictEqual(made.data.credential.hasPassword, true);
+    assert.strictEqual(made.data.credential.hasTotp, true);
+
+    const list = await call(base, 'GET', '/api/credentials');
+    assert.strictEqual(list.status, 200);
+    assert.strictEqual(list.data.count, 1);
+    assert.ok(JSON.stringify(list.data).indexOf('enc:v1') === -1, '列表里出现了密文块');
+    assert.ok(JSON.stringify(list.data).indexOf('p@ss-12345') === -1, '列表里出现了明文');
+
+    const rev = await call(base, 'POST', '/api/credentials/' + cid + '/reveal', {});
+    assert.strictEqual(rev.status, 200);
+    assert.strictEqual(rev.data.password, 'p@ss-12345');
+
+    const totp = await call(base, 'GET', '/api/credentials/' + cid + '/totp');
+    assert.strictEqual(totp.status, 200);
+    assert.match(String(totp.data.code), /^\d{6}$/, 'TOTP 要出 6 位码：' + JSON.stringify(totp.data));
+    assert.ok(totp.data.secondsRemaining >= 1 && totp.data.secondsRemaining <= 30);
+    assert.strictEqual(JSON.stringify(totp.data).indexOf('GEZDGNBVGY'), -1, 'TOTP 接口回显了 secret');
+
+    await call(base, 'POST', '/api/credentials', { title: '另一个号', username: 'ops', password: 'weak' });
+    const health = await call(base, 'GET', '/api/credentials/health');
+    assert.strictEqual(health.status, 200);
+    assert.ok(JSON.stringify(health.data).indexOf('p@ss-12345') === -1, '健康页回显了口令');
+    const dump = JSON.stringify(health.data);
+    assert.ok(/ops/.test(dump), '同名复用该被检出：' + dump.slice(0, 200));
+
+    const del = await call(base, 'DELETE', '/api/credentials/' + cid);
+    assert.strictEqual(del.status, 200);
+    const gone = await call(base, 'GET', '/api/credentials/' + cid);
+    assert.strictEqual(gone.status, 404);
+  } finally { await close(h); }
+});
+
+test('凭证链路在锁定态一律 423，且列表响应里没有半个密文', async () => {
+  const h = harness({ locked: true });
+  h.vault.openLegacy(h.mk);
+  const made = await call(await new Promise(function (r) {
+    h.server.listen(0, '127.0.0.1', function () { r('http://127.0.0.1:' + h.server.address().port); });
+  }), 'POST', '/api/credentials', { title: 'T', username: 'u', password: 'pw-value-1' });
+  const id = made.data.credential.id;
+  try {
+    h.vault.lock();
+    const base = 'http://127.0.0.1:' + h.server.address().port;
+    for (const [m, p] of [['GET', '/api/credentials'], ['GET', '/api/credentials/' + id],
+      ['POST', '/api/credentials/' + id + '/reveal'], ['GET', '/api/credentials/' + id + '/totp'],
+      ['GET', '/api/credentials/health']]) {
+      const r = await call(base, m, p, m === 'POST' ? {} : undefined);
+      assert.strictEqual(r.status, 423, m + ' ' + p + ' 锁定态要 423，实得 ' + r.status);
+      assert.strictEqual(JSON.stringify(r.data).indexOf('enc:v1'), -1);
+      assert.strictEqual(JSON.stringify(r.data).indexOf('pw-value-1'), -1);
+    }
+  } finally { await close(h); }
 });

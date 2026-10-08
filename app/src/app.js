@@ -16,6 +16,13 @@ const VENDOR_TYPES = {
   '.txt': 'text/plain; charset=utf-8'
 };
 
+/* 凭证视图是独立文件（为了不和 index.html 抢同一把写锁），但只列举这两个，
+   不放开整个 public 目录——否则数据目录之外的任意文件读取口子又开了一条 */
+const APP_ASSETS = {
+  '/credentials-view.js': 'text/javascript; charset=utf-8',
+  '/credentials-view.css': 'text/css; charset=utf-8'
+};
+
 function pathnameOf(url) {
   const q = url.indexOf('?');
   const h = url.indexOf('#');
@@ -38,8 +45,33 @@ function createApp(opts) {
   if (!opts.vault) vault.openLegacy(opts.dek);
   const throttle = opts.throttle || {
     unlock: createThrottle({ maxFails: 5 }),
-    reveal: createThrottle({ maxFails: 30 })
+    reveal: createThrottle({ maxFails: 30 }),
+    /* 凭证取用单独一档：和 Key 的 reveal 共用额度会让人搞不清是被谁限的 */
+    credential: createThrottle({ maxFails: 20 })
   };
+
+  /* 命中应用自带的静态资产返回 true（已自行应答） */
+  function serveAppAsset(req, res) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    const type = APP_ASSETS[pathnameOf(req.url)];
+    if (!type) return false;
+    const abs = path.resolve(publicDir, pathnameOf(req.url).slice(1));
+    if (!abs.startsWith(path.resolve(publicDir))) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden');
+      return true;
+    }
+    fs.readFile(abs, function (err, buf) {
+      if (err) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not Found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': type, 'Content-Length': buf.length, 'Cache-Control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : buf);
+    });
+    return true;
+  }
 
   let indexHtml = null;
   try {
@@ -106,6 +138,7 @@ function createApp(opts) {
       });
       return res.end(indexHtml);
     }
+    if (serveAppAsset(req, res)) return;
     if (serveVendor(req, res)) return;
     if (req.url.startsWith('/api/')) {
       return apiRouter(req, res, {

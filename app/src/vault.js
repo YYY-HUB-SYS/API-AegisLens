@@ -51,14 +51,18 @@ function createVaultSession(opts) {
   const idleLockMs = numOr(o.idleLockMs, DEFAULT_IDLE_LOCK_MS);
   const audit = o.audit || createAuditSink({ now: now, maxEntries: o.auditMax });
   let dek = null;
+  let owned = false;
   let open = false;
   let mode = null;
   let lastSeenAt = 0;
 
   function detach(evtStatus, evtDetail) {
     const was = open;
-    if (dek) dek.fill(0);
+    /* owned 为假时这把 DEK 是借的（免密模式下它同时是 storage 闭包里的那一个），
+       清零等于把存储层的密钥毁掉，锁一次就整库永久解不开 */
+    if (dek && owned) dek.fill(0);
     dek = null;
+    owned = false;
     open = false;
     mode = null;
     if (was) audit.push({ kind: 'lock', status: evtStatus, detail: evtDetail });
@@ -83,6 +87,7 @@ function createVaultSession(opts) {
       if (open && mode === 'legacy' && (given ? dek === legacyDek : !dek)) return false;
       detach('ok', 'replaced');
       dek = given ? legacyDek : null;
+      owned = false;
       open = true;
       mode = 'legacy';
       lastSeenAt = now();
@@ -93,6 +98,7 @@ function createVaultSession(opts) {
       if (!Buffer.isBuffer(nextDek) || nextDek.length !== 32) throw vaultError('DEK 形状不对', 500);
       detach('ok', 'replaced');
       dek = nextDek;
+      owned = true;
       open = true;
       mode = nextMode || 'envelope';
       lastSeenAt = now();

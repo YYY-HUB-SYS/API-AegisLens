@@ -576,6 +576,7 @@
   .pool-empty h3 { margin-bottom: 8px; color: var(--ink); }
   .pool-empty .btn { margin-top: 16px; }
   </style>
+  <link rel="stylesheet" href="/credentials-view.css">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
@@ -792,6 +793,8 @@
   <div class="filter-bar" id="filter-bar"></div>
   <main class="board" id="board"></main>
   <main class="board" id="pool-board" style="display:none"></main>
+  <!-- 凭证保险库视图：独立文件挂载，避免和上面的密钥板抢同一份 DOM -->
+  <section id="vault" aria-label="账号密码保险库"></section>
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
     <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p>
@@ -891,10 +894,16 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="export-title" tabindex="-1">
     <h3 id="export-title">导出密钥</h3>
     <p class="sub">选择要导出的密钥，仅导出选中项。导出文件为 JSON 格式，可在另一台电脑导入恢复。</p>
+    <p class="sub"><b>默认不含明文密钥</b>：导出件里连 key 这个字段都没有，换机器导入时要重新填口令。要连口令一起带走，得单独勾下面那项。</p>
     <div class="export-select-all">
       <input type="checkbox" id="export-select-all" checked>
       <label for="export-select-all">全选</label>
       <span class="export-count" id="export-count"></span>
+    </div>
+    <div class="export-select-all" style="margin-top:8px">
+      <input type="checkbox" id="export-include-plain">
+      <label for="export-include-plain">包含明文密钥（风险自担）</label>
+      <span class="export-count">勾上才逐条向保险库取用明文，受限流约束，取不到的会被跳过并说明</span>
     </div>
     <div class="export-list" id="export-list"></div>
     <div class="btn-row">
@@ -948,12 +957,21 @@
 
   var state = { keys: [], platforms: {}, meta: null, filter: 'all', pools: [], view: 'keys' };
   var ui = {
-    revealed: {}, drawerOpen: {}, editingNote: {}, editingSupp: {},
+    drawerOpen: {}, editingNote: {}, editingSupp: {},
     manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {}
   };
   var editingId = null;
   var configKeyRef = null;
   var configTool = 'dify';
+
+  /* ================= 按需 reveal（明文唯一出口） =================
+     后端起 /api/keys*、/api/pools 只回 keyMasked（末 4 位），明文只剩 POST /api/keys/:id/reveal
+     这一条路，且它限流（429 + retryAfterMs）、未解锁 423、每次都被审计。所以：
+     一次动作只 reveal 一次，取到用完就丢 —— 下面三个容器都不是数据缓存。
+     revealTmp 只供卡片显示 30 秒；明文绝不进 state.keys，也绝不落 localStorage。 */
+  var revealTmp = {};      /* id -> 明文，仅显示用，到点必删 */
+  var revealTimers = {};   /* id -> 收回掩码的计时器 */
+  var revealNote = {};     /* id -> {pending:true} 取用中 / {err:文案} 取用失败 */
 
   /* ================= API ================= */
 
@@ -969,6 +987,8 @@
         if (!res.ok) {
           var err = new Error(data.error || ('请求失败（HTTP ' + res.status + '）'));
           err.status = res.status;
+          /* 429 的 retryAfterMs 在响应体里，不在这儿捞出来，下游就没法给倒计时 */
+          if (data && typeof data.retryAfterMs === 'number') err.retryAfterMs = data.retryAfterMs;
           throw err;
         }
         return data;
@@ -987,6 +1007,66 @@
       if (state.keys[i].id === rec.id) { state.keys[i] = rec; return; }
     }
     state.keys.push(rec);
+  }
+
+  /* 后端没给出非空字符串就按失败处理：宁可不给，也不让 undefined 拼进配置或剪贴板 */
+  function revealKey(id) {
+    return api('POST', '/keys/' + id + '/reveal', {}).then(function (d) {
+      if (!d || typeof d.key !== 'string' || !d.key) {
+        var empty = new Error('保险库没有返回明文');
+        empty.status = 0;
+        throw empty;
+      }
+      return d;
+    });
+  }
+  function revealLeftSec(e) {
+    return (e && typeof e.retryAfterMs === 'number' && e.retryAfterMs > 0) ? Math.ceil(e.retryAfterMs / 1000) : 0;
+  }
+  function revealFailText(e) {
+    if (!e) return '取不到明文';
+    if (e.status === 423) return '保险库已锁定，请重新解锁后再取用明文';
+    if (e.status === 429) {
+      var left = revealLeftSec(e);
+      return left > 0 ? '取用明文过于频繁，' + left + ' 秒后可重试' : '取用明文过于频繁，请稍后再试';
+    }
+    if (e.status === 404) return '这条密钥已不存在，请刷新页面后再试';
+    return '取不到明文：' + (e.message || '网络或服务异常');
+  }
+  function holdRevealed(id, secret) {
+    revealTmp[id] = secret;
+    clearTimeout(revealTimers[id]);
+    revealTimers[id] = setTimeout(function () { dropRevealed(id); render(); }, 30000);
+  }
+  function dropRevealed(id) {
+    clearTimeout(revealTimers[id]);
+    delete revealTmp[id];
+    delete revealTimers[id];
+  }
+  /* 卡片「显示明文 / 复制完整 Key」共用这条路径：成功显示 30 秒后自动收回，失败把话留在卡片上 */
+  function requestReveal(k) {
+    revealNote[k.id] = { pending: true };
+    render();
+    return revealKey(k.id).then(function (d) {
+      dropRevealed(k.id);
+      delete revealNote[k.id];
+      holdRevealed(k.id, d.key);
+      render();
+      return d;
+    }, function (e) {
+      dropRevealed(k.id);
+      revealNote[k.id] = { err: revealFailText(e) };
+      toast(revealFailText(e), 'warn');
+      render();
+      throw e;
+    });
+  }
+  /* 掩码文案统一出口：接口只给末 4 位（keyMasked）；导入的旧文件自带明文时退回 maskKey 打码。
+     两头都没有就明写「无掩码」，绝不拿空串冒充一条看起来正常的记录。 */
+  function keyMaskText(k) {
+    if (k && k.keyMasked) return '••••••••' + k.keyMasked;
+    if (k && typeof k.key === 'string' && k.key) return maskKey(k.key);
+    return '无掩码';
   }
 
   /* ================= 工具函数 ================= */
@@ -1027,7 +1107,7 @@
     return s.length >= 4 ? s.slice(-4) : s;
   }
   function isAutoName(k) {
-    return !!k.name && k.name === autoTailOf(k.key);
+    return !!k.name && k.name === autoTailOf(k.keyMasked);
   }
   function epSuffix(k) {   /* 让徽章说清是哪条端点通了；该端点事后被改过就标注失效 */
     var t = k.test;
@@ -1369,7 +1449,7 @@
             '<input type="checkbox" class="pool-cb" data-id="' + k.id + '"' + (selected[k.id] ? ' checked' : '') + '>' +
             '<span class="pool-dot" style="background:' + p.color + '"></span>' +
             '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(sn) + '</span>' +
-            '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
+            '<span class="meta">' + esc(keyMaskText(k)) + '</span>' +
           '</label>';
         }).join('')
       : '<p class="meta">还没有任何密钥，请先新增密钥。</p>';
@@ -1378,7 +1458,8 @@
 
   function renderCard(k) {
     var st = keyStatus(k);
-    var revealed = !!ui.revealed[k.id];
+    var revealed = revealTmp[k.id] || '';
+    var rvNote = revealNote[k.id] || {};
     var p = P(k.platform);
     var authNote = authNoteOf(k);
 
@@ -1433,12 +1514,13 @@
             (k.reg ? '<span class="m-item">注册于 <b>' + esc(k.reg) + '</b></span>' : '') +
           '</div>' +
           '<div class="params">' +
-            '<span class="param key" data-copy="' + esc(k.key) + '">' +
+            '<span class="param key" data-key-copy="' + k.id + '">' +
               '<span class="lbl2">Key</span>' +
-              '<span class="val">' + esc(revealed ? k.key : maskKey(k.key)) + '</span>' +
+              '<span class="val">' + esc(rvNote.pending ? '取用中…' : (revealed || keyMaskText(k))) + '</span>' +
+              (rvNote.err ? '<span class="val" style="color:var(--warn)">取不到明文 · ' + esc(rvNote.err) + '</span>' : '') +
               '<span class="ep-acts">' +
-                '<button class="eye" data-act="reveal" aria-label="' + (revealed ? '隐藏明文' : '显示明文') + '" title="' + (revealed ? '隐藏' : '显示明文') + '">' + eyeIcon(revealed) + '</button>' +
-                '<button class="copy-btn" data-act="copy" title="复制完整 Key">复制</button>' +
+                '<button class="eye" data-act="reveal"' + (rvNote.pending ? ' disabled' : '') + ' aria-label="' + (revealed ? '隐藏明文' : '显示明文') + '" title="' + (revealed ? '隐藏' : '显示明文') + '">' + eyeIcon(revealed) + '</button>' +
+                '<button class="copy-btn" data-act="copy"' + (rvNote.pending ? ' disabled' : '') + ' title="复制完整 Key（这一刻才向保险库取用明文，30 秒后收回掩码）">复制</button>' +
               '</span>' +
             '</span>' +
             (k.endpoints || []).map(function (ep, i) {
@@ -1583,14 +1665,23 @@
     var act = btn.dataset.act;
 
     if (act === 'copy') {
-      var holder = btn.closest('[data-copy]');
-      var val = holder ? holder.dataset.copy : '';
-      copyText(val, function () { toast('已复制到剪贴板', 'ok'); });
+      var holder = btn.closest('[data-copy],[data-key-copy]');
+      if (!holder) return;
+      if (holder.hasAttribute('data-key-copy')) {
+        /* 完整 Key 的明文只在这一刻出现一次：reveal 成功才写剪贴板，
+           失败时剪贴板保持原样，卡片上留下取不到的原因 */
+        requestReveal(k).then(function (d) {
+          copyText(d.key, function () { toast('已复制完整 Key（卡片上的明文 30 秒后收回）', 'ok'); });
+        }, function () {});
+        return;
+      }
+      copyText(holder.dataset.copy || '', function () { toast('已复制到剪贴板', 'ok'); });
       return;
     }
     if (act === 'reveal') {
-      ui.revealed[k.id] = !ui.revealed[k.id];
-      render();
+      if (revealTmp[k.id]) { dropRevealed(k.id); delete revealNote[k.id]; render(); return; }
+      if (revealNote[k.id] && revealNote[k.id].pending) return;
+      requestReveal(k).catch(function () {});
       return;
     }
     if (act === 'test') {
@@ -1959,6 +2050,12 @@
     }).join('');
   }
 
+  /* 编辑回填的口令栏：这一栏有没有被用户碰过，决定保存时提不提 key。
+     keyTouched 只由 input 事件置真；程序回填（reveal 回来的明文）不算用户改过。 */
+  var keyTouched = false;
+  var keyTouchBound = false;
+  var fKeyDefaultPh = null;
+
   function openForm(k) {
     editingId = k ? k.id : null;
     document.getElementById('form-title').textContent = k ? '编辑密钥' : '新增密钥';
@@ -1969,7 +2066,13 @@
     document.getElementById('field-custom-name').style.display = fPlatform.value === 'custom' ? '' : 'none';
     fCustomName.value = k && k.platform === 'custom' ? k.customName : '';
     fName.value = k ? k.name : '';
-    fKey.value = k ? k.key : '';
+    if (fKeyDefaultPh === null) fKeyDefaultPh = fKey.placeholder;
+    if (!keyTouchBound) {
+      keyTouchBound = true;
+      fKey.addEventListener('input', function () { keyTouched = true; });
+    }
+    keyTouched = false;
+    fKey.value = '';
     renderEpRows(k && k.endpoints && k.endpoints.length ? k.endpoints : platformDefaultEps(fPlatform.value));
     fModel.value = k ? k.model : P(fPlatform.value).defaultModel;
     fReg.value = k ? (k.reg || '') : '';
@@ -1977,7 +2080,19 @@
     fAuthNote.value = k ? (k.authNote || '') : '';
     updateAuthNotePlaceholder();
     openOverlay('overlay-form');
-    if (!k) fKey.focus();
+    if (!k) { fKey.placeholder = fKeyDefaultPh; fKey.focus(); return; }
+    /* 编辑要回填明文，就在打开这一刻取一次；没取到就摊开说，别留个空栏让人以为口令没了 */
+    fKey.placeholder = '正在从保险库取用明文…';
+    revealKey(k.id).then(function (d) {
+      if (editingId !== k.id) return;
+      if (keyTouched) { fKey.placeholder = fKeyDefaultPh; return; }
+      fKey.value = d.key;
+      fKey.placeholder = '留空并直接保存＝不改口令';
+    }, function (e) {
+      if (editingId !== k.id) return;
+      fKey.placeholder = '口令留空保存将保持原样';
+      keyErr.textContent = revealFailText(e) + '（这一栏留空保存不会改动已存的口令）';
+    });
   }
 
   function updateAuthNotePlaceholder() {
@@ -2004,18 +2119,27 @@
   btnFormSave.addEventListener('click', function () {
     nameErr.textContent = '';
     keyErr.textContent = '';
-    if (!fKey.value.trim()) { keyErr.textContent = 'API Key 为必填项'; fKey.focus(); return; }
+    var typedKey = fKey.value.trim();
+    /* 编辑时没碰过口令栏 = 不改口令：body 里连 key 都不出现，
+       省掉明文往返，也保住「没改就不覆盖」的语义（后端按缺省保留原口令）。 */
+    var keepOriginalKey = !!editingId && !keyTouched;
+    if (!editingId && !typedKey) { keyErr.textContent = 'API Key 为必填项'; fKey.focus(); return; }
+    if (keepOriginalKey && !typedKey && keyErr.textContent === '') {
+      /* 明文没取回来（423/429/网络）也会走到这条路：口令栏空着，保存只改元数据 */
+      toast('未改动 API Key 一栏，本次只保存其他信息');
+    }
+    if (editingId && keyTouched && !typedKey) { keyErr.textContent = 'API Key 被清空了：要么粘贴新值，要么别动这一栏'; fKey.focus(); return; }
     var body = {
       platform: fPlatform.value,
       customName: fCustomName.value.trim(),
       name: fName.value.trim(),
-      key: fKey.value.trim(),
       endpoints: collectEndpoints(),
       model: fModel.value.trim(),
       reg: fReg.value,
       exp: fExp.value,
       authNote: fAuthNote.value.trim()
     };
+    if (!keepOriginalKey) body.key = typedKey;
     var req = editingId
       ? api('PUT', '/keys/' + editingId, body)
       : api('POST', '/keys', body);
@@ -2044,7 +2168,14 @@
     return null;
   }
 
+  /* 明文只走 secret 这一个参数：buildConfig 先 reveal 一次，拿到才交给 composeConfig。
+     取不到就 reject —— 宁可不出配置，也不出「API Key = 」这种看着完整、实为空串的半成品。 */
   function buildConfig(k, tool) {
+    return revealKey(k.id).then(function (d) { return composeConfig(k, tool, d.key); });
+  }
+
+  function composeConfig(k, tool, secret) {
+    if (typeof secret !== 'string' || !secret) throw new Error('取不到明文，未生成配置');
     var meta = currentModelMeta(k);
     var want = tool === 'claude' ? 'anthropic' : 'openai';
     var ep = pickEndpoint(k, want);
@@ -2057,7 +2188,7 @@
       return '# Dify · 模型供应商配置\n' +
         '模型名称: ' + (k.model || '（未设置默认模型）') + '\n' +
         '模型类型: LLM\n' +
-        'API Key: ' + k.key + '\n' +
+        'API Key: ' + secret + '\n' +
         'API base: ' + baseUrl + '\n' +
         '# 模式选「OpenAI-API-compatible」' + (baseUrl ? '' : '（未配置 OpenAI 兼容地址）') + '\n' +
         (mismatch ? '# ⚠ 上述是「' + styleLabel(ep.style) + '」端点，不是 OpenAI 兼容，Dify 可能连不通\n' : '') +
@@ -2068,7 +2199,7 @@
     if (tool === 'n8n') {
       return '// n8n · OpenAI Chat Model 节点\n' +
         'Base URL = ' + baseUrl + '\n' +
-        'API Key = ' + k.key + '\n' +
+        'API Key = ' + secret + '\n' +
         'Model = ' + (k.model || '（未设置默认模型）') + '\n' +
         (mismatch ? '// ⚠ 上述是「' + styleLabel(ep.style) + '」端点，不是 OpenAI 兼容\n' : '') +
         (meta && meta.ctx ? 'Context Window = ' + meta.ctx + '\n' : '') +
@@ -2078,7 +2209,7 @@
     if (tool === 'claude') {
       var cl = ['# Claude Code · 环境变量'];
       cl.push('ANTHROPIC_BASE_URL=' + baseUrl);
-      cl.push('ANTHROPIC_AUTH_TOKEN=' + k.key);
+      cl.push('ANTHROPIC_AUTH_TOKEN=' + secret);
       if (baseUrl && !mismatch) cl.push('# 使用「' + styleLabel(ep.style) + '」端点');
       else if (baseUrl) cl.push('# ⚠ 该密钥没有 Anthropic 兼容端点，上面填的是「' + styleLabel(ep.style) + '」地址；Claude Code 走 /v1/messages，请先在密钥里补一个 Anthropic 兼容地址，否则大概率不通');
       else cl.push('# 未配置任何端点地址');
@@ -2089,7 +2220,7 @@
       return cl.join('\n');
     }
     var U = 'AI';
-    var lines = ['# .env', U + '_API_KEY=' + k.key];
+    var lines = ['# .env', U + '_API_KEY=' + secret];
     if (baseUrl) lines.push(U + '_BASE_URL=' + baseUrl);
     if (mismatch) lines.push('# ⚠ 上述地址是「' + styleLabel(ep.style) + '」端点，非 OpenAI 兼容');
     if (k.model) lines.push(U + '_MODEL=' + k.model);
@@ -2129,12 +2260,44 @@
     }).join('\n');
   }
 
+  var configSeq = 0;
+  var configCdTimer = null;
+
+  /* 429 的 retryAfterMs 走倒计时：每秒刷一行，归零停表；seq 变了（切工具/重开弹窗）就收手 */
+  function configCountdown(e, seq) {
+    var left = revealLeftSec(e);
+    if (!e || e.status !== 429 || left <= 0) return;
+    var pre = document.getElementById('config-pre');
+    configCdTimer = setInterval(function () {
+      left -= 1;
+      if (seq !== configSeq) { clearInterval(configCdTimer); configCdTimer = null; return; }
+      if (left <= 0) {
+        clearInterval(configCdTimer); configCdTimer = null;
+        pre.textContent = '冷却结束，重新点工具标签或「复制整段配置」可再取一次';
+        return;
+      }
+      pre.textContent = '取用明文过于频繁，' + left + ' 秒后可重试';
+    }, 1000);
+  }
+
   function renderConfig() {
     var k = findKey(configKeyRef);
     if (!k) return;
     var meta = currentModelMeta(k);
-    var text = buildConfig(k, configTool);
-    document.getElementById('config-pre').innerHTML = highlightConfig(text);
+    /* 每绘一次取一次明文（换工具标签就是一次新动作）。取不到只写原因，
+       不留一段 AI_KEY= 空值的假配置。 */
+    var pre = document.getElementById('config-pre');
+    var seq = ++configSeq;
+    if (configCdTimer) { clearInterval(configCdTimer); configCdTimer = null; }
+    pre.innerHTML = '<span class="c">正在从保险库取用明文……</span>';
+    buildConfig(k, configTool).then(function (text) {
+      if (seq !== configSeq) return;
+      pre.innerHTML = highlightConfig(text);
+    }, function (e) {
+      if (seq !== configSeq) return;
+      pre.textContent = '取不到明文 · ' + revealFailText(e);
+      configCountdown(e, seq);
+    });
 
     document.getElementById('config-note').textContent = meta && meta.ctx
       ? '已带入上下文 ' + fmtK(meta.ctx) + ' 与最大输出 ' + fmtK(meta.out) + '，配置中使用具体数值'
@@ -2186,12 +2349,19 @@
     var k = findKey(configKeyRef);
     if (!k) return;
     var btn = this;
-    copyText(buildConfig(k, configTool), function () {
-      var old = btn.textContent;
-      btn.textContent = '已复制';
-      setTimeout(function () { btn.textContent = old; }, 1200);
-      toast('配置已复制到剪贴板', 'ok');
-    });
+    btn.disabled = true;
+    /* 复制整段配置也是「真要用的那一刻」：现取现拼，取不到就不碰剪贴板 */
+    revealKey(k.id).then(function (d) {
+      copyText(composeConfig(k, configTool, d.key), function () {
+        var old = btn.textContent;
+        btn.textContent = '已复制';
+        setTimeout(function () { btn.textContent = old; }, 1200);
+        toast('配置已复制到剪贴板', 'ok');
+      });
+    }, function (e) {
+      toast('复制失败，剪贴板未改动：' + revealFailText(e), 'warn');
+      renderConfig();
+    }).then(function () { btn.disabled = false; });
   });
 
   /* ================= 筛选标签 ================= */
@@ -2357,7 +2527,7 @@
         '<input type="checkbox" class="export-cb" data-id="' + k.id + '" checked>' +
         '<span class="plat-dot" style="background:' + p.color + '"></span>' +
         '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(shortName(k)) + '</span>' +
-        '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
+        '<span class="meta">' + esc(keyMaskText(k)) + '</span>' +
       '</label>';
     }).join('');
     updateExportCount();
@@ -2381,6 +2551,25 @@
     updateExportCount();
   });
 
+  /* 导出行：secret 为空时连 key 这个键都不出现（默认走这条）；
+     只有勾选「包含明文密钥（风险自担）」才逐条 reveal 后把明文塞进去。 */
+  function exportRow(k, secret) {
+    var row = {
+      name: k.name,
+      platform: k.platform,
+      customName: k.customName,
+      endpoints: k.endpoints,
+      model: k.model,
+      reg: k.reg,
+      exp: k.exp,
+      authNote: k.authNote,
+      models: k.models,
+      assigned: k.assigned
+    };
+    if (typeof secret === 'string' && secret) row.key = secret;
+    return row;
+  }
+
   document.getElementById('btn-export-confirm').addEventListener('click', function () {
     var selectedIds = {};
     document.querySelectorAll('.export-cb:checked').forEach(function (cb) {
@@ -2388,37 +2577,59 @@
     });
     var selected = state.keys.filter(function (k) { return selectedIds[k.id]; });
     if (!selected.length) { toast('请至少选择一个密钥', 'warn'); return; }
-    var exportData = {
-      type: 'api-aegislens-export',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      keys: selected.map(function (k) {
-        return {
-          name: k.name,
-          platform: k.platform,
-          customName: k.customName,
-          key: k.key,
-          endpoints: k.endpoints,
-          model: k.model,
-          reg: k.reg,
-          exp: k.exp,
-          authNote: k.authNote,
-          models: k.models,
-          assigned: k.assigned
-        };
-      })
-    };
-    var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = 'api-aegislens-export-' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    closeOverlay('overlay-export');
-    toast('已导出 ' + selected.length + ' 个密钥', 'ok');
+    var withPlain = document.getElementById('export-include-plain').checked;
+    var btn = this;
+
+    function ship(rows, failed) {
+      var exportData = {
+        type: 'api-aegislens-export',
+        version: 2,
+        containsPlaintext: !!withPlain,
+        exportedAt: new Date().toISOString(),
+        keys: rows
+      };
+      var blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'api-aegislens-export-' + new Date().toISOString().slice(0, 10) + '.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      closeOverlay('overlay-export');
+      if (failed.length) {
+        toast('已导出 ' + rows.length + ' 个；取不到明文的 ' + failed.length + ' 个已跳过：' + failed.join('；'), 'warn');
+      } else {
+        toast(withPlain
+          ? '已导出 ' + rows.length + ' 个密钥（含明文，风险自担）'
+          : '已导出 ' + rows.length + ' 个密钥（不含明文）', 'ok');
+      }
+    }
+
+    if (!withPlain) {
+      ship(selected.map(function (k) { return exportRow(k, null); }), []);
+      return;
+    }
+    /* 勾了风险自担才取明文：串行逐条，一次动作一次 reveal，撞上限流也只废那一条 */
+    btn.disabled = true;
+    var rows = [];
+    var failed = [];
+    var chain = Promise.resolve();
+    selected.forEach(function (k) {
+      chain = chain.then(function () {
+        return revealKey(k.id).then(function (d) {
+          rows.push(exportRow(k, d.key));
+        }, function (e) {
+          failed.push(platLabel(k) + '·' + shortName(k) + '：' + revealFailText(e));
+        });
+      });
+    });
+    chain.then(function () {
+      btn.disabled = false;
+      if (!rows.length) { toast('一条明文都没取到，未生成文件：' + failed.join('；'), 'warn'); return; }
+      ship(rows, failed);
+    });
   });
 
   document.getElementById('btn-import').addEventListener('click', function () {
@@ -2459,7 +2670,7 @@
             return '<div class="import-item">' +
               '<span class="plat-dot" style="background:' + p.color + '"></span>' +
               '<span class="kname">' + esc(p.name) + ' · ' + esc(shortName(k)) + '</span>' +
-              '<span class="meta">' + esc(maskKey(k.key)) + '</span>' +
+              '<span class="meta">' + esc(keyMaskText(k)) + '</span>' +
             '</div>';
           }).join('') + '</div>';
         document.getElementById('btn-import-exec').textContent = '确认导入';
@@ -2587,6 +2798,18 @@
     toast('服务连接失败，请检查后台服务是否在运行', 'warn');
   });
 })();
+</script>
+<script src="/credentials-view.js"></script>
+<script>
+  /* 凭证视图是独立文件（不抢 index.html 的写锁）。它默认探 /api/vault/init 做首次设口令，
+     后端实际是 /api/vault/passphrase，在这里映射过去，不为它加一条别名路由 */
+  (function () {
+    var root = document.getElementById('vault');
+    if (!window.CredentialsView || !root) return;
+    window.credentialsView = window.CredentialsView.mountCredentialsView(root, {
+      endpoints: { vaultInit: '/api/vault/passphrase' }
+    });
+  })();
 </script>
 </body>
 </html>

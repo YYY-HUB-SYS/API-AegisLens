@@ -439,6 +439,31 @@ function healthReport(req, res, ctx) {
   });
 }
 
+/* 站点口令规则 + 改密直达链接（数据来自随仓 vendor 的 Apple password-manager-resources）。
+   url 在库里本就是明文列，但和其它凭证路由一样先过会话闸门——免得出现
+   「锁定态读不到列表，却能读到某条的站点信息」这种半开的状态 */
+function passwordPolicy(req, res, ctx, id) {
+  ctx.vault.key();
+  const rec = ctx.storage.getCredential(Number(id));
+  if (!rec) throw httpError('记录不存在（id ' + id + '）', 404);
+  let host = '';
+  const raw = String(rec.url || '').trim();
+  if (raw) {
+    try {
+      host = new URL(raw.indexOf('://') === -1 ? 'https://' + raw : raw).hostname;
+    } catch (e) {
+      host = '';
+    }
+  }
+  const rules = host ? passgen.rulesForDomain(host) : null;
+  const changeUrl = host ? passgen.changePasswordUrlFor(host) : null;
+  return ctx.json(res, 200, {
+    domain: host || null,
+    rules: rules || null,
+    changePasswordUrl: changeUrl || null
+  });
+}
+
 function route(req, res, ctx, pathname) {
   const method = String(req.method || 'GET').toUpperCase();
   const rest = pathname.slice(CREDENTIAL_PREFIX.length).replace(/^\/+/, '');
@@ -469,6 +494,10 @@ function route(req, res, ctx, pathname) {
   if (parts.length === 2 && parts[1] === 'totp') {
     if (method !== 'GET') throw httpError('方法不支持：' + method + '（totp 只接受 GET）', 405);
     return totpOne(req, res, ctx, id);
+  }
+  if (parts.length === 2 && parts[1] === 'password-policy') {
+    if (method !== 'GET') throw httpError('方法不支持：' + method + '（password-policy 只接受 GET）', 405);
+    return passwordPolicy(req, res, ctx, id);
   }
   throw httpError('没有这个凭证路由：' + pathname, 404);
 }

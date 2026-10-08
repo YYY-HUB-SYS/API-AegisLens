@@ -1,6 +1,8 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
 const { vaultMode, unlockDek, enablePassphrase, changePassphrase } = require('./crypto');
+const { maskedKeyView } = require('./vault');
+const { handleCredentialsApi } = require('./credentials-api');
 
 function bad(status, message) {
   const e = new Error(message);
@@ -77,13 +79,15 @@ function autoName(keyValue) {
 
 function str(v) { return String(v == null ? '' : v).trim(); }
 
-/* 账号池只持久化成员 id；给前端展示时现取完整密钥记录（含脱敏展示所需字段），
-   池里某个密钥已被删除时过滤掉，不把 null 塞进 keys 数组 */
+/* 账号池只持久化成员 id；给前端展示时现取完整密钥记录，池里某个密钥已被删除时
+   过滤掉而不把 null 塞进 keys 数组。keys 走掩码视图：池子一旦回明文，
+   「堵 GET /api/keys」就变成「改打 GET /api/pools」，等于没堵 */
 function poolWithKeys(storage, pool) {
   const rec = Object.assign({}, pool);
   rec.keys = (pool.keyIds || [])
     .map(function (id) { return storage.getKey(id); })
-    .filter(Boolean);
+    .filter(Boolean)
+    .map(maskedKeyView);
   return rec;
 }
 
@@ -178,7 +182,7 @@ async function refreshBalances(storage, opts) {
       failed++;
     }
   }
-  return { keys: storage.listKeys(), updated: updated, failed: failed };
+  return { keys: storage.listKeys().map(maskedKeyView), updated: updated, failed: failed };
 }
 
 /* 下限挡住「每秒朝全部厂商打一轮」，上限挡住配成一年一跑的定时器；调度器与接口共用这一对数 */
@@ -295,7 +299,9 @@ async function routeApi(req, res, ctx) {
   }
 
   if (req.method === 'GET' && path === '/api/keys') {
-    return json(res, 200, { keys: storage.listKeys() });
+    /* 列表永不含明文：不带 Origin 头的一条本机 curl 过去能拿走全部 Key。
+       明文改由 POST /api/keys/:id/reveal 单条按需给，受会话与限流约束并留审计 */
+    return json(res, 200, { keys: storage.listKeys().map(maskedKeyView) });
   }
 
   if (req.method === 'POST' && path === '/api/keys') {
@@ -336,7 +342,7 @@ async function routeApi(req, res, ctx) {
         ? 'pending'
         : 'unsupported'
     });
-    return json(res, 201, { key: rec });
+    return json(res, 201, { key: maskedKeyView(rec) });
   }
 
   if (req.method === 'PUT' && (m = /^\/api\/keys\/(\d+)$/.exec(path))) {
@@ -390,11 +396,11 @@ async function routeApi(req, res, ctx) {
       const wasSupported = rec.balance.status !== 'unsupported';
       if (supported !== wasSupported) {
         return json(res, 200, {
-          key: storage.saveBalance(id, { value: null, status: supported ? 'pending' : 'unsupported' })
+          key: maskedKeyView(storage.saveBalance(id, { value: null, status: supported ? 'pending' : 'unsupported' }))
         });
       }
     }
-    return json(res, 200, { key: rec });
+    return json(res, 200, { key: maskedKeyView(rec) });
   }
 
   if (req.method === 'DELETE' && (m = /^\/api\/keys\/(\d+)$/.exec(path))) {
@@ -703,7 +709,7 @@ async function routeApi(req, res, ctx) {
             try { storage.addAssigned(rec.id, String(t).trim()); } catch (e) { /* 跳过重复 */ }
           });
         }
-        imported.push(storage.getKey(rec.id));
+        imported.push(maskedKeyView(storage.getKey(rec.id)));
       } catch (e) {
         skipped.push({ name: item.name || '', reason: e.message });
       }
@@ -714,6 +720,22 @@ async function routeApi(req, res, ctx) {
       skippedDetails: skipped,
       total: keys.length,
       keys: imported
+    });
+  }
+
+  /* 凭证子模块own自己的应答，返回 false 才落到下面的 404。
+     它的 bad 是「响应器」而不是我这边的「造 Error」，所以在这里适配一层，
+     不去改它的文件；限流单独用 credential 那一档，不和 Key 的 reveal 共用额度。 */
+  if (path === '/api/credentials' || path.indexOf('/api/credentials/') === 0) {
+    return handleCredentialsApi(req, res, {
+      storage: storage,
+      vault: vault,
+      throttle: throttle.credential || throttle.reveal,
+      json: json,
+      readBody: readBody,
+      bad: function (res2, status, message, extra) {
+        return json(res2, status, Object.assign({ error: message }, extra || {}));
+      }
     });
   }
 
