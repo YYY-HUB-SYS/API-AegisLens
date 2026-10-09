@@ -92,14 +92,20 @@ that trips providers' geo/IP risk controls. See the [deployment guide](./DEPLOYM
 ## Supply chain and telemetry
 
 - **Zero dependencies**: `package.json` declares no dependencies, there is no `npm install` and no build step.
-- Exactly three third-party artefacts ship in the repository. Their licences and provenance live next to them and
-  a test fails if they go missing:
+- **At run time** exactly three third-party artefacts ship in the repository. Their licences and provenance live
+  next to them and `vendor.test.js` fails if they go missing:
 
   | Material | Licence | Files |
   |---|---|---|
   | Lucide icons (inlined sprite) | ISC, plus MIT for the Feather-derived set | `app/public/vendor/icons/LICENSE-ISC.txt`, `CREDITS.md` |
   | JetBrains Mono, latin subset | SIL OFL 1.1 | `app/public/vendor/fonts/OFL.txt`, `CREDITS.md` |
   | Apple `password-manager-resources` rule tables | MIT | `app/src/LICENSE-apple-password-rules.md` |
+
+- **The documentation folder carries more**: `api-aegislens-prd/_shared/` ships 6 `.ttf` files and a
+  `mermaid.min.js` (~3.0 MB) for the product-design page. They are **not part of the running app**; the OFL / MIT
+  licence texts and where they were retrieved from are recorded in `api-aegislens-prd/_shared/CREDITS.md`, which
+  also states plainly that those binaries' **exact versions were not byte-verified** — a known gap left when the
+  licences were added on 2026-10-09, not something already checked.
 
 - **No external references**: no CDN, no remote fonts, no iframes — `homepage.test.js` fails the build over this.
 - **No telemetry**: apart from the endpoints you enter yourself and the public model catalogs fetched by online

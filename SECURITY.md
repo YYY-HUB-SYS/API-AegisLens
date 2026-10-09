@@ -75,12 +75,16 @@ README 顶部就写了这句，这里给出它的确切含义：
 ## 供应链与遥测
 
 - **零依赖**：`package.json` 没有 dependencies，不需要 `npm install`，没有构建步骤。
-- 随仓的第三方材料只有三份，许可证与来源都在仓库里，并由测试盯住在位：
+- **运行时**随仓的第三方材料只有三份，许可证与来源都在仓库里，并由 `vendor.test.js` 盯住在位：
   | 材料 | 许可 | 说明 |
   |---|---|---|
   | Lucide 图标（内联 sprite） | ISC + 部分 Feather 的 MIT | `app/public/vendor/icons/LICENSE-ISC.txt` + `CREDITS.md` |
   | JetBrains Mono 拉丁子集 | SIL OFL 1.1 | `app/public/vendor/fonts/OFL.txt` + `CREDITS.md` |
   | Apple `password-manager-resources` 两份规则表 | MIT | `app/src/LICENSE-apple-password-rules.md` |
+- **文档目录另有第三方资产**：`api-aegislens-prd/_shared/` 为产品设计页带了 6 个 `.ttf` 与一份
+  `mermaid.min.js`（合计约 3.0 MB）。它们**不参与应用运行**；OFL / MIT 许可证正文与取回渠道记在
+  `api-aegislens-prd/_shared/CREDITS.md`，同一份记录里也明写着这些二进制的**具体版本未做字节级核验**——
+  那是 2026-10-09 补许可证时留下的已知缺口，不是已经查清的事。
 - **禁止外链**：不引 CDN、不加载远程字体、不嵌 iframe；`homepage.test.js` 会为此而红。
 - **没有遥测**：除你自己在界面上填写的端点与"联网补全"拉取的公开模型目录（不携带任何密钥）
   之外，不向任何地址发请求。

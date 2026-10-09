@@ -78,3 +78,30 @@ test('字体必须本地自托管，首页不许出现外链资源', () => {
   assert.ok(!/<link[^>]+https?:/.test(html), '不允许外链 <link>');
   assert.ok(!/<script[^>]+src=["']https?:/.test(html), '不允许外链 <script>');
 });
+
+/* 2026-10-09 补 PRD 字体许可证时发现的缺口：应用侧有 vendor.test.js 盯着，
+   文档目录里的 3MB 第三方二进制却一份许可证都没带。这条把规则扩到全仓所有
+   随仓第三方二进制——OFL 与 MIT 都要求声明随副本分发，漏了就是真违规，不是漏写说明。 */
+test('全仓每一个随仓第三方二进制，同目录必须有许可证文件', () => {
+  const root = path.join(__dirname, '..', '..');
+  const BIN_EXT = /\.(ttf|otf|woff2?|min\.js)$/i;
+  const LIC_RE = /(licen[cs]e|ofl|mit|isc|apache|copyright)/i;
+  const dirs = new Map();
+  (function walk(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.name === '.git' || e.name === 'node_modules') continue;
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!BIN_EXT.test(e.name)) continue;
+      const d = path.dirname(p);
+      if (!dirs.has(d)) dirs.set(d, []);
+      dirs.get(d).push(e.name);
+    }
+  })(root);
+  assert.ok(dirs.size >= 3, '至少该扫到应用字体、图标目录与 PRD 目录，实得 ' + dirs.size);
+  for (const [dir, bins] of dirs) {
+    const licences = fs.readdirSync(dir).filter(function (f) { return LIC_RE.test(f); });
+    assert.ok(licences.length > 0,
+      path.relative(root, dir) + ' 里有 ' + bins.join(', ') + ' 却没有任何许可证文件');
+  }
+});
