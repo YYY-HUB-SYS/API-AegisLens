@@ -51,8 +51,13 @@ function createApp(opts) {
   };
 
   /* 闲置自动锁的驱动。不 unref 的话测试里 createApp 之后进程会挂住不退出；
-     免密模式下 lockIfIdle 恒为 false，这个定时器留着不做事也无害 */
-  const idleTimer = setInterval(function () { vault.lockIfIdle(); }, opts.idleLockTickMs || 30000);
+     免密模式下 lockIfIdle 恒为 false，这个定时器留着不做事也无害。
+     锁上时必须连 store 一起关掉：只清会话不关 store，界面写着「已锁定」而进程照样能解密，
+     那就是装样子 */
+  const onLock = opts.onLock || function () { return vault.lock(); };
+  const idleTimer = setInterval(function () {
+    if (vault.lockIfIdle()) onLock();
+  }, opts.idleLockTickMs || 30000);
   if (idleTimer.unref) idleTimer.unref();
 
   /* 命中应用自带的静态资产返回 true（已自行应答） */
@@ -152,7 +157,11 @@ function createApp(opts) {
         version: version,
         scheduler: opts.scheduler || null,
         vault: vault,
-        throttle: throttle
+        throttle: throttle,
+        /* 解锁/锁定不只是改会话状态：store 的建与关归宿主（server.js）管，
+           没注入时退化成「只动会话」，测试里用得上 */
+        onUnlock: opts.onUnlock || function (dek, m) { vault.attach(dek, m); },
+        onLock: onLock
       });
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

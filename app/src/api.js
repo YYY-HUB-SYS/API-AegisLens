@@ -252,13 +252,17 @@ async function routeApi(req, res, ctx) {
       vault.audit.push({ kind: 'unlock', status: 'fail', detail: String(e.message).slice(0, 60) });
       return json(res, 400, { error: e.message });
     }
-    vault.attach(opened.dek, opened.mode);
+    /* store 的建与会话的接必须一次做完（宿主里 openStore 干这两件事）：
+       这里先 attach 再让宿主 attach 一次，第二次会把同一把 DEK 清零给 store */
+    ctx.onUnlock(opened.dek, opened.mode);
     throttle.unlock.passed(gateKey);
     return json(res, 200, { unlocked: true, mode: opened.mode });
   }
 
   if (req.method === 'POST' && path === '/api/vault/lock') {
-    return json(res, 200, { locked: true, wasUnlocked: vault.lock() });
+    const was = vault.isUnlocked();
+    ctx.onLock();
+    return json(res, 200, { locked: true, wasUnlocked: was });
   }
 
   /* 设完口令后当前会话仍可用（DEK 已在手），但开机即锁要等重启才生效——
@@ -322,7 +326,7 @@ async function routeApi(req, res, ctx) {
       vault.audit.push({ kind: 'recover', status: 'fail', detail: String(e.message).slice(0, 60) });
       return json(res, 400, { error: e.message });
     }
-    vault.attach(dek, 'envelope');
+    ctx.onUnlock(dek, 'envelope');
     throttle.unlock.passed(gateKey);
     vault.audit.push({ kind: 'recover', status: 'ok', detail: 'code' });
     return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: true });
