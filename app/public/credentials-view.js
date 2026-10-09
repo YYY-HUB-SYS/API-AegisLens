@@ -125,7 +125,10 @@
 
   // 列表归一化：只接受契约字段，密文一律忽略
   function parseList(data) {
-    var arr = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : null);
+    /* 后端列表回 {credentials:[...]}；只认 items 的话会静默渲染成空列表——
+       不报错、不转圈，就是什么都没有，这类契约错位最难发现 */
+    var arr = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items
+      : (data && Array.isArray(data.credentials) ? data.credentials : null));
     if (!arr) return [];
     return arr.map(function (it) {
       it = it || {};
@@ -274,7 +277,7 @@
     var out = { reuse: [], weak: [], counts: { reuse: 0, weak: 0 }, raw: !!data };
     if (!data || typeof data !== 'object') return out;
     // 复用组
-    var reuseSrc = data.reuse || data.reused || data.reuseGroups || data.passwordReuse || null;
+    var reuseSrc = data.reuse || data.reused || data.reuseGroups || data.passwordReuse || data.usernameReuse || null;
     if (Array.isArray(reuseSrc)) {
       out.reuse = reuseSrc.map(function (g, gi) {
         if (Array.isArray(g)) return { label: '复用组 ' + (gi + 1) + '（' + g.length + ' 处）', items: g.map(normalizeEntry) };
@@ -291,7 +294,7 @@
     if (Array.isArray(weakSrc)) out.weak = weakSrc.map(normalizeEntry);
     else if (weakSrc && typeof weakSrc === 'object' && Array.isArray(weakSrc.items)) out.weak = weakSrc.items.map(normalizeEntry);
     // 计数（契约承诺"弱口令计数"）
-    out.counts.reuse = firstNum(data.reuseCount, data.reusedCount, sumItems(out.reuse), out.reuse.length);
+    out.counts.reuse = firstNum(data.reusedUsernameCount, data.reuseCount, data.reusedCount, sumItems(out.reuse), out.reuse.length);
     out.counts.weak = firstNum(data.weakCount, data.counts && data.counts.weak, out.weak.length);
     return out;
   }
@@ -400,6 +403,8 @@
       }
       if (!endpoints.vaultStatus) { state.status = 'unlock'; return; }
       api.get(endpoints.vaultStatus).then(function (r) {
+        state.passphraseSet = !!(r.ok && r.data && r.data.passphraseSet);
+        state.sessionMode = (r.ok && r.data && r.data.mode) || null;
         if (r.ok && r.data && (r.data.needsSetup === true || r.data.setup === false)) state.status = 'setup';
         else if (r.ok && (r.data && r.data.unlocked === true)) { state.status = 'unlocked'; afterUnlock(); }
         else if (r.classify.kind === 'locked') state.status = 'unlock';
@@ -574,7 +579,10 @@
       }
       var url = mode === 'setup' ? endpoints.vaultInit : endpoints.vaultUnlock;
       if (!url) return Promise.resolve({ ok: false, error: '解锁端点未配置（传入 opts.unlock 或 opts.endpoints）' });
-      return api.send('POST', url, { password: password }).then(function (r) {
+      /* 后端两个端点的字段名不同：设口令要 next，解锁要 passphrase。
+         统一发 password 会被两边都当成缺参 */
+      var body = mode === 'setup' ? { next: password } : { passphrase: password };
+      return api.send('POST', url, body).then(function (r) {
         if (r.ok) {
           var rc = r.data && (r.data.recoveryCode || r.data.recovery || r.data.recoveryCodes);
           return { ok: true, recoveryCode: rc };
@@ -893,15 +901,23 @@
 
     function topBar() {
       var lock = state.status === 'unlocked' ? 'open' : 'locked';
-      var lockTxt = lock === 'open' ? '已解锁' : '已锁定';
+      /* 设置态说「已锁定」是骗人的——库还没建，锁都没东西可锁 */
+      var lockTxt = state.status === 'unlocked' ? '已解锁' : (state.status === 'setup' ? '尚未创建' : '已锁定');
       var showTools = state.status === 'unlocked';
+      /* 口令写了盘但当前进程的会话还是 legacy 免密（开机即锁要重启才生效）。
+         不写这一条，用户会以为设完口令当场就安全了 */
+      /* .cv-banner 是 flex 容器，裸文本节点会被拆成一列一列的 flex item；
+         内容必须包进单个子元素，强调用 strong（b 被样式表设成 display:block） */
+      var legacyRun = (state.passphraseSet && state.sessionMode === 'legacy')
+        ? '<div class="cv-banner" data-kind="423" role="status"><div>口令已设置，但<strong>本次运行仍是免密的</strong>：重启服务后才会要求解锁。点「锁定」可立刻验证闸门是否真的落下。</div></div>'
+        : '';
       return '<div class="cv-top">' +
         '<div class="cv-brand"><span class="cv-mark">' + IC.vault + '</span><div><h1>凭证保险库</h1><p class="cv-mono">LOCAL · ENCRYPTED · ZERO-UPLOAD</p></div></div>' +
         '<div class="cv-spacer"></div>' +
         '<span class="cv-status-chip" data-lock="' + lock + '"><span class="cv-led"></span>' + (lock === 'open' ? IC.unlock : IC.lock) + ' ' + lockTxt + '</span>' +
         (showTools ? '<button class="cv-btn" data-act="refresh-all" type="button" title="刷新">' + IC.refresh + '<span>刷新</span></button>' +
           '<button class="cv-btn ghost" data-act="lock" type="button">' + IC.lock + '<span>锁定</span></button>' : '') +
-        '</div>';
+        '</div>' + legacyRun;
     }
 
     // ---- 门屏（设置 / 解锁）----

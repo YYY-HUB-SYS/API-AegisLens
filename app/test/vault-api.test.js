@@ -410,3 +410,34 @@ test('闲置自动锁真的会自己锁上（定时器驱动，不靠请求带�
     assert.strictEqual(denied.status, 423);
   } finally { await close(h); }
 });
+
+test('拆除明文 master.key：要显式确认、口令必须对，拆完口令是唯一入口', async () => {
+  const h = harness();
+  const base = await serve(h);
+  try {
+    const set = await call(base, 'POST', '/api/vault/passphrase', { next: 'correct-pass-1' });
+    assert.strictEqual(set.status, 200);
+
+    const noConfirm = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: 'correct-pass-1' });
+    assert.strictEqual(noConfirm.status, 400);
+    assert.match(noConfirm.data.error, /不可逆/);
+    assert.ok(fs.existsSync(path.join(h.dir, 'master.key')), '被拒时不能删文件');
+
+    const wrongPw = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: 'wrong-pass-9', confirm: true });
+    assert.strictEqual(wrongPw.status, 403);
+    assert.ok(fs.existsSync(path.join(h.dir, 'master.key')), '口令不对也不能删');
+
+    const ok = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: 'correct-pass-1', confirm: true });
+    assert.strictEqual(ok.status, 200, JSON.stringify(ok.data));
+    assert.strictEqual(fs.existsSync(path.join(h.dir, 'master.key')), false);
+    assert.ok(fs.existsSync(path.join(h.dir, 'vault.key')), '信封要还在，否则整库当场变砖');
+
+    /* 拆完之后锁定再解锁：借来的 DEK 不能被 detach 清零，否则这一步就解不开了 */
+    h.vault.lock();
+    const re = await call(base, 'POST', '/api/vault/unlock', { passphrase: 'correct-pass-1' });
+    assert.strictEqual(re.status, 200);
+    assert.strictEqual(re.data.mode, 'envelope');
+    const st = await call(base, 'GET', '/api/vault/status');
+    assert.ok(st.data.recent.some(function (r) { return r.kind === 'discard' && r.status === 'ok'; }));
+  } finally { await close(h); }
+});

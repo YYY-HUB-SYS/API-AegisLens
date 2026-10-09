@@ -1,6 +1,6 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
-const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret } = require('./crypto');
+const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek } = require('./crypto');
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
@@ -226,6 +226,9 @@ async function routeApi(req, res, ctx) {
       unlocked: vault.isUnlocked(),
       mode: vault.mode(),
       passphraseSet: vaultMode(storage.dataDir) === 'envelope',
+      /* 视图靠这个字段决定进「设置口令」还是「解锁」屏。凭证库强制要口令：
+         给网站密码开免密，就是我们要改掉的那个毛病 */
+      needsSetup: vaultMode(storage.dataDir) !== 'envelope',
       idleRemainingMs: vault.idleRemaining(),
       recent: vault.audit.list().slice(-8)
     });
@@ -323,6 +326,21 @@ async function routeApi(req, res, ctx) {
     throttle.unlock.passed(gateKey);
     vault.audit.push({ kind: 'recover', status: 'ok', detail: 'code' });
     return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: true });
+  }
+
+  /* 拆掉明文 master.key 是整条链上唯一不可逆的动作：不删它，「拷走目录也解不开」
+     就只是说说而已。所以要求显式 confirm，并且先用口令解一次验证通过。 */
+  if (req.method === 'POST' && path === '/api/vault/discard-master-key') {
+    const b = await readBody(req);
+    if (b.confirm !== true) return json(res, 400, { error: '此操作不可逆，必须显式传 confirm: true' });
+    try {
+      discardRawDek(storage.dataDir, str(b.passphrase), { confirm: true });
+    } catch (e) {
+      vault.audit.push({ kind: 'discard', status: 'fail', detail: String(e.message).slice(0, 60) });
+      return json(res, /解锁口令不正确/.test(String(e.message)) ? 403 : 400, { error: e.message });
+    }
+    vault.audit.push({ kind: 'discard', status: 'ok', detail: 'master.key removed' });
+    return json(res, 200, { ok: true, discarded: true, note: '口令成为唯一入口；恢复码仍可用来重置口令' });
   }
 
   /* 明文唯一出口。审计只记 id，绝不记口令本身 */
