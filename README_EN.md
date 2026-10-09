@@ -58,6 +58,11 @@ add key → test connectivity → fetch models → generate config → record wh
 4. **Generate config** — Dify / n8n / Claude Code / `.env` templates, with model parameters and auth notes applied automatically
 5. **Record usage** — keep track of which tools a given key was configured into
 
+Beyond that main line the interface has three independent panels: the **credential vault**
+(site passwords / API private keys / TOTP), **account pools** (group several keys and watch
+member health together), and **consumer tokens** (narrow-scoped keys for local scripts).
+Every capability and the route behind it are listed in the [feature map](#-feature-map).
+
 ---
 
 ## 🧩 Feature map
