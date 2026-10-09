@@ -230,6 +230,10 @@
 
   /* 平台表格 */
   .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  /* 网格项的 min-width 默认是 auto：里面只要放一张有内在宽度的表（全局 table 有 min-width:720px），
+     整页就会被顶宽，而 .table-wrap 那个 overflow-x:auto 永远轮不到生效——容器自己先超了。
+     390px 实测：不写这条，页面横向溢出 91px（表多的那一屏）。 */
+  .start-grid > *, .deploy-grid > *, .feature-grid > *, .security-grid > * { min-width: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 720px; }
   thead th {
     text-align: left; font-size: 12px; font-weight: 600; letter-spacing: .8px;

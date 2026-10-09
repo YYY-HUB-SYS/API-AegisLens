@@ -85,3 +85,17 @@ test('内容与仓库事实一致', () => {
   }
   assert.ok(html.includes('oldgao.com'), '应包含作者个人主页');
 });
+
+/* 全局 `table { min-width: 720px }` 加网格项默认的 `min-width: auto`，两张表放一屏就足以把
+   整页顶宽；`.table-wrap` 那个 overflow-x:auto 轮不到生效，因为容器自己先超了。
+   真量过：390px 视口下页面横向溢出 91px（我往环境变量表里加了三行长文案之后是 230px），
+   补上下面这条规则后四个宽度（390/600/900/1440）都是 0，表在自己框里滚。 */
+test('窄屏：网格项要允许收缩，否则页面整体横向溢出', () => {
+  const html = readHomepage();
+  const rule = html.match(/\.start-grid > \*[^{]*\{\s*min-width:\s*0;?\s*\}/);
+  assert.ok(rule, '缺了「网格项 min-width:0」那条规则：表多的那一屏会把整页顶宽');
+  for (const grid of ['.deploy-grid', '.feature-grid', '.security-grid']) {
+    assert.ok(rule[0].includes(grid), `${grid} 的网格项没跟着夹住：${rule[0]}`);
+  }
+  assert.ok(html.includes('.table-wrap { overflow-x: auto'), '表要能被夹住并自己滚');
+});
