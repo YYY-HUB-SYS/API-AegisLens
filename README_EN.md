@@ -235,12 +235,13 @@ one-click config generation are his. His copyright line stays in `LICENSE`, as t
 
 How much this version adds is measurable rather than a matter of phrasing. The method, so it can be reproduced:
 `git blame --line-porcelain` over each of the 36 files listed by `git ls-files app/src app/public index.html`,
-counting `author` lines — 17,031 lines in total:
+counting `author` lines. The figures below are a snapshot **as of `c298881`** — pinned to a commit, otherwise this
+sentence and the fact it describes drift apart — 17,073 lines in total:
 
 | Author | Lines | Share |
 |---|---|---|
-| YYY-HUB-SYS (this version) | 12,518 | 73.5% |
-| Reinhard (original) | 4,513 | 26.5% |
+| YYY-HUB-SYS (this version) | 12,568 | 73.6% |
+| Reinhard (original) | 4,505 | 26.4% |
 
 24 files contain not a single upstream line, but **those 24 are not one kind of thing**, and lumping them
 together would overstate this version's share of the work:
