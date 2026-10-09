@@ -449,6 +449,10 @@ function makeJsonStore(dataDir, masterKey) {
     backend: 'json',
     dataDir: dataDir,
 
+    /* 和 SQLite 后端同一门面：这边本来就没有常驻句柄（persist() 每次写完就关），
+       空实现是为了调用方不必问「你这边要不要关」 */
+    close() {},
+
     listKeys() { return data.keys.map(toRec); },
     getKey(id) { const d = find(id); return d ? toRec(d) : null; },
 
@@ -523,14 +527,6 @@ function makeJsonStore(dataDir, masterKey) {
       pushHistory(id, testHistoryOf(test), at);
       persist();
       return toRec(d);
-    },
-
-    appendHistory(id, entry) {
-      if (!find(id)) return null;
-      const at = nowIso();
-      const row = pushHistory(id, entry, at);
-      persist();
-      return Object.assign({}, row);
     },
 
     listHistory(id, opts) {
@@ -721,14 +717,6 @@ function makeJsonStore(dataDir, masterKey) {
       if (!d) return null;
       const p = credPatch(patch);
       Object.keys(p).forEach(function (f) { d[f] = p[f]; });
-      d.updatedAt = nowIso();
-      persist();
-      return credRecord(d);
-    },
-
-    touchCredential(id) {
-      const d = findCred(id);
-      if (!d) return null;
       d.updatedAt = nowIso();
       persist();
       return credRecord(d);
@@ -938,7 +926,6 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selCredential: db.prepare('SELECT * FROM credentials WHERE id = ?'),
     selAllCredentials: db.prepare('SELECT * FROM credentials ORDER BY id'),
     updCredential: db.prepare('UPDATE credentials SET title = ?, username = ?, url = ?, folder = ?, tags = ?, password_enc = ?, secret_enc = ?, totp_enc = ?, note_enc = ?, updated_at = ? WHERE id = ?'),
-    touchCredential: db.prepare('UPDATE credentials SET updated_at = ? WHERE id = ?'),
     setCredentialLastUsed: db.prepare('UPDATE credentials SET last_used_at = ? WHERE id = ?'),
     delCredential: db.prepare('DELETE FROM credentials WHERE id = ?'),
     selCredentialUsernames: db.prepare('SELECT username, COUNT(*) AS count FROM credentials GROUP BY username'),
@@ -1109,6 +1096,10 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     backend: 'sqlite',
     dataDir: dataDir,
 
+    /* 每次解锁都会 createStore 一次，句柄原本要等进程退出才放。
+       闲置自动锁 + 每天几十次锁解，攒的是文件描述符（上限就是 EMFILE 那条线）。 */
+    close() { db.close(); },
+
     listKeys() { return stmt.selectAll.all().map(toRec); },
     getKey(id) { const r = getRow(id); return r ? toRec(r) : null; },
 
@@ -1180,12 +1171,6 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       stmt.setTest.run(JSON.stringify(Object.assign({ at: at }, test)), id);
       pushHistory(id, testHistoryOf(test), at);
       return toRec(getRow(id));
-    },
-
-    appendHistory(id, entry) {
-      const cur = getRow(id);
-      if (!cur) return null;
-      return pushHistory(id, entry, nowIso());
     },
 
     listHistory(id, opts) {
@@ -1376,13 +1361,6 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         credCipher(merged.totpEnc), credCipher(merged.noteEnc),
         nowIso(), cur.id
       );
-      return credentialRecord(getCredRow(cur.id));
-    },
-
-    touchCredential(id) {
-      const cur = getCredRow(id);
-      if (!cur) return null;
-      stmt.touchCredential.run(nowIso(), cur.id);
       return credentialRecord(getCredRow(cur.id));
     },
 

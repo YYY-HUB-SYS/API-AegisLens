@@ -126,22 +126,16 @@ BACKENDS.forEach(function (backend) {
       assert.notStrictEqual(upd.updatedAt, created.updatedAt, '更新要刷新 updated_at');
 
       bumpClock();
-      const touched = s.touchCredential(created.id);
-      assert.notStrictEqual(touched.updatedAt, upd.updatedAt, 'touch 就是改 updated_at');
-      assert.strictEqual(touched.createdAt, created.createdAt, 'touch 不许碰 created_at');
-      assert.strictEqual(touched.title, '改名了', 'touch 不该动内容');
-
-      bumpClock();
       const used = s.setCredentialLastUsed(created.id);
       assert.ok(used.lastUsedAt, 'setLastUsed 写上时间戳');
-      assert.strictEqual(used.updatedAt, touched.updatedAt, '「用过一次」不是改动记录，updated_at 不该动');
+      assert.strictEqual(used.updatedAt, upd.updatedAt, '「用过一次」不是改动记录，updated_at 不该动');
       assert.strictEqual(used.createdAt, created.createdAt);
+      assert.strictEqual(used.title, '改名了', 'lastUsed 不许动内容');
 
       assert.strictEqual(s.deleteCredential(created.id), true);
       assert.strictEqual(s.getCredential(created.id), null);
       assert.strictEqual(s.deleteCredential(created.id), false, '删不存在的行返回 false');
       assert.strictEqual(s.updateCredential(created.id, { title: 'x' }), null);
-      assert.strictEqual(s.touchCredential(created.id), null);
       assert.strictEqual(s.setCredentialLastUsed(created.id), null);
       assert.deepStrictEqual(ids(s.listCredentials()), [second.id]);
     } finally { sweep(dir); }
@@ -201,7 +195,6 @@ BACKENDS.forEach(function (backend) {
       assert.deepStrictEqual(s.credentialUsernameCounts(), [], '空表没有账号可数');
       assert.strictEqual(s.getCredential(1), null);
       assert.strictEqual(s.deleteCredential(1), false);
-      assert.strictEqual(s.touchCredential(1), null);
 
       const bare = s.createCredential();
       checkShape(bare, '不带参数');
@@ -446,7 +439,6 @@ test('sqlite 与 json 两条后端：同一套操作的轨迹完全一致', () =
     'getById ' + JSON.stringify(rec(fullCredential())),
     'updated ' + JSON.stringify(rec(Object.assign(fullCredential(), { username: 'moe@example.com' }))),
     'listIds [1,2]',
-    'touchedMoved true',
     'lastUsed before=null set=true updatedAtUntouched=true createdAtUntouched=true',
     'counts [{"username":"moe@example.com","count":1},{"username":"zoe","count":2}]',
     'delete true',
@@ -477,10 +469,6 @@ function exercise(s) {
   bumpClock();
   t.push('updated ' + j(s.updateCredential(created.id, { username: 'moe@example.com' })));
   t.push('listIds ' + JSON.stringify(ids(s.listCredentials())));
-
-  bumpClock();
-  const touched = s.touchCredential(created.id);
-  t.push('touchedMoved ' + (touched.updatedAt !== created.updatedAt));
 
   bumpClock();
   const before = s.getCredential(created.id);

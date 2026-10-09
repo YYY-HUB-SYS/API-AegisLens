@@ -81,14 +81,6 @@ function fakeStorage(c) {
       r.lastUsedAt = stamp();
       return put(r);
     },
-    touchCredential: function (id) {
-      calls.push(['touchCredential', Number(id)]);
-      const r = rows.get(Number(id));
-      if (!r) return null;
-      c.advance(1);
-      r.updatedAt = stamp();
-      return put(r);
-    },
     credentialUsernameCounts: function () {
       const map = new Map();
       Array.from(rows.values()).forEach(function (r) {

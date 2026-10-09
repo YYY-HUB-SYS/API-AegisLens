@@ -144,12 +144,15 @@ BACKENDS.forEach(function (backend) {
 
       const s = store(dir, backend);
       assert.strictEqual(s.listHistory(id, { limit: CAP }).length, CAP, '老库读回整封顶条数');
-      const row = s.appendHistory(id, { kind: 'test', status: 'pass', latency: 9999 });
+      /* 追加走生产那条写入口（saveTest 内部 pushHistory）。
+         原来调的是 storage.appendHistory——一个没有任何调用方的公开方法，已经删了；
+         用它做断言等于用只有测试才用的后门证明后门可用。 */
+      s.saveTest(id, { status: 'pass', latency: 9999 });
       const rows = s.listHistory(id, { limit: CAP });
       assert.strictEqual(rows.length, CAP, '超出的从最旧那条开始丢');
       assert.strictEqual(rows[0].latency, 1, '丢的是最早的观测');
       assert.strictEqual(rows[rows.length - 1].latency, 9999);
-      assert.strictEqual(rows[rows.length - 1].id, row.id, '追加返回的行号与读回来的一致');
+      assert.strictEqual(rows[rows.length - 1].kind, 'test', '最新一条就是刚测的那次');
     } finally { sweep(dir); }
   });
 });

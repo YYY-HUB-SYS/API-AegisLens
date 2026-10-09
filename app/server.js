@@ -78,8 +78,8 @@ function startScheduler() {
 }
 
 function openStore(dek, mode) {
-  /* 注意：每次解锁都会 createStore 一次，而 store 目前没有 close()，SQLite 句柄要等进程
-     退出才释放。真人一次开机解一两次无所谓；测试里反复锁解要留意 Windows 上的临时目录删除。 */
+  /* 每次解锁都新建一个 store（锁着的时候不该存在能解密的对象），所以句柄必须跟着锁一起放掉，
+     见 closeStore。遗留影响写在那边的注释里。 */
   realStore = createStore(config.dataDir, dek);
   vault.attach(dek, mode);
   /* 以调度器**自己的当前状态**为准，不看 config：环境变量只是初值，
@@ -91,6 +91,12 @@ function openStore(dek, mode) {
 
 function closeStore() {
   const had = !!realStore;
+  /* 先关句柄再丢引用：不关的话每次锁解都漏一个 SQLite 文件描述符，
+     闲置自动锁 + 常驻几周就是几百个，最后撞 EMFILE。
+     代价是一条时序：如果「批量刷新余额」这类长请求还在路上就锁了屏，它回来写库时会拿到
+     「数据库已关闭」而不是静默成功。这个代价该付——锁上的语义就是从此写不进去，
+     让一个已经被丢弃的句柄继续可写，等于把「锁定」变成只对内层调用者生效的假象。 */
+  if (realStore) realStore.close();
   realStore = null;
   /* 无条件停：enabled 为假时 stop 只是清掉一个 null 定时器，没有副作用；
      反过来如果只在 schedulerStarted 时停，运行时才开启的那一轮会躲过锁定继续按间隔跑，
