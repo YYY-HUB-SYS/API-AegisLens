@@ -22,11 +22,15 @@
     }
 
   ---- 后端契约（严格按此，不自创密文字段）----
-    GET  /api/credentials              -> 数组：id,title,username,url,folder,tags,
+    GET  /api/credentials              -> {credentials:[…]}，每项 id,title,username,url,folder,tags,
         createdAt,updatedAt,lastUsedAt,hasPassword,hasSecret,hasTotp,hasNote
+        （不是裸数组——按裸数组解析就是一条都不剩，而且不报错）
         未解锁 -> 423 {error:'保险库未解锁'}
-    POST /api/credentials/:id/reveal   -> {password,note,totpSecret}（唯一明文出口，可 423/429）
-    GET  /api/credentials/:id/totp     -> {code,secondsRemaining,digits}
+    POST /api/credentials/:id/reveal   -> {password,secret,note,totpSecret,id,title,username,url,lastUsedAt}
+        （唯一明文出口，可 423/429；secret 是 API 私钥类凭证，那一类没有 password，
+          行标签写的是「密钥」——渲染层漏掉它，点显示就真的没反应。）
+    GET  /api/credentials/:id/totp     -> {code,secondsRemaining,digits,step,algorithm}
+        环形进度按 step（秒）算，别按 30 硬编码：粘进来的 otpauth URI 可以带 period=60/90。
     GET  /api/credentials/health       -> 复用清单 + 弱口令计数，不含口令内容
     POST/PUT/DELETE /api/credentials   -> 写操作；必须同源 Origin
         注：Origin 是浏览器 forbidden header，JS 无法伪造；fetch 默认 credentials:
@@ -45,27 +49,23 @@
     · 口令输入框 autocomplete="new-password"/"off"、spellcheck=false，不参与自动填充/历史。
 
   ---- 手工验收（不依赖后端；用内置假 fetch）----
-    项目里 app/public/ 由静态服务提供。⚠ 本任务约定「先不要自己起服务」，故下列为
-    将来人工验收步骤，非本次已执行：
-      cd app && node server.js   # 另起终端
-      浏览器打开 index.html 后，在控制台执行：
+    应用本身免密启动时主界面已有真数据可看；要用假数据逐态逼出，另起服务
+    （cd app && node server.js），浏览器打开 index.html 后在控制台执行：
         CredentialsView.mountCredentialsView(document.body.firstElementChild,
             { fetchImpl: CredentialsView.CV_MOCK, needsSetup: true })
-      或最省事：建一个临时 test.html 放 public/，内容仅两行 <link>+<script> 再加：
-        <div id="v"></div><script>
-          window.addEventListener('DOMContentLoaded',()=>
-            CredentialsView.mountCredentialsView(document.getElementById('v'),
-              {fetchImpl: CredentialsView.CV_MOCK}));
-        </script>
+      临时 test.html 那种写法也行，但那是会被 git 看见的文件，验完就删，别留在 public/。
       → 依次验：设主口令(二次确认) → 恢复码屏(勾选才能继续) → 列表/卡片(掩码/显示/30s 收回、
         hasTotp 环形倒计时、切标签页收回) → 新增/编辑 + 生成器 → 健康页(复用/弱/超期 +
         空态/加载/错误)。用 CV_MOCK.setMode('423'|'429'|'5xx'|'empty'|'locked') 可逐一逼出各态。
 
-  ---- 本次已实跑的部分 ----
-    · node --check 语法校验：已跑（见交付报告）。
-    · 纯逻辑单测（转义 / 状态归类 / 口令生成 CSPRNG 分布与约束 / 站点规则夹取 /
-      健康归一化 / 超期计算）：在 node 里以无 DOM 方式直接调用 __internals 跑过。
-    · 浏览器内真实渲染 / 计时器 / 剪贴板 / 焦点陷阱：未在无头环境实跑，如实标注。
+  ---- 已经实跑到什么程度（写了就得是真做过）----
+    · node --check 语法校验：跑过。
+    · 纯逻辑单测（test/credentials-view.test.js）：转义 / 状态归类 / 429 文案 / 口令生成的
+      CSPRNG 分布与约束 / 站点规则夹取 / 健康归一化 / 超期 / 编辑提交体 / 挂载-卸载生命周期
+      （用一个最小 DOM 桩在 node 里真跑 mount+destroy）。
+    · 真浏览器对着活服务：编辑只改标题时 PUT 体不含 password/note 两键、reveal 回来的口令与
+      备注原样还在、390px 窄屏不横向溢出（这几条是那样抓出来的：测试全绿而数据在丢）。
+    · 仍未系统走过：上面那套六态逐一逼出、剪贴板、焦点陷阱。别把这段当已验。
   ============================================================================
 */
 (function (global) {
@@ -114,12 +114,24 @@
     var msg = (data && (data.error || data.message)) || '';
     if (status >= 200 && status < 300) return { kind: 'ok', message: '' };
     if (status === 423) return { kind: 'locked', message: msg || '保险库未解锁' };
-    if (status === 429) return { kind: 'rate', message: msg || '操作过于频繁，请稍候再试' };
+    if (status === 429) return { kind: 'rate', message: msg || '操作过于频繁，请稍候再试', retryAfterMs: retryMsOf(data) };
     if (status === 401 || status === 403) return { kind: 'locked', message: msg || '口令不正确或会话失效' };
     if (status === 404) return { kind: 'notfound', message: msg || '未找到该资源' };
     if (status >= 500) return { kind: 'server', message: msg || '服务暂时不可用（' + status + '）' };
     if (!status) return { kind: 'net', message: msg || '无法连接本地保险库服务' };
     return { kind: 'client', message: msg || ('请求失败（' + status + '）') };
+  }
+
+  /* 429 的等待时长只在响应体里（retryAfterMs），不在这里捞出来，界面就剩一句
+     「稍后再试」——人会连着点，每点一次又把窗口往后推。姊妹模块 consumer-view 已经这么做了。 */
+  function retryMsOf(data) {
+    return data && typeof data.retryAfterMs === 'number' && data.retryAfterMs > 0 ? data.retryAfterMs : 0;
+  }
+  function retryText(ms) { return '请 ' + Math.max(1, Math.ceil((ms || 0) / 1000)) + ' 秒后再试。'; }
+  function rateMessage(cls, fallback) {
+    var m = (cls && cls.message) || fallback || '';
+    if (cls && cls.kind === 'rate' && cls.retryAfterMs > 0) m = m + ' ' + retryText(cls.retryAfterMs);
+    return m;
   }
 
   function isErrClass(kind) { return kind === 'locked' || kind === 'rate' || kind === 'server' || kind === 'net'; }
@@ -357,6 +369,24 @@
     return payload;
   }
 
+  /* 口令/密钥那一行。提到模块作用域是为了能在 node 里直接对着断言——
+     这一度的事故是「字段被渲染层丢掉」：请求发了、明文回来了，界面上却什么都不变，
+     接口测试和肉眼都看不出来（详见函数体里那段）。 */
+  function secretRowInner(c, revealed) {
+    /* reveal 一条给全套明文，而 API 私钥类凭证只有 secret 没有 password（列表里那行标着「密钥」）。
+       以前只读 password：点了「显示」请求真发、明文真回，界面却一个字节都不变——
+       看着像按钮坏了，其实是渲染层把字段丢了。 */
+    var isKeyOnly = !!(c && c.hasSecret && !c.hasPassword);
+    var val = revealed ? (revealed.password || revealed.secret) : null;
+    if (val) {
+      return '<span class="cv-secret-val cv-revealed cv-mono">' + escapeHtml(val) + '</span>' +
+        '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="copy" data-copy="' + escapeHtml(val) + '" aria-label="复制' + (revealed.password ? '口令' : '密钥') + '">' + IC.copy + '</button></span>';
+    }
+    var ph = isKeyOnly ? '••••••••••••' : '••••••••';
+    return '<span class="cv-redact" aria-hidden="true">' + ph + '</span>' +
+      '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="reveal" data-id="' + escapeHtml(c && c.id) + '" aria-pressed="false" aria-label="显示' + (isKeyOnly ? '密钥' : '口令') + '">' + IC.eye + '<span>显示</span></button></span>';
+  }
+
   function mountCredentialsView(rootEl, opts) {
     opts = opts || {};
     if (!rootEl) throw new Error('mountCredentialsView: rootEl 必需');
@@ -399,11 +429,17 @@
 
     var timers = { reveal: {}, tick: null };
     var api = makeApi(fetchImpl, endpoints);
+    /* destroy() 承诺能拆干净。委托监听一律走 bind() 登记，别靠"记得写一条 removeEventListener"
+       ——这条线以前就是靠记的，6 条里一条都没记，拆完再挂载同一个 root 会双份触发。 */
+    var bindings = [];
+    function bind(el, type, fn) { el.addEventListener(type, fn); bindings.push([el, type, fn]); }
 
     // ---------- 生命周期 ----------
     function destroy() {
       Object.keys(timers.reveal).forEach(clearRevealTimer);
       if (timers.tick) clearInterval(timers.tick);
+      bindings.forEach(function (b) { b[0].removeEventListener(b[1], b[2]); });
+      bindings.length = 0;
       document.removeEventListener('visibilitychange', onVisibility);
       mountPoint.innerHTML = '';
       rootEl.classList.remove('cv-root');
@@ -499,9 +535,13 @@
       api.get(endpoints.totp(id)).then(function (r) {
         if (r.classify.kind === 'locked') { lockOut(r.classify); return; }
         var d = r.data || {};
-        if (!r.ok) { state.totp[id] = { code: null, secondsRemaining: 0, digits: d.digits || 6, period: 30, loading: false, error: r.classify }; syncTotpCells(); renderIfUnlocked(); return; }
+        if (!r.ok) { state.totp[id] = { code: null, secondsRemaining: 0, digits: d.digits || 6, period: prev.period || 30, loading: false, error: r.classify }; syncTotpCells(); renderIfUnlocked(); return; }
         var sec = typeof d.secondsRemaining === 'number' ? d.secondsRemaining : 0;
-        state.totp[id] = { code: d.code || '——————', secondsRemaining: sec, digits: d.digits || 6, period: Math.max(sec, 1, 29), loading: false, error: null };
+        /* 周期以服务端给的 step 为准：粘进来的 otpauth URI 可以带 period=60/90，
+           环形进度按硬编码 30 秒算会让这类记录一直是「半圈」——数字对、圈不对，最误导人。
+           后端没给（老数据/别的实现）才退回观测到的最大值。 */
+        var step = typeof d.step === 'number' && d.step > 0 ? d.step : Math.max(sec, 1, 30);
+        state.totp[id] = { code: d.code || '——————', secondsRemaining: sec, digits: d.digits || 6, period: step, loading: false, error: null };
         syncTotpCells();
       });
     }
@@ -528,8 +568,8 @@
       if (state.reveal[id]) { hideReveal(id); return; }
       api.send('POST', endpoints.reveal(id), {}).then(function (r) {
         if (r.classify.kind === 'locked') { lockOut(r.classify); return; }
-        if (r.classify.kind === 'rate') { toast('揭示过于频繁，请稍候', 'danger'); return; }
-        if (!r.ok) { toast(r.classify.message || '无法显示口令', 'danger'); return; }
+        if (r.classify.kind === 'rate') { toast(rateMessage(r.classify, '揭示过于频繁，请稍候'), 'danger'); return; }
+        if (!r.ok) { toast(rateMessage(r.classify, '无法显示口令'), 'danger'); return; }
         var d = r.data || {};
         state.reveal[id] = { password: str(d.password), note: str(d.note), totpSecret: str(d.totpSecret) };
         paintSecretCell(id);
@@ -611,7 +651,7 @@
           return { ok: true, recoveryCode: rc };
         }
         if (r.classify.kind === 'notfound') return { ok: false, error: '解锁接口尚未就绪（请在 mount 时传入 opts.unlock 或对齐 /api/vault/*）' };
-        return { ok: false, error: r.classify.message || '解锁失败' };
+        return { ok: false, error: rateMessage(r.classify, '解锁失败') };
       });
     }
 
@@ -641,7 +681,7 @@
         if (!state.modal) return;
         state.modal.saving = false;
         if (r.classify.kind === 'locked') { lockOut(r.classify); return; }
-        if (r.classify.kind === 'rate') { state.modal.saveErr = '操作过于频繁，请稍候（429）'; render(); return; }
+        if (r.classify.kind === 'rate') { state.modal.saveErr = rateMessage(r.classify, '操作过于频繁，请稍候'); render(); return; }
         if (!r.ok) { state.modal.saveErr = r.classify.message || '保存失败'; render(); return; }
         toast(mode === 'create' ? '已新增凭证' : '已保存修改', 'ok');
         closeModal();
@@ -706,11 +746,11 @@
     }
 
     // ---------- 事件委托 ----------
-    rootEl.addEventListener('click', onClick);
-    rootEl.addEventListener('input', onInput);
-    rootEl.addEventListener('change', onChange);
-    rootEl.addEventListener('submit', onSubmitForm);
-    rootEl.addEventListener('keydown', onKeydown);
+    bind(rootEl, 'click', onClick);
+    bind(rootEl, 'input', onInput);
+    bind(rootEl, 'change', onChange);
+    bind(rootEl, 'submit', onSubmitForm);
+    bind(rootEl, 'keydown', onKeydown);
 
     function onClick(ev) {
       var t = ev.target.closest ? ev.target.closest('[data-act]') : null;
@@ -1030,7 +1070,7 @@
 
     // ---- 门屏（设置 / 解锁）----
     function gateScreen(mode) {
-      var err = state.gateErr || (state.error && state.error.message);
+      var err = state.gateErr || (state.error ? rateMessage(state.error) : '');
       var isSetup = mode === 'setup';
       var title = isSetup ? '设置主口令' : '解锁保险库';
       var sub = isSetup ? '首次使用：创建一个主口令来加密本地保险库。它不会被上传，也不会写入本机任何存储。'
@@ -1196,30 +1236,22 @@
         '</span>';
     }
 
-    function secretRowInner(c, revealed) {
-      if (revealed && revealed.password) {
-        return '<span class="cv-secret-val cv-revealed cv-mono">' + escapeHtml(revealed.password) + '</span>' +
-          '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="copy" data-copy="' + escapeHtml(revealed.password) + '" aria-label="复制口令">' + IC.copy + '</button></span>';
-      }
-      var ph = (c && c.hasSecret && !c.hasPassword) ? '••••••••••••' : '••••••••';
-      return '<span class="cv-redact" aria-hidden="true">' + ph + '</span>' +
-        '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="reveal" data-id="' + escapeHtml(c && c.id) + '" aria-pressed="false" aria-label="显示口令">' + IC.eye + '<span>显示</span></button></span>';
-    }
     function noteRowInner(c, revealed) {
       if (revealed && revealed.note) return '<span class="cv-row-val" style="white-space:normal">' + escapeHtml(revealed.note) + '</span>';
       return '<span class="cv-redact">点“显示”后查看</span>';
     }
 
     // 复制：只读 data-copy（揭示后的明文，掩码态无此属性）
-    rootEl.addEventListener('click', function (ev) {
+    function onCopyClick(ev) {
       var b = ev.target.closest ? ev.target.closest('[data-act="copy"]') : null;
       if (!b) return; var v = b.getAttribute('data-copy'); if (v != null) copyText(v);
-    });
+    }
+    bind(rootEl, 'click', onCopyClick);
 
     function errorBanner(e) {
       var kind = e.kind === 'rate' ? '429' : e.kind === 'locked' ? '423' : e.kind === 'server' ? '5xx' : e.kind === 'net' ? 'net' : 'note';
       var title = e.kind === 'rate' ? '触发限流' : e.kind === 'locked' ? '保险库未解锁' : e.kind === 'net' ? '连接失败' : e.kind === 'server' ? '服务错误' : '提示';
-      return '<div class="cv-banner" data-kind="' + kind + '" role="alert">' + IC.alert + '<span><b>' + title + '</b>' + escapeHtml(e.message || '') + '</span></div>';
+      return '<div class="cv-banner" data-kind="' + kind + '" role="alert">' + IC.alert + '<span><b>' + title + '</b>' + escapeHtml(rateMessage(e)) + '</span></div>';
     }
 
     function loadingBlock(msg) { return '<div class="cv-loading"><div class="cv-spin"></div><span>' + escapeHtml(msg) + '</span></div>'; }
@@ -1478,6 +1510,7 @@
     CV_MOCK: MOCK,
     __internals: {
       escapeHtml: escapeHtml, classifyStatus: classifyStatus, parseList: parseList,
+      rateMessage: rateMessage, retryText: retryText, secretRowInner: secretRowInner,
       generatePassword: generatePassword, applyPolicy: applyPolicy, strengthBits: strengthBits,
       normalizeHealth: normalizeHealth, isOverdue: isOverdue, hostOf: hostOf, clamp: clamp, formatCode: formatCode,
       submitPayload: submitPayload

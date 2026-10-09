@@ -99,3 +99,84 @@ test('index.html 真的挂载了这两个视图（引了脚本又没挂载点同
     assert.ok(html.includes(needle), 'index.html 缺少挂载要素：' + needle);
   }
 });
+
+/* ---------- 挂载/卸载的生命周期 ---------- */
+/* 文档承诺 mountCredentialsView() 返回 { destroy() }。destroy 以前只摘 visibilitychange，
+   rootEl 上 6 条委托监听一条都没摘——拆完再挂同一个容器，一次点击触发两份 handler：
+   reveal 会连发两次明文请求（吃两次 reveal 限流），保存会 POST 两遍。
+   用最小 DOM 桩在 node 里真跑挂载/卸载，而不是对着源码数正则。 */
+function fakeEl(tag) {
+  const el = {
+    tagName: String(tag || 'div').toUpperCase(),
+    className: '', innerHTML: '', children: [], listeners: [],
+    setAttribute() {}, getAttribute() { return null; }, removeAttribute() {},
+    appendChild(c) { el.children.push(c); return c; },
+    removeChild() {}, querySelector() { return null; }, querySelectorAll() { return []; },
+    focus() {}, select() {}, closest() { return null; },
+    addEventListener(t, fn) { el.listeners.push(t + ':' + (fn && fn.name ? fn.name : 'anon')); },
+    removeEventListener(t, fn) {
+      const k = t + ':' + (fn && fn.name ? fn.name : 'anon');
+      const i = el.listeners.indexOf(k);
+      if (i >= 0) el.listeners.splice(i, 1);
+    },
+    classList: { add() {}, remove() {}, contains() { return false; } }
+  };
+  return el;
+}
+function withFakeDocument(fn) {
+  const real = globalThis.document;
+  const doc = fakeEl('#document');
+  doc.hidden = false; doc.activeElement = null;
+  doc.body = fakeEl('body');
+  doc.createElement = fakeEl;
+  globalThis.document = doc;
+  try { return fn(doc); } finally { globalThis.document = real; }
+}
+
+test('429 要带得等多久：只有「稍后再试」逼人反复点，每点一次窗口又往后推', () => {
+  const cls = view.__internals.classifyStatus;
+  const rate = cls(429, { error: '口令查看过于频繁，请稍后再试', retryAfterMs: 42000 });
+  assert.strictEqual(rate.retryAfterMs, 42000, '时长在响应体里，不在状态码里');
+  assert.strictEqual(view.__internals.rateMessage(rate), '口令查看过于频繁，请稍后再试 请 42 秒后再试。');
+  /* 后端没给时长时不能凭空造一个「请 0 秒后再试」 */
+  const bare = cls(429, { error: '取用过于频繁' });
+  assert.strictEqual(bare.retryAfterMs, 0);
+  assert.strictEqual(view.__internals.rateMessage(bare, '揭示过于频繁，请稍候'), '取用过于频繁');
+  /* 非限流的文案一个字节都不许被改写 */
+  assert.strictEqual(view.__internals.rateMessage(cls(401, { error: '口令不正确或会话失效' }), '解锁失败'), '口令不正确或会话失效');
+  assert.strictEqual(view.__internals.rateMessage(cls(0, {}), '解锁失败'), '无法连接本地保险库服务');
+  assert.strictEqual(view.__internals.rateMessage({ kind: 'client', message: '' }, '解锁失败'), '解锁失败',
+    '后端没给话时才用兜底文案');
+  assert.strictEqual(view.__internals.retryText(1), '请 1 秒后再试。', '不到 1 秒也说 1 秒，不许出现 0 秒');
+});
+
+test('reveal 出来的密钥（API 私钥）必须渲染：那一行标着「密钥」，只读 password 会点了没反应', () => {
+  const c = { id: 3, hasPassword: false, hasSecret: true };
+  const masked = view.__internals.secretRowInner(c, null);
+  assert.match(masked, /显示密钥/, '掩码态的按钮要说清显示的是密钥：' + masked);
+  const shown = view.__internals.secretRowInner(c, { password: null, secret: 'sk-live-abc' });
+  assert.ok(shown.includes('sk-live-abc'), '私钥类凭证的明文要出现在行里：' + shown);
+  assert.match(shown, /aria-label="复制密钥"/);
+  /* 口令类照旧优先 password，别把两类搞混 */
+  const both = view.__internals.secretRowInner({ id: 3, hasPassword: true, hasSecret: true }, { password: 'pw1', secret: 'sk-live-abc' });
+  assert.ok(both.includes('pw1') && !both.includes('sk-live-abc'), both);
+});
+
+test('destroy() 把 rootEl 的委托监听全部摘掉：重挂载不会双份触发', () => {
+  withFakeDocument(() => {
+    const root = fakeEl('section');
+    const m = view.mountCredentialsView(root, {});
+    const installed = root.listeners.slice();
+    for (const t of ['click', 'input', 'change', 'submit', 'keydown']) {
+      assert.ok(installed.some(s => s.indexOf(t + ':') === 0), '委托监听缺 ' + t + ' 那条：' + installed.join(', '));
+    }
+    m.destroy();
+    assert.deepStrictEqual(root.listeners, [],
+      'destroy() 之后 rootEl 上一条监听都不该留，实际还剩：' + root.listeners.join(', '));
+    /* 拆完再挂同一个容器才是用户真能踩到的形态：双份 handler = 一次点击发两次 reveal 请求、
+       保存按两遍 POST。第二次挂载的监听集合必须和第一次一模一样。 */
+    view.mountCredentialsView(root, {});
+    assert.deepStrictEqual(root.listeners.slice().sort(), installed.slice().sort(),
+      '重挂载后监听集合变了：' + root.listeners.join(', '));
+  });
+});
