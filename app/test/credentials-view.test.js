@@ -61,9 +61,13 @@ test('touched 整个不传也不能炸（默认按没碰过处理）', () => {
 
 async function start() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-view-'));
-  const storage = createStore(dir, loadOrCreateMasterKey(dir), { backend: 'json' });
+  const mk = loadOrCreateMasterKey(dir);
+  const storage = createStore(dir, mk, { backend: 'json' });
   const server = createApp({
     storage: storage, fetchImpl: async () => new Response('{}'),
+    /* dek 必须交给会话：不传的话免密会话根本不持有 DEK，凭证那条路一律 423，
+       「reveal → 存态 → 渲染」这条链在测试里就接不起来了 */
+    dek: mk,
     publicDir: path.join(__dirname, '..', 'public'), version: 'test'
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -160,6 +164,47 @@ test('reveal 出来的密钥（API 私钥）必须渲染：那一行标着「密
   /* 口令类照旧优先 password，别把两类搞混 */
   const both = view.__internals.secretRowInner({ id: 3, hasPassword: true, hasSecret: true }, { password: 'pw1', secret: 'sk-live-abc' });
   assert.ok(both.includes('pw1') && !both.includes('sk-live-abc'), both);
+});
+
+/* ── 揭示那条链：后端 → 存态 → 渲染，少一环就是「点了没反应」 ──────── */
+/* 上一轮的真实事故：渲染层修好认 secret 了，但 reveal 响应写进内存态那一行没抄 secret。
+   接口 200、备注照样显示、「密钥」那一行还是点点 —— 纯函数单测和接口测试都照不出这一格，
+   是真浏览器点出来的。所以这里把整条链在 node 里接起来跑，并且加一道契约闸：
+   后端 reveal 再多给一个明文字段而视图没接，当场红。 */
+test('私钥类凭证走完 reveal → revealState → secretRowInner，明文必须出现在那一行', async () => {
+  const h = await start();
+  try {
+    const made = await fetch(h.base + '/api/credentials', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '仅私钥那条', username: 'svc', secret: 'sk-chain-123456', note: '备注也在' })
+    }).then(r => r.json());
+    const id = made.credential.id;
+    assert.strictEqual(made.credential.hasPassword, false, '前提：这条只有 secret');
+
+    const res = await fetch(h.base + '/api/credentials/' + id + '/reveal', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
+    });
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.password, null);
+    assert.strictEqual(body.secret, 'sk-chain-123456');
+
+    const internals = view.__internals;
+    const row = internals.secretRowInner({ id: id, hasPassword: false, hasSecret: true }, internals.revealState(body));
+    assert.ok(row.indexOf('sk-chain-123456') > -1, '整条链走完必须把私钥显示出来，实得：' + row);
+    assert.match(row, /aria-label="复制密钥"/);
+
+    /* 契约闸：后端 reveal 出去的键，除了纯元信息，视图一个都不许漏接 */
+    const META = ['id', 'title', 'username', 'url', 'lastUsedAt'];
+    const keys = Object.keys(body);
+    const notCarried = keys.filter(k => META.indexOf(k) === -1 && internals.REVEAL_FIELDS.indexOf(k) === -1);
+    assert.deepStrictEqual(notCarried, [], '后端 reveal 里有字段是视图没接的：' + notCarried.join(', '));
+    const stale = internals.REVEAL_FIELDS.filter(k => keys.indexOf(k) === -1);
+    assert.deepStrictEqual(stale, [], '视图在等一个后端已经不发的字段：' + stale.join(', '));
+  } finally {
+    await new Promise(r => h.server.close(r));
+    try { fs.rmSync(h.dir, { recursive: true, force: true }); } catch (e) { /* Windows 句柄 */ }
+  }
 });
 
 test('destroy() 把 rootEl 的委托监听全部摘掉：重挂载不会双份触发', () => {

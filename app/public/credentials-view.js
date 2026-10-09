@@ -387,6 +387,15 @@
       '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="reveal" data-id="' + escapeHtml(c && c.id) + '" aria-pressed="false" aria-label="显示' + (isKeyOnly ? '密钥' : '口令') + '">' + IC.eye + '<span>显示</span></button></span>';
   }
 
+  /* reveal 响应 → 驻内存的明文态。这一格上一轮正好漏过一次：只修了渲染层认不认 secret，
+     而这里压根没把 secret 抄进来——接口 200、备注照常显示、「密钥」那一行却还是点点。
+     纯函数 + 契约字段清单是为了让下一次少抄一个字段时当场红，而不是等浏览器撞见。 */
+  function revealState(d) {
+    var src = d || {};
+    return { password: str(src.password), secret: str(src.secret), note: str(src.note), totpSecret: str(src.totpSecret) };
+  }
+  var REVEAL_FIELDS = ['password', 'secret', 'note', 'totpSecret'];
+
   function mountCredentialsView(rootEl, opts) {
     opts = opts || {};
     if (!rootEl) throw new Error('mountCredentialsView: rootEl 必需');
@@ -571,7 +580,7 @@
         if (r.classify.kind === 'rate') { toast(rateMessage(r.classify, '揭示过于频繁，请稍候'), 'danger'); return; }
         if (!r.ok) { toast(rateMessage(r.classify, '无法显示口令'), 'danger'); return; }
         var d = r.data || {};
-        state.reveal[id] = { password: str(d.password), note: str(d.note), totpSecret: str(d.totpSecret) };
+        state.reveal[id] = revealState(d);
         paintSecretCell(id);
         var hold = setTimeout(function () { hideReveal(id); }, revealHoldMs);
         timers.reveal[id] = hold;
@@ -1511,6 +1520,7 @@
     __internals: {
       escapeHtml: escapeHtml, classifyStatus: classifyStatus, parseList: parseList,
       rateMessage: rateMessage, retryText: retryText, secretRowInner: secretRowInner,
+      revealState: revealState, REVEAL_FIELDS: REVEAL_FIELDS,
       generatePassword: generatePassword, applyPolicy: applyPolicy, strengthBits: strengthBits,
       normalizeHealth: normalizeHealth, isOverdue: isOverdue, hostOf: hostOf, clamp: clamp, formatCode: formatCode,
       submitPayload: submitPayload
