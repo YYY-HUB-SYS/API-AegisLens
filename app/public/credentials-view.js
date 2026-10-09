@@ -341,6 +341,22 @@
   // =========================================================================
   // 挂载：主状态机 + 渲染 + 事件委托 + 计时器
   // =========================================================================
+  /* 提交体是纯函数，单独拎出来是为了能被 node 直接调用做断言——
+     「编辑时没碰过的密文字段不能出现在请求体里」这条一旦写错就是静默删数据，
+     不能只靠人眼看着对。后端 buildPatch 认「键缺失＝不改」，空串＝清空。 */
+  function submitPayload(draft, mode, touched) {
+    var t = touched || {};
+    var payload = {
+      title: draft.title, username: draft.username, url: draft.url,
+      folder: draft.folder, tags: draft.tags
+    };
+    var creating = mode === 'create';
+    if (creating || t.pw) payload.password = draft.password;
+    if (creating || t.note) payload.note = draft.note;
+    if (draft.totpSecret) payload.totpSecret = draft.totpSecret;
+    return payload;
+  }
+
   function mountCredentialsView(rootEl, opts) {
     opts = opts || {};
     if (!rootEl) throw new Error('mountCredentialsView: rootEl 必需');
@@ -615,8 +631,11 @@
     function saveCredential(draft, mode) {
       if (state.modal.saving) return;
       state.modal.saving = true; state.modal.saveErr = ''; render();
-      var payload = { title: draft.title, username: draft.username, url: draft.url, folder: draft.folder, tags: draft.tags, password: draft.password, note: draft.note };
-      if (draft.totpSecret) payload.totpSecret = draft.totpSecret;
+      var m = state.modal;
+      /* 编辑弹窗把 password/note 一律预置成 ''，占位语还写着「留空表示保持原值不变」——
+         所以只有真的动过这两个输入框（或用生成器填过）才把它们带进请求体，
+         否则「改个网址顺手保存」就会把口令和备注静默删掉。规则本身在 submitPayload 里。 */
+      var payload = submitPayload(draft, mode, { pw: m.touchedPw, note: m.touchedNote });
       var p = mode === 'create' ? api.send('POST', endpoints.create, payload) : api.send('PUT', endpoints.update(draft.id), payload);
       p.then(function (r) {
         if (!state.modal) return;
@@ -650,7 +669,7 @@
         : { id: '', title: '', username: '', url: '', folder: '', tags: '', password: '', note: '', totpSecret: '' };
       var gen = { length: 20, upper: true, lower: true, digit: true, symbol: true, noConfusable: true, min: 8, max: 64, output: '' };
       gen.output = generatePassword(gen);
-      state.modal = { mode: mode, id: id || '', draft: draft, gen: gen, policy: null, policyState: 'idle', saveErr: '', saving: false };
+      state.modal = { mode: mode, id: id || '', draft: draft, gen: gen, policy: null, policyState: 'idle', saveErr: '', saving: false, touchedPw: false, touchedNote: false };
       if (mode === 'edit' && src && src.url) loadPolicy(src.id);
       render();
       var first = mountPoint.querySelector('.cv-modal [data-autofocus]');
@@ -717,7 +736,7 @@
         case 'modal-save': ev.preventDefault(); commitModal(); break;
         case 'gen-regen': regenerate(); break;
         case 'gen-copy': copyText(state.modal ? state.modal.gen.output : ''); break;
-        case 'gen-apply': { if (state.modal) { state.modal.draft.password = state.modal.gen.output; var pv = mountPoint.querySelector('#cv-f-pw'); if (pv) { pv.value = state.modal.gen.output; updatePwMeter(pv); } toast('生成口令已填入', 'ok'); } } break;
+        case 'gen-apply': { if (state.modal) { state.modal.draft.password = state.modal.gen.output; state.modal.touchedPw = true; var pv = mountPoint.querySelector('#cv-f-pw'); if (pv) { pv.value = state.modal.gen.output; updatePwMeter(pv); } toast('生成口令已填入', 'ok'); } } break;
         case 'refresh-all': loadList(); if (state.activeTab === 'health') loadHealth(); toast('已刷新', 'ok'); break;
         case 'security': { state.securityOpen = !state.securityOpen; state.discardErr = ''; render(); } break;
         case 'security-close': { state.securityOpen = false; state.discardErr = ''; render(); } break;
@@ -749,7 +768,8 @@
       var t = ev.target;
       if (t.id === 'cv-search') { state.filters.q = t.value; renderListOnly(); return; }
       if (t.id === 'cv-pw' || t.id === 'cv-pw2') { updateGateMeter(); return; }
-      if (t.id === 'cv-f-pw') { updatePwMeter(t); return; }
+      if (t.id === 'cv-f-pw') { if (state.modal) state.modal.touchedPw = true; updatePwMeter(t); return; }
+      if (t.id === 'cv-f-note') { if (state.modal) state.modal.touchedNote = true; return; }
       if (t.id === 'cv-gen-len') { if (state.modal) { state.modal.gen.length = Number(t.value); regenerate(true); } return; }
     }
     function onChange(ev) {
@@ -890,7 +910,24 @@
     // =========================================================================
     // 渲染（整块 HTML；局部更新走上面的 paint/sync）
     // =========================================================================
+    /* 弹窗开着的时候，任何一次异步重绘都必须先把输入框收回 draft——
+       否则站点规则（loadPolicy）、健康刷新之类的 render() 会把用户正在打的字整块抹回旧值。
+       这里刻意不 trim：保存时 commitModal 自己 trim，这一步只为保住画面。 */
+    function harvestModalDraft() {
+      var form = mountPoint.querySelector('.cv-modal');
+      if (!form || !state.modal) return;
+      var d = state.modal.draft;
+      var pairs = [['#cv-f-title', 'title'], ['#cv-f-user', 'username'], ['#cv-f-url', 'url'],
+        ['#cv-f-folder', 'folder'], ['#cv-f-tags', 'tags'], ['#cv-f-pw', 'password'], ['#cv-f-note', 'note'],
+        ['#cv-f-totp', 'totpSecret']];
+      for (var i = 0; i < pairs.length; i++) {
+        var el = form.querySelector(pairs[i][0]);
+        if (el) d[pairs[i][1]] = el.value;
+      }
+    }
+
     function render() {
+      if (state.modal) harvestModalDraft();
       var html = '<div class="cv-atmos" aria-hidden="true"></div><div class="cv-shell">' + topBar();
       switch (state.status) {
         case 'loading': html += '<div class="cv-loading"><div class="cv-spin"></div><span>正在检查保险库状态…</span></div>'; break;
@@ -1442,7 +1479,8 @@
     __internals: {
       escapeHtml: escapeHtml, classifyStatus: classifyStatus, parseList: parseList,
       generatePassword: generatePassword, applyPolicy: applyPolicy, strengthBits: strengthBits,
-      normalizeHealth: normalizeHealth, isOverdue: isOverdue, hostOf: hostOf, clamp: clamp, formatCode: formatCode
+      normalizeHealth: normalizeHealth, isOverdue: isOverdue, hostOf: hostOf, clamp: clamp, formatCode: formatCode,
+      submitPayload: submitPayload
     }
   };
   global.CredentialsView = API;
