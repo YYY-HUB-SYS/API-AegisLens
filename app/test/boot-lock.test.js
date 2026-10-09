@@ -131,6 +131,36 @@ test('设了口令的安装重启后是锁着的：数据接口 423，vault 与�
   }
 }, { timeout: 60000 });
 
+test('锁定必须同时关掉会话与 store：否则解锁会走幂等短路、既不校验口令也解不开', async () => {
+  const dir = tempDir();
+  const port = freePort();
+  let h = start(dir, port);
+  try {
+    const base = await waitReady(h);
+    await post(base, '/api/keys', { platform: 'deepseek', key: SECRET, name: 'lockcycle' });
+    assert.strictEqual((await post(base, '/api/vault/passphrase', { next: PASS })).status, 200);
+    await stop(h);
+
+    h = start(dir, port);
+    const b = await waitReady(h);
+    assert.strictEqual((await post(b, '/api/vault/unlock', { passphrase: PASS })).status, 200);
+    assert.strictEqual((await get(b, '/api/keys')).status, 200);
+
+    assert.strictEqual((await post(b, '/api/vault/lock')).status, 200);
+    /* 这三条是一体的：会话要关掉、数据要 423、而且不能出现「说已解锁却什么都取不到」 */
+    assert.strictEqual((await get(b, '/api/vault/status')).data.unlocked, false, 'lock 之后会话必须是关的');
+    assert.strictEqual((await get(b, '/api/keys')).status, 423);
+    const wrong = await post(b, '/api/vault/unlock', { passphrase: 'not-the-pass' });
+    assert.strictEqual(wrong.status, 400, '锁定后必须真的校验口令，不能走幂等短路：' + JSON.stringify(wrong.data));
+    const right = await post(b, '/api/vault/unlock', { passphrase: PASS });
+    assert.strictEqual(right.status, 200);
+    assert.strictEqual((await get(b, '/api/keys')).status, 200, '重新解锁要能把 store 建回来');
+  } finally {
+    await stop(h);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}, { timeout: 60000 });
+
 test('AKM_PASSPHRASE 能直接解锁启动；口令错时非交互环境要退出而不是假装健康', async () => {
   const dir = tempDir();
   const port = freePort();

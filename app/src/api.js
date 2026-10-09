@@ -241,8 +241,9 @@ async function routeApi(req, res, ctx) {
       vault.audit.push({ kind: 'unlock', status: 'denied', detail: 'throttled' });
       return json(res, 429, { error: '解锁尝试过于频繁，请稍后再试', retryAfterMs: gate.retryAfterMs });
     }
-    /* 已经开着就不二次校验：否则界面上任何一次误点都会消耗一次失败额度 */
-    if (vault.isUnlocked()) return json(res, 200, { unlocked: true, mode: vault.mode() });
+    /* 已经开着、且 store 真的建起来了，才允许幂等放行：否则界面上任何一次误点都会
+       消耗一次失败额度。只看会话不看 store，会放行「状态说已解锁、数据却全 423」的半死态 */
+    if (vault.isUnlocked() && storage.backend) return json(res, 200, { unlocked: true, mode: vault.mode() });
     const b = await readBody(req);
     let opened;
     try {
@@ -329,7 +330,9 @@ async function routeApi(req, res, ctx) {
     ctx.onUnlock(dek, 'envelope');
     throttle.unlock.passed(gateKey);
     vault.audit.push({ kind: 'recover', status: 'ok', detail: 'code' });
-    return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: true });
+    /* restartRequired 这里必须是 false：store 已当场建好，解锁状态立刻生效。
+       写 true 会让界面告诉用户「要重启才完全生效」，那是假话 */
+    return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: false });
   }
 
   /* 拆掉明文 master.key 是整条链上唯一不可逆的动作：不删它，「拷走目录也解不开」

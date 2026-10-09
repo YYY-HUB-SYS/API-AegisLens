@@ -365,6 +365,7 @@ test('忘口令用恢复码重置：旧口令作废、恢复码当场轮换、�
     assert.strictEqual(rec.status, 200, JSON.stringify(rec.data));
     assert.strictEqual(rec.data.unlocked, true, '恢复成功就该是解锁状态，不能还要求再解一次');
     assert.ok(rec.data.recoveryCode && rec.data.recoveryCode !== code, '恢复码必须轮换，旧码当场失效');
+    assert.strictEqual(rec.data.restartRequired, false, 'store 当场重建，不该叫用户去重启');
 
     h.vault.lock();
     const oldPw = await call(base, 'POST', '/api/vault/unlock', { passphrase: 'correct-pass-1' });

@@ -64,6 +64,15 @@ function closeStore() {
   return had;
 }
 
+/* 锁定必须两件事一起做：关 store（断掉解密能力）+ 锁会话（改掉状态）。
+   之前只关了 store，会话还写着 unlocked，于是解锁路由的幂等短路直接放行，
+   既不校验口令也让用户再也解不开——只能重启。 */
+function handleLock() {
+  const was = vault.lock();
+  closeStore();
+  return was;
+}
+
 /* 开机三条路：没设过口令（legacy，照旧免密自启）／设了且环境变量给了口令（直接解）
    ／设了但没给口令（起服务、只放行 vault 路由，等界面解锁）。 */
 var bootError = null;
@@ -104,7 +113,7 @@ const app = createApp({
   vault: vault,
   throttle: throttle,
   onUnlock: openStore,
-  onLock: closeStore
+  onLock: handleLock
 });
 
 app.on('error', function (e) {
