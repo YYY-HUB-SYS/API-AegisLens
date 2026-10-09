@@ -72,7 +72,7 @@ This sequence was run end to end in an isolated data directory on a non-default 
 Every environment variable is optional:
 
 > Why the prefix is `AKM_` rather than the project's current name: it comes from the pre-rename name
-> (the upstream repository was `ai-key-manager`, see [Licence and credits](./README_EN.md#-license-and-credits)),
+> (the upstream repository was `ai-key-manager`, see [Licence and credits](./README_EN.md#license-and-credits)),
 > and `AKM_PORT` has been in use since the first runnable version, `c809121`. The rename never touched the
 > environment variables — so there is no `AEGIS_` prefix; don't derive one from the product name.
 

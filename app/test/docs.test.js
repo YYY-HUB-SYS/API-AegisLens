@@ -63,10 +63,13 @@ test('产品设计文档顶部那条「与设计有差异」声明必须还在',
     '钥匙串那条要写明没实现');
 });
 
-/* ---------- README 的功能地图 ---------- */
-/* 功能地图是从代码里数出来的，那它就必须在代码改动后自己报警。
+/* ---------- 接口与限制一览（docs/API.md / API_EN.md）---------- */
+/* 2026-10-09 把四列功能矩阵从 README 挪进了 docs/：README 负责让人 60 秒跑起来，
+   手册负责把每条路径和每个数字钉在代码上。盯的对象换了文件，盯的强度不能降——
    两条方向都要堵：文档写了代码里没有的接口（吹出来的能力），
    和中英文各写各的（这轮之前刚撞上 EN 徽标比 ZH 落后 71 条测试那种单边漂移）。 */
+
+const API_DOCS = ['docs/API.md', 'docs/API_EN.md'];
 
 /* 两个口径都要有：47 是「方法 + 路径」的组合数，38 是去重后的路径形状数。
    只写一个数就会重演我上一轮那件事——README 写 461/417，谁都不知道在说什么。 */
@@ -110,40 +113,47 @@ function pathShapesInCode() {
   return Array.from(new Set(routePairsInCode().map(p => p[1]))).sort();
 }
 
+/* 文档里的占位名是给人读的（{tool} / {modelId} / {keyId}），代码里的正则抽出来是 {seg} / {id}。
+   对账对的是**结构**，所以两边都归到同一个占位符；不然就是拿命名习惯当缺陷。 */
+function canonPath(p) {
+  return p.replace(/\{[A-Za-z0-9]+\}/g, '{param}');
+}
+
 function pathsIn(text) {
   const found = (text.match(/\/api\/[A-Za-z0-9_:\/{}-]+/g) || [])
-    .map(p => p.replace(/\/+$/, '')
+    .map(p => canonPath(p.replace(/\/+$/, '')
       .replace(/\/\d+(?=\/|$)/g, '/{id}')      /* curl 示例里的真实 id */
       .replace(/\/:id\b/g, '/{id}')             /* 文档里另一种写法，归一到同一个 */
-      .replace(/\/:tid\b/g, '/{tid}'))
+      .replace(/\/:tid\b/g, '/{tid}')))
     .filter(p => p.length > '/api/'.length);
   return Array.from(new Set(found)).sort();
 }
 
-test('README 里出现的每个 /api 路径，代码里都必须真有这条路由', () => {
+test('文档里出现的每个 /api 路径，代码里都必须真有这条路由', () => {
   const shapes = pathShapesInCode();
   assert.ok(shapes.length >= 30, '代码侧路由抽取失败（只抓到 ' + shapes.length + ' 条形状），这条测试现在是空转');
-  const known = new Set(shapes);
-  for (const doc of ['README.md', 'README_EN.md']) {
+  const known = new Set(shapes.map(canonPath));
+  for (const doc of ['README.md', 'README_EN.md'].concat(API_DOCS)) {
     const invented = pathsIn(read(doc)).filter(p => !known.has(p));
     assert.deepStrictEqual(invented, [], doc + ' 写了代码里不存在的路径（或者路径名写错了）：' + invented.join(', '));
   }
 });
 
-/* 功能地图里那两个数是会被引用的。数字允许随代码增长，但只允许**跟代码一致**。 */
-test('功能地图写的路由数（47 条组合 / 38 条形状）必须与代码一致', () => {
+/* 手册里那两个路由数是会被引用的。数字允许随代码增长，但只允许**跟代码一致**。 */
+function numberRow(text, labelRx) {
+  const line = String(text).split(/\r?\n/).find(function (l) { return labelRx.test(l); });
+  assert.ok(line, '手册里找不到这一行：' + labelRx);
+  return (line.match(/\d+/g) || []).map(Number);
+}
+
+test('接口一览写的路由数（方法+路径组合 / 去重路径形状）必须与代码一致', () => {
   const pairs = routePairsInCode().length;
   const shapes = pathShapesInCode().length;
   assert.ok(pairs >= shapes, '组合数不该小于形状数');
-  for (const doc of ['README.md', 'README_EN.md']) {
-    const text = read(doc);
-    const mPair = text.match(/\*\*(\d+)\s*(?:条路由|routes)\*\*|\*\*(\d+)\s*(?:条路由|routes)\*\*/);
-    const mShape = text.match(/(\d+)\s*(?:条路径形状|path shapes)/);
-    if (!mPair && !mShape) continue;   // 英文版还没补这一段时不拦（补上即生效）
-    assert.ok(mPair, doc + ' 缺「方法+路径」那个数');
-    assert.ok(mShape, doc + ' 缺「去重路径形状」那个数');
-    assert.strictEqual(Number(mPair[1] || mPair[2]), pairs, doc + ' 写的组合数是 ' + (mPair[1] || mPair[2]) + '，代码实数 ' + pairs);
-    assert.strictEqual(Number(mShape[1]), shapes, doc + ' 写的形状数是 ' + mShape[1] + '，代码实数 ' + shapes);
+  for (const doc of API_DOCS) {
+    const nums = numberRow(read(doc), /路由总数|Total routes/);
+    assert.ok(nums.indexOf(pairs) > -1, doc + ' 的「路由总数」那一行没有代码实数 ' + pairs + '（该行数字：' + nums.join(',') + '）');
+    assert.ok(nums.indexOf(shapes) > -1, doc + ' 的「路由总数」那一行没有形状数 ' + shapes + '（该行数字：' + nums.join(',') + '）');
   }
 });
 
@@ -158,26 +168,76 @@ function uiActionsInCode() {
   return Array.from(set).sort();
 }
 
-test('功能地图写的界面动作数（data-act 去重）必须与代码一致', () => {
+test('接口一览写的界面动作数（data-act 去重）必须与代码一致', () => {
   const n = uiActionsInCode().length;
   assert.ok(n >= 40, '界面动作抽取失败（只抓到 ' + n + ' 个）');
-  for (const doc of ['README.md', 'README_EN.md']) {
-    const m = read(doc).match(/`data-act`[^0-9]{0,20}(\d+)/);
-    if (!m) continue;
-    assert.strictEqual(Number(m[1]), n, doc + ' 写的动作数是 ' + m[1] + '，代码实数 ' + n);
+  for (const doc of API_DOCS) {
+    const nums = numberRow(read(doc), /data-act/);
+    assert.ok(nums.indexOf(n) > -1, doc + ' 的 data-act 那一行没有代码实数 ' + n + '（该行数字：' + nums.join(',') + '）');
   }
 });
 
-test('中英文 README 提到的 /api 路径与 AKM_ 变量必须同集合（防单边漂移）', () => {
-  const zh = read('README.md');
-  const en = read('README_EN.md');
-  const a = pathsIn(zh), b = pathsIn(en);
-  const onlyZh = a.filter(p => b.indexOf(p) === -1);
-  const onlyEn = b.filter(p => a.indexOf(p) === -1);
-  assert.deepStrictEqual(onlyZh, [], '这些接口只在中文 README 里有，英文版漏了：' + onlyZh.join(', '));
-  assert.deepStrictEqual(onlyEn, [], '这些接口只在英文 README 里有，中文版漏了：' + onlyEn.join(', '));
+/* 中英两份手册必须同集合：路径漏一半，读英文版的人就会以为接口不存在。 */
+test('中英 README 与中英接口一览的 /api 路径必须各自同集合（防单边漂移）', () => {
+  const pairs = [['README.md', 'README_EN.md'], [API_DOCS[0], API_DOCS[1]]];
+  for (const [zhDoc, enDoc] of pairs) {
+    const a = pathsIn(read(zhDoc)), b = pathsIn(read(enDoc));
+    assert.deepStrictEqual(a.filter(p => b.indexOf(p) === -1), [],
+      '这些接口只在 ' + zhDoc + ' 里有，' + enDoc + ' 漏了');
+    assert.deepStrictEqual(b.filter(p => a.indexOf(p) === -1), [],
+      '这些接口只在 ' + enDoc + ' 里有，' + zhDoc + ' 漏了');
+  }
 
+  const zh = read('README.md'), en = read('README_EN.md');
   const va = Array.from(new Set(zh.match(/AKM_[A-Z0-9_]+/g) || [])).sort();
   const vb = Array.from(new Set(en.match(/AKM_[A-Z0-9_]+/g) || [])).sort();
   assert.deepStrictEqual(vb, va, '中英 README 的 AKM_ 变量集合不一致，英文侧：' + vb.join(','));
 });
+
+/* ---------- 文档之间的相对链接 ---------- */
+/* 2026-10-09 把 README 重排之后，DEPLOYMENT 与 SECURITY 指进 README 的锚点全断了：
+   文件还在、章节没了，Markdown 照样渲染成一句通顺的话，读者点下去才知道是死链。
+   所以锚点也要机器对账——GitHub 的锚点规则：小写、去掉字母数字/空格/连字符以外的东西
+   （emoji 和标点就这么没了，「⚖️ 许可与致谢」变成「-许可与致谢」），空格换成连字符。 */
+const MD_DOCS = ['README.md', 'README_EN.md', 'DEPLOYMENT.md', 'DEPLOYMENT_EN.md',
+  'SECURITY.md', 'SECURITY_EN.md'].concat(API_DOCS);
+
+function slugify(headingText) {
+  return String(headingText)
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\- ]/gu, '')
+    .replace(/ /g, '-');
+}
+
+function anchorsIn(mdText) {
+  const set = new Set();
+  for (const line of String(mdText).split(/\r?\n/)) {
+    const m = line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if (m) set.add(slugify(m[1]));
+  }
+  return set;
+}
+
+test('文档里的相对链接：文件必须存在，锚点必须真有其名（重排一次 README 就该跑这条）', () => {
+  const anchors = new Map(MD_DOCS.map(function (d) { return [d, anchorsIn(read(d))]; }));
+  const dead = [];
+  for (const doc of MD_DOCS) {
+    /* `./` 和 `../` 都得查：docs/API.md 里十之八九是 ../，只认 ./ 等于放过一半链接 */
+    for (const m of String(read(doc)).matchAll(/\]\(((?:\.{1,2}\/)[^)\s]+)\)/g)) {
+      const target = m[1];
+      const hashAt = target.indexOf('#');
+      const file = target.slice(0, hashAt === -1 ? target.length : hashAt);
+      const rel = path.posix.normalize(path.posix.join(path.posix.dirname(doc), file));
+      const anchor = hashAt === -1 ? '' : decodeURIComponent(target.slice(hashAt + 1));
+      if (!fs.existsSync(path.join(ROOT, rel))) { dead.push(doc + ' → ' + target + '（文件不存在）'); continue; }
+      if (!anchor) continue;
+      const set = anchors.get(rel);
+      if (!set) { dead.push(doc + ' → ' + target + '（这份文档没进锚点表，补进 MD_DOCS）'); continue; }
+      if (!set.has(anchor)) dead.push(doc + ' → ' + target + '（没有这么一节）');
+    }
+  }
+  assert.deepStrictEqual(dead, [], '死链：\n' + dead.join('\n'));
+});
+

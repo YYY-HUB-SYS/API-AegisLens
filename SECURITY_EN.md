@@ -64,7 +64,7 @@ The README says it at the top; here is its exact meaning:
   done. After that, with the vault locked, no file on this machine can decrypt the data on its own.
 
 Machine consumers (CLIs, agent frameworks, internal services) should not share that one master key. Issue each of
-them a [scoped consumer token](./README_EN.md#-machine-consumers-scoped-tokens): individually revocable, expiring,
+them a [scoped consumer token](./README_EN.md#issuing-a-narrow-scoped-key-for-a-script-a-real-round-trip): individually revocable, expiring,
 and covering only the resources you enumerated.
 
 ### 5. Cloud hosts and hardware someone else operates — keep the data off them
