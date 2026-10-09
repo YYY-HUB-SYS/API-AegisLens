@@ -94,7 +94,7 @@ function harness(opts) {
   c.now = function () { return c.t; };
   c.advance = function (ms) { c.t += ms; return c.t; };
   const dek = o.dek || crypto.randomBytes(32);
-  const session = vault.createVaultSession({ now: c.now });
+  const session = vault.createVaultSession({ now: c.now, idleLockMs: o.idleLockMs });
   const storage = fakeStorage(c);
   const throttle = o.throttle || fakeThrottle();
   const sink = { calls: [] };
@@ -398,4 +398,29 @@ test('非 consumer 路径返回 false，交给主路由', async () => {
   const r = await h.call('GET', '/api/credentials');
   assert.strictEqual(r.handled, false);
   assert.strictEqual(h.sink.calls.length, 0, '不该抢着应答别人的路径');
+});
+
+/* 这条决定 P4 到底能不能用：闲置自动锁一响，所有机器消费者同时下线。
+   所以「带有效令牌的请求」必须算一次真实使用，把计时推后——
+   否则一个每小时跑一次的定时任务，会在两次运行之间被锁在门外。 */
+test('活跃消费者会续上闲置计时，锁了之后要等人解锁', async () => {
+  const h = harness({ idleLockMs: 1000 });
+  h.unlock();
+  const made = await h.issue();
+  const bearer = h.bearer(made.data.token);
+
+  h.clock.advance(600);
+  const first = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(first.status, 200);
+
+  h.clock.advance(600);
+  assert.strictEqual(h.session.lockIfIdle(), false, '距上次取密钥才 600ms，不该锁');
+  const second = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(second.status, 200, '持续的消费者流量要一直把会话续下去');
+
+  h.clock.advance(1500);
+  assert.strictEqual(h.session.lockIfIdle(), true, '真的没人用了就该锁');
+  const third = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(third.status, 423, '锁着时有效令牌也拿不到明文，这是设计里的后果');
+  assert.strictEqual(third.data.reason, 'locked');
 });
