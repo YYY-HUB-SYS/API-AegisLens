@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-490%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-491%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/listens-loopback%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -182,7 +182,7 @@ backends plus shadow-store detection), credential routes, consumer-scoped tokens
 the ordering of the gates on all four data routes), TOTP and password generation, API integration and
 validation, platform adapters (catalog, balance domain matching, special auth), proxy and start scripts,
 frontend templates and modal behaviour. The exact count moves with the code — **trust the command output**.
-Measured on this version on 2026-10-09 with Node v24.14.0: `tests 490 / pass 490 / fail 0`.
+Measured on this version on 2026-10-09 with Node v24.14.0: `tests 491 / pass 491 / fail 0`.
 
 ---
 
@@ -194,7 +194,9 @@ Measured on this version on 2026-10-09 with Node v24.14.0: `tests 490 / pass 490
 │   ├── src/                  # crypto / storage / API / adapters / model fallback
 │   ├── public/               # single-page front end
 │   └── test/                 # tests
-├── api-aegislens-prd/        # product design document (opens in a browser, in Chinese)
+├── api-aegislens-prd/        # product design document — written before the implementation (v0.9, 2026-09-02);
+│                             # some items in it were never built, and the page opens with a list of those
+│                             # differences (opens in a browser, in Chinese)
 ├── demo/                     # interactive demo page (fake data, no backend)
 ├── index.html                # project homepage
 ├── SECURITY_EN.md            # threat model: who is defended against, who is not, and each precondition

@@ -17,6 +17,15 @@ API-AegisLens is a **local-first** tool: by default it binds to `127.0.0.1` only
 - [Upgrading](#upgrading)
 - [FAQ](#faq)
 
+## Read this first (the product design document is not a description of current behaviour)
+
+`api-aegislens-prd/` holds a design document written **before** the implementation (v0.9, 2026-09-02).
+It is tidier than this guide, which makes it easier to mistake for the status quo — and several things in it
+were never built: the master key held in the OS keychain (it is `master.key` in the data directory, next to the
+ciphertext), a tray application, in-app settings including the schedule toggle, and a random port.
+That document now carries a "differs from the shipped implementation" notice at the top listing each item.
+For actual behaviour, trust this guide, `SECURITY_EN.md`, and what the code does when you run it.
+
 ## Requirements
 
 | Item | Requirement |
