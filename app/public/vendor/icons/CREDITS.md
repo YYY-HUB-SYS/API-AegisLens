@@ -1,142 +1,92 @@
-# Lucide icon sprite — provenance & license
+# Lucide 图标 sprite —— 来源与许可
 
-Generated: 2026-10-08T12:56Z (UTC) · Working dir: `C:\Users\YQQ-Agent\AppData\Local\Temp\aegis-icons\`
+本目录**只有两份文件**：这一份说明，和 `LICENSE-ISC.txt`（上游 LICENSE 的逐字副本）。
+图标本体不在这里——sprite 是**内联在 `app/public/index.html`** 里的一组 `<symbol>`，
+所以本目录里没有 `sprite.svg`、`raw/`、`report.json` 之类的构建产物。
 
-## Source
+## 来源
 
-| item | value |
+| 项 | 值 |
 | --- | --- |
-| Repository | `lucide-icons/lucide` (https://github.com/lucide-icons/lucide) |
-| Branch fetched | `main` |
-| Commit SHA at fetch time | `a04f228cd01185e09c188b7227b9600c08c565ec` |
-| Commit verification | `GET /repos/lucide-icons/lucide/commits/main` **and** `GET /repos/lucide-icons/lucide/git/ref/heads/main` both returned that SHA (`type: commit`); commit date `2026-10-08T07:16:31Z`, message `feat(icons): added \`lens\` icon (#4923)`. No release tag was used. |
-| File URL template | `https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/<name>.svg` |
-| Name authority | Full icon inventory taken from `GET /repos/lucide-icons/lucide/git/trees/main?recursive=1` (`truncated: false`, 1870 files in `icons/`). No icon name or path datum was written from memory. |
-| Content verification | Every `raw/<name>.svg` on disk has a git blob SHA (`sha1("blob <len>\0"+content)`) equal to the `icons/<name>.svg` blob SHA recorded in that tree object, i.e. byte-identical to the files at commit `a04f228`. See `report.json → icons[*].git_blob_sha_matches_repo_tree` (33/33 true). |
-| License | ISC, plus MIT for the Feather-derived icons. Verbatim copy of the repo `LICENSE` is in `LICENSE-ISC.txt`. |
+| 上游仓库 | `lucide-icons/lucide` · <https://github.com/lucide-icons/lucide> |
+| 取用时的分支与提交 | `main` @ `a04f228cd01185e09c188b7227b9600c08c565ec`（2026-10-08 取用，未使用任何 release tag） |
+| 源文件路径模板 | `https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/<name>.svg` |
+| 许可证 | ISC；其中 12 个图标另带 MIT（Feather 派生，见下） |
+| 许可证正文 | `LICENSE-ISC.txt`，含 ISC 与 Feather/MIT 两段声明，**必须随仓分发** |
 
-## License notice
+## 生成时做过的校验
 
-The sprite in `sprite.svg` is a derivative work of Lucide icons and must ship together with
-`LICENSE-ISC.txt` (the copyright + permission notice has to appear in all copies, per the ISC text).
+- 图标名与路径全部取自 `GET /repos/lucide-icons/lucide/git/trees/main?recursive=1` 的清单，没有一个是凭记忆写的。
+- 提交号由 `GET /repos/.../commits/main` 与 `GET /repos/.../git/ref/heads/main` 两处各自返回一次并相符。
+- 取回的 33 个源文件逐个算 git blob SHA，与上面那棵 tree 里记录的 blob SHA 相等，即字节级等同 `a04f228` 的内容。
+- 呈现属性只从根 `<svg>` 上剥除（`xmlns` / `width` / `height` / `fill` / `stroke` / `stroke-width` /
+  `stroke-linecap` / `stroke-linejoin`），`viewBox` 移到 `<symbol>` 上；`<symbol>` 内只保留几何元素。
+  唯一的例外是 `#i-key` 里子元素级的 `fill="currentColor"`（钥匙上那个 0.5 半径的圆点），
+  它是有几何含义的，剥掉会画成一个空心环。
 
-Two license layers apply:
+⚠ **`rows-3` 是这批之后补进 sprite 的**，没有重跑上面那轮 blob 校验，也没有核对它在 `a04f228` 里的
+源文件名与改名史。它的形状与元素数是从当前 sprite 量出来的（见下表），但**来源核验状态与其余 33 个不同**。
 
-1. **ISC** — Lucide Icons and Contributors, covers all 33 icons.
-2. **MIT (Cole Bemis / Feather)** — the `LICENSE` file lists icons derived from the Feather project;
-   9 of the files used here are on that list: `trash`, `plus`, `x`, `chevron-down`, `arrow-left`,
-   `download`, `upload`, `moon`, `link`. Both notices are already inside `LICENSE-ISC.txt`, so keeping
-   that file next to the sprite satisfies both.
+## 在界面里怎么被消费
 
-## Icon inventory (sprite order = semantic name, alphabetical)
+`index.html` 里有一个 `display:none` 的容器装着这些 `<symbol>`，统一由 `ic(name, size)` 引用。
+呈现属性**必须由 `ic()` 在引用处重复声明**（`fill="none"` / `stroke="currentColor"` /
+`stroke-width="1.5"` / `stroke-linecap` / `stroke-linejoin` / `aria-hidden="true"`）——
+`display:none` 容器自身的属性不会传递到 `<use>` 实例，这一点由 `app/test/workbench.test.js` 钉住：
+它还盯「每个被引用的图标名都有 symbol」「两份许可文件在位」「图标不许走外链」。
 
-| symbol id | source file at `icons/` | geometry elements | license note |
+## 命名替换（语义 id ≠ 上游源文件名），共 3 处
+
+1. `key` → `key-round.svg`：按界面观感选的，`key.svg` 当时也在 `main` 上，不是被 404 逼的。
+2. `clock-off` → `clock-fading.svg`：`icons/clock-off.svg` 返回 **HTTP 404**，且 `clock-off` 不在那棵 tree 的
+   `clock*` 家族里（`clock`、`clock-1`…`clock-12`、`clock-alert`、`clock-arrow-*`、`clock-check`、`clock-fading`、`clock-plus`）。
+   语义 id 保持 `i-clock-off`。
+3. `trash-2` → `trash.svg`：`icons/trash-2.svg` 返回 **HTTP 404**；上游自己的 `icons/trash.json` 把
+   `trash-2` 声明为 `trash` 的废弃别名（`alias.duplicate`），所以这是上游的映射而非我们的取舍。
+
+另有四个名字本身是上游已废弃的别名，但规范文件是直接按新名取到的，未做替换：
+`alert-triangle` → `triangle-alert`、`columns` → `columns-2`、`layers-3` → `layers`、`loader-2` → `loader-circle`。
+
+## 清单
+
+**34 个 symbol · 115 个几何元素**（元素数与类型是从当前 `index.html` 里的 sprite 实量出来的）。
+「许可」列按上游 LICENSE 的 Feather 名单逐字比对：改了名的图标按**旧名**算，所以
+`triangle-alert`（旧名 `alert-triangle`）、`columns-2`（旧名 `columns`）、`loader-circle`（旧名 `loader`）也带 MIT。
+两段声明都在 `LICENSE-ISC.txt` 里，整体合规不依赖这一列的判断。
+
+| symbol id | 上游源文件 | 元素 | 许可 |
 | --- | --- | --- | --- |
-| `#i-activity` | `activity.svg` | 1 | ISC |
-| `#i-arrow-left` | `arrow-left.svg` | 2 | ISC + MIT (Feather) |
-| `#i-ban` | `ban.svg` | 2 | ISC |
-| `#i-calendar-days` | `calendar-days.svg` | 10 | ISC |
-| `#i-chevron-down` | `chevron-down.svg` | 1 | ISC + MIT (Feather) |
-| `#i-clock-alert` | `clock-alert.svg` | 4 | ISC |
-| `#i-clock-off` | `clock-fading.svg` | 6 | ISC — name substituted, see below |
-| `#i-columns-2` | `columns-2.svg` | 2 | ISC |
-| `#i-copy` | `copy.svg` | 2 | ISC |
-| `#i-cpu` | `cpu.svg` | 14 | ISC |
-| `#i-download` | `download.svg` | 3 | ISC + MIT (Feather) |
-| `#i-eye` | `eye.svg` | 2 | ISC |
-| `#i-eye-off` | `eye-off.svg` | 4 | ISC |
-| `#i-gauge` | `gauge.svg` | 2 | ISC |
-| `#i-globe` | `globe.svg` | 3 | ISC |
-| `#i-key` | `key-round.svg` | 2 | ISC — name substituted, see below |
-| `#i-layers` | `layers.svg` | 3 | ISC |
-| `#i-link` | `link.svg` | 2 | ISC + MIT (Feather) |
-| `#i-loader-circle` | `loader-circle.svg` | 1 | ISC |
-| `#i-moon` | `moon.svg` | 1 | ISC + MIT (Feather) |
-| `#i-pencil` | `pencil.svg` | 2 | ISC |
-| `#i-plus` | `plus.svg` | 2 | ISC + MIT (Feather) |
-| `#i-refresh-cw` | `refresh-cw.svg` | 4 | ISC |
-| `#i-shield-check` | `shield-check.svg` | 2 | ISC |
-| `#i-sliders-horizontal` | `sliders-horizontal.svg` | 9 | ISC |
-| `#i-star` | `star.svg` | 1 | ISC |
-| `#i-sun` | `sun.svg` | 9 | ISC |
-| `#i-trash-2` | `trash.svg` | 5 | ISC + MIT (Feather) — name substituted, see below |
-| `#i-triangle-alert` | `triangle-alert.svg` | 3 | ISC |
-| `#i-upload` | `upload.svg` | 3 | ISC + MIT (Feather) |
-| `#i-wallet` | `wallet.svg` | 2 | ISC |
-| `#i-x` | `x.svg` | 2 | ISC + MIT (Feather) |
-| `#i-zap` | `zap.svg` | 1 | ISC |
-
-33 symbols · 112 geometry elements (102 `path`, 5 `circle`, 5 `rect`; the sources contained no
-`line`/`polyline`/`polygon`).
-
-## Naming substitutions performed (semantic name ≠ source file)
-
-1. `key` → `key-round.svg` — requested explicitly. Note `key.svg` also exists on `main`; `key-round`
-   was chosen, not forced by a 404.
-2. `clock-off` → `clock-fading.svg` — `icons/clock-off.svg` returned **HTTP 404** and `clock-off` is
-   absent from the tree inventory (the `clock*` family on `main` is: `clock`, `clock-1`…`clock-12`,
-   `clock-alert`, `clock-arrow-down/left/right/up`, `clock-check`, `clock-fading`, `clock-plus`).
-   Used the fallback you pre-approved. The semantic id stays `i-clock-off`.
-3. `trash-2` → `trash.svg` — `icons/trash-2.svg` returned **HTTP 404**. Confirmed by upstream metadata:
-   `icons/trash.json` declares alias `{ "name": "trash-2", "deprecated": true,
-   "deprecationReason": "alias.duplicate" }`, i.e. upstream itself maps `trash-2` onto `trash`.
-   The semantic id stays `i-trash-2`.
-
-Names you listed that needed no substitution but are upstream-deprecated aliases (kept as-is because
-the canonical file was fetched directly): `alert-triangle` → now `triangle-alert`
-(`icons/triangle-alert.json`: alias `alert-triangle`, deprecated `alias.name`), `columns` → now
-`columns-2`, `layers-3` → now `layers`, `loader-2` → now `loader-circle`.
-
-Nothing requested was dropped for lack of a source; all 33 requested semantic names resolved.
-
-## Attribute processing
-
-**Stripped from the root `<svg>` of every source file** (all 33 files carried exactly this set):
-`xmlns="http://www.w3.org/2000/svg"`, `width="24"`, `height="24"`, `fill="none"`,
-`stroke="currentColor"`, `stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"`.
-`viewBox="0 0 24 24"` was moved onto the `<symbol>`.
-
-**Kept inside `<symbol>`**: only geometry elements — `path`, `circle`, `rect`, `line`, `polyline`,
-`polygon` — with their geometric attributes (`d`, `cx`, `cy`, `r`, `x`, `y`, `width`, `height`, `rx`,
-`ry`). No `<g>`, `<defs>`, `<mask>`, `<text>`, `<style>` or `<use>` existed in any source; if one had,
-the build would have logged it (`report.json → non_geometry_content_dropped` is `null` for all 33).
-
-**One deliberate exception**: `child`-level `fill="currentColor"` is **preserved**, because it is
-geometry-bearing, not theme. Only `#i-key` uses it (`<circle cx="16.5" cy="7.5" r=".5"
-fill="currentColor"/>`, the key's dot); dropping it would render a hollow 0.5-radius ring.
-`stroke-linecap` / `stroke-linejoin` / `stroke-dasharray` never appear at child level in these 33
-files — Lucide puts them on the root only — so nothing semantic was lost; they must be declared once
-by the outer layer.
-
-**Normalisation**: self-closing tags re-emitted as `<tag …/>`, one element per line, source attribute
-order preserved, no path-data re-encoding (coordinates are byte-identical to the fetched files).
-
-## How to consume
-
-The container is `display:none`, so its own attributes never reach the instantiated content — the
-referencing `<svg>` must repeat the presentation attributes (or a CSS class must):
-
-```html
-<!-- paste sprite.svg once, anywhere in the body -->
-<svg class="aegis-icon" width="20" height="20" aria-hidden="true"
-     fill="none" stroke="currentColor" stroke-width="2"
-     stroke-linecap="round" stroke-linejoin="round"><use href="#i-key"></use></svg>
-```
-
-```css
-.aegis-icon { fill: none; stroke: currentColor; stroke-width: 2;
-              stroke-linecap: round; stroke-linejoin: round; }
-```
-
-## Files in this folder
-
-| file | what |
-| --- | --- |
-| `sprite.svg` | the deliverable (7,581 bytes, UTF-8, no BOM, LF) |
-| `LICENSE-ISC.txt` | verbatim `LICENSE` from commit `a04f228` |
-| `CREDITS.md` | this notice |
-| `report.json` | per-icon URL / HTTP status / symbol id / element counts / substitution notes / blob verification |
-| `mapping.tsv` | the 33 `semantic → source file` pairs actually used |
-| `raw/` | 33 `.svg` sources (byte-verified against the tree) + 33 `icons/*.json` upstream metadata files |
-| `tree.json`, `commit.json`, `all-icons.txt`, `fetch-status.csv` | audit trail: repo tree object at `a04f228`, commit response, the 1870 icon names, and the per-file HTTP status / byte count |
-| `build.js`, `verify.js` | the generator and the acceptance checks (`node verify.js` exits 0) |
+| `activity` | `activity.svg` | 1（1 path） | ISC |
+| `arrow-left` | `arrow-left.svg` | 2（2 path） | ISC + MIT（Feather） |
+| `ban` | `ban.svg` | 2（1 path + 1 circle） | ISC |
+| `calendar-days` | `calendar-days.svg` | 10（9 path + 1 rect） | ISC |
+| `chevron-down` | `chevron-down.svg` | 1（1 path） | ISC + MIT（Feather） |
+| `clock-alert` | `clock-alert.svg` | 4（4 path） | ISC |
+| `clock-off` | `clock-fading.svg` | 6（6 path） | ISC |
+| `columns-2` | `columns-2.svg` | 2（1 path + 1 rect） | ISC + MIT（Feather，LICENSE 里记的是旧名 `columns`） |
+| `copy` | `copy.svg` | 2（1 path + 1 rect） | ISC |
+| `cpu` | `cpu.svg` | 14（12 path + 2 rect） | ISC |
+| `download` | `download.svg` | 3（3 path） | ISC + MIT（Feather） |
+| `eye` | `eye.svg` | 2（1 path + 1 circle） | ISC |
+| `eye-off` | `eye-off.svg` | 4（4 path） | ISC |
+| `gauge` | `gauge.svg` | 2（2 path） | ISC |
+| `globe` | `globe.svg` | 3（2 path + 1 circle） | ISC |
+| `key` | `key-round.svg` | 2（1 path + 1 circle） | ISC |
+| `layers` | `layers.svg` | 3（3 path） | ISC |
+| `link` | `link.svg` | 2（2 path） | ISC + MIT（Feather） |
+| `loader-circle` | `loader-circle.svg` | 1（1 path） | ISC + MIT（Feather，LICENSE 里记的是旧名 `loader`） |
+| `moon` | `moon.svg` | 1（1 path） | ISC + MIT（Feather） |
+| `pencil` | `pencil.svg` | 2（2 path） | ISC |
+| `plus` | `plus.svg` | 2（2 path） | ISC + MIT（Feather） |
+| `rows-3` ⚠ | `rows-3.svg` | 3（2 path + 1 rect） | ISC |
+| `refresh-cw` | `refresh-cw.svg` | 4（4 path） | ISC |
+| `shield-check` | `shield-check.svg` | 2（2 path） | ISC |
+| `sliders-horizontal` | `sliders-horizontal.svg` | 9（9 path） | ISC |
+| `star` | `star.svg` | 1（1 path） | ISC |
+| `sun` | `sun.svg` | 9（8 path + 1 circle） | ISC |
+| `trash-2` | `trash.svg` | 5（5 path） | ISC + MIT（Feather） |
+| `triangle-alert` | `triangle-alert.svg` | 3（3 path） | ISC + MIT（Feather，LICENSE 里记的是旧名 `alert-triangle`） |
+| `upload` | `upload.svg` | 3（3 path） | ISC + MIT（Feather） |
+| `wallet` | `wallet.svg` | 2（2 path） | ISC |
+| `x` | `x.svg` | 2（2 path） | ISC + MIT（Feather） |
+| `zap` | `zap.svg` | 1（1 path） | ISC |
