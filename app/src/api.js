@@ -807,7 +807,11 @@ async function routeApi(req, res, ctx) {
      返回 false 才继续往下走。bad 的适配同 credentials：它那边是「响应器」不是「造 Error」。
      testKeyAt 从这里注入而不是让它 require('./api')——那样会绕回一个循环依赖。 */
   if (path.indexOf('/api/consumer') === 0) {
-    return handleConsumerApi(req, res, {
+    /* 子模块认不出的 /api/consumer/* 也得有条回话。早先这里是 `return handleConsumerApi(...)`，
+       它返回 false 时 routeApi 直接 resolve，谁都没写响应——`GET /api/consumer/keys`
+       （少打一个 id，正是机器消费者最容易敲错的一条）会挂到客户端自己超时，
+       服务端既不回 404 也不关连接。 */
+    if (await handleConsumerApi(req, res, {
       storage: storage,
       vault: vault,
       throttle: throttle.token || throttle.credential || throttle.reveal,
@@ -818,7 +822,8 @@ async function routeApi(req, res, ctx) {
       bad: function (res2, status, message, extra) {
         return json(res2, status, Object.assign({ error: message }, extra || {}));
       }
-    });
+    })) return;
+    return json(res, 404, { error: '接口不存在' });
   }
 
   /* 凭证子模块own自己的应答，返回 false 才落到下面的 404。

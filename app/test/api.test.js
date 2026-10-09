@@ -684,3 +684,17 @@ test('自动命名只取密钥末 4 位，撞车时明确报 409', async () => {
     server.close();
   }
 });
+test('未匹配的 /api/consumer* 路径必须回 404，不能把连接挂住', async () => {
+  const h = await startServer(mockFetch401);
+  try {
+    for (const p of ['/api/consumer', '/api/consumer/', '/api/consumer/keys', '/api/consumer/credentials',
+      '/api/consumer/tokens/zz/revoke', '/api/consumer/keys/1/nope']) {
+      /* 带超时：回归时这条要当场红，而不是让测试自己卡死 */
+      const res = await fetch(h.base + p, { signal: AbortSignal.timeout(4000) })
+        .catch(e => ({ status: 'NO_RESPONSE(' + e.name + ')' }));
+      assert.strictEqual(res.status, 404, p + ' 应当 404，实得 ' + res.status);
+    }
+    const real = await call(h.base, 'GET', '/api/consumer/tokens');
+    assert.ok(real.status === 200 || real.status === 423, '真路由不能被带坏，实得 ' + real.status);
+  } finally { await new Promise(r => h.server.close(r)); }
+});
