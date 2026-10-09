@@ -445,3 +445,58 @@ test('时钟默认取 Date.now，不传 now 也能签能验', () => {
   assert.strictEqual(ct.verifyToken(issued.token, {}).reason, 'bad-signature');
   assert.strictEqual(ct.verifyToken(issued.token, { dek: d, now: -1 }).ok, true, 'now 不合法就退回当前时间');
 });
+
+/* ── 令牌的失效边界只跟 DEK 本体绑定 ──────────────────────────────
+   这里翻的是 crypto.js 的真实生命周期，不是假想：写测试很容易顺手假定
+   「设口令=换新钥匙」，而实现里 enablePassphrase 只是把原来那把 DEK 包一层。
+   两头都钉住：改口令后旧令牌必须还活着（否则升级一次就把 20 个消费者全下线），
+   换了 DEK 后旧令牌必须死（否则重建的库里残留作用域还在生效）。 */
+
+const fsx = require('node:fs');
+const osx = require('node:os');
+const ptx = require('node:path');
+const ac = require('../src/crypto');
+
+const PW_A = 'first-passphrase-24';
+const PW_B = 'second-passphrase-26';
+
+test('设口令 / 改口令 / 丢弃 master.key 都不换 DEK，已签发令牌照样验得过', () => {
+  const dir = fsx.mkdtempSync(ptx.join(osx.tmpdir(), 'aegis-tok-dek-'));
+  try {
+    const legacy = ac.unlockDek(dir);
+    assert.strictEqual(legacy.mode, 'legacy');
+    const issued = ct.issueToken({ dek: legacy.dek, label: 'svc', scopes: ['key:read'], keyIds: [1] });
+    const want = { scopes: 'key:read', resource: { keyId: 1 } };
+    assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: legacy.dek }, want)).ok, true);
+
+    ac.enablePassphrase(dir, PW_A);
+    const afterSet = ac.unlockDek(dir, PW_A);
+    assert.strictEqual(afterSet.mode, 'envelope');
+    assert.ok(afterSet.dek.equals(legacy.dek), '设口令只包一层，DEK 本体不能变');
+    assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: afterSet.dek }, want)).ok, true);
+
+    ac.changePassphrase(dir, PW_A, PW_B);
+    const afterChange = ac.unlockDek(dir, PW_B);
+    assert.ok(afterChange.dek.equals(legacy.dek), '改口令重包一次，DEK 本体仍不能变');
+    assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: afterChange.dek }, want)).ok, true,
+      '改口令绝不能变成「吊销全部令牌」的手段——那件事由 revoke 接口做');
+
+    ac.discardRawDek(dir, PW_B, { confirm: true });
+    assert.strictEqual(fsx.existsSync(ptx.join(dir, ac.VAULT_FILE)), true, 'vault.key 还在');
+    assert.strictEqual(fsx.existsSync(ptx.join(dir, 'master.key')), false, '明文 DEK 副本已拆除');
+    const afterDiscard = ac.unlockDek(dir, PW_B);
+    assert.ok(afterDiscard.dek.equals(legacy.dek));
+    assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: afterDiscard.dek }, want)).ok, true);
+
+    /* 真正换根的那条路：换一个数据目录，就是另一把 DEK */
+    const other = fsx.mkdtempSync(ptx.join(osx.tmpdir(), 'aegis-tok-dek2-'));
+    try {
+      const freshDek = ac.unlockDek(other).dek;
+      assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: freshDek }, want)).reason, 'bad-signature');
+    } finally {
+      try { fsx.rmSync(other, { recursive: true, force: true }); } catch (e) { /* 清理尽力而为 */ }
+    }
+  } finally {
+    try { fsx.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* 清理尽力而为 */ }
+  }
+});

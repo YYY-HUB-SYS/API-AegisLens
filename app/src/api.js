@@ -4,6 +4,7 @@ const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCrea
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
+const { handleConsumerApi } = require('./consumer-api');
 
 function bad(status, message) {
   const e = new Error(message);
@@ -796,6 +797,24 @@ async function routeApi(req, res, ctx) {
       skippedDetails: skipped,
       total: keys.length,
       keys: imported
+    });
+  }
+
+  /* 消费者令牌子模块own /api/consumer/* 全部路径（管理面 + 机器面都在它那里），
+     返回 false 才继续往下走。bad 的适配同 credentials：它那边是「响应器」不是「造 Error」。
+     testKeyAt 从这里注入而不是让它 require('./api')——那样会绕回一个循环依赖。 */
+  if (path.indexOf('/api/consumer') === 0) {
+    return handleConsumerApi(req, res, {
+      storage: storage,
+      vault: vault,
+      throttle: throttle.token || throttle.credential || throttle.reveal,
+      json: json,
+      readBody: readBody,
+      fetchImpl: fetchImpl,
+      testKeyAt: testKeyAt,
+      bad: function (res2, status, message, extra) {
+        return json(res2, status, Object.assign({ error: message }, extra || {}));
+      }
     });
   }
 

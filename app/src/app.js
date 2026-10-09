@@ -47,8 +47,14 @@ function createApp(opts) {
     unlock: createThrottle({ maxFails: 5 }),
     reveal: createThrottle({ maxFails: 30 }),
     /* 凭证取用单独一档：和 Key 的 reveal 共用额度会让人搞不清是被谁限的 */
-    credential: createThrottle({ maxFails: 20 })
+    credential: createThrottle({ maxFails: 20 }),
+    /* 签发新令牌单独一档：解锁窗口内任何本机进程都能调签发接口（和 reveal 同一个信任前提），
+       不设额度就等于允许一个脚本一分钟造出几百把有效令牌，吊销列表先被撑爆 */
+    token: createThrottle({ maxFails: 20 })
   };
+  /* 外部注入的 throttle 对象是 server.js 自己拼的，键少一个就会在签发时撞成 TypeError。
+     在这里补齐而不是两边各写一遍：新增一档只改这一处。 */
+  if (!throttle.token) throttle.token = createThrottle({ maxFails: 20 });
 
   /* 闲置自动锁的驱动。不 unref 的话测试里 createApp 之后进程会挂住不退出；
      免密模式下 lockIfIdle 恒为 false，这个定时器留着不做事也无害。
