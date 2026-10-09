@@ -21,7 +21,8 @@ function harness(opts) {
   if (!o.locked) vault.openLegacy(mk);
   const throttle = {
     unlock: createThrottle({ maxFails: o.unlockMaxFails == null ? 3 : o.unlockMaxFails }),
-    reveal: createThrottle({ maxFails: o.revealMaxFails == null ? 3 : o.revealMaxFails })
+    reveal: createThrottle({ maxFails: o.revealMaxFails == null ? 3 : o.revealMaxFails }),
+    passphrase: createThrottle({ maxFails: o.passMaxFails == null ? 3 : o.passMaxFails })
   };
   const server = createApp({
     storage: storage,
@@ -463,8 +464,8 @@ test('免口令安装里「拆除明文密钥」必须被拒：那时删掉 mast
   } finally { await close(h); }
 });
 
-test('改口令吃解锁那一档限流——它是最后一个能无限次验真凭据的入口', async () => {
-  const h = harness({ unlockMaxFails: 2 });
+test('改口令有它自己那一档限流，烧掉它不能把人从解锁门外也挡掉', async () => {
+  const h = harness({ passMaxFails: 2, unlockMaxFails: 2 });
   const base = await serve(h);
   try {
     /* 首次设口令不验 current，所以不该吃额度 */
@@ -475,6 +476,15 @@ test('改口令吃解锁那一档限流——它是最后一个能无限次验�
     assert.strictEqual(gated.status, 429, '两次验错之后就该挡人，哪怕这次口令是对的');
     assert.ok(gated.data.retryAfterMs > 0, '429 要带得等多久');
     assert.strictEqual((await call(base, 'GET', '/api/vault/status')).data.passphraseSet, true, '被挡时不该已经把口令改掉');
+
+    /* 这条才是本意的重点：上面两次打错发生在「改口令」框里，用户此刻是**已解锁**状态，
+       一次都没试过解锁。上一版让这条路吃 unlock 的额度，于是锁屏之后连门都进不去——
+       自己把自己锁在外面。所以改完口令这条路必须有独立的桶。 */
+    assert.strictEqual((await call(base, 'POST', '/api/vault/lock', {})).status, 200);
+    const reUnlock = await call(base, 'POST', '/api/vault/unlock', { passphrase: 'first-pass-9' });
+    assert.strictEqual(reUnlock.status, 200,
+      '改口令框里打错两次，不该消耗解锁额度（实得 ' + reUnlock.status + ' ' + JSON.stringify(reUnlock.data) + '）');
+    assert.strictEqual(reUnlock.data.unlocked, true);
   } finally { await close(h); }
 });
 

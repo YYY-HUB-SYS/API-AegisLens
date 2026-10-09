@@ -276,12 +276,14 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'POST' && path === '/api/vault/passphrase') {
     const b = await readBody(req);
     const hasVault = vaultMode(storage.dataDir) === 'envelope';
-    /* 改口令要先验 current。这是全应用最后一个「能拿真凭据无限次去验 scrypt」的入口：
-       解锁那一档限了 5 次，这里此前没限，等于把同一道口令校验从最松的那扇门重做一遍。
-       首次设口令不验任何东西，所以不吃这个额度。 */
-    const pwGateKey = 'unlock:' + clientIp(req);
+    /* 改口令要先验 current，所以它得有自己的限流档：没有上限就等于把「拿真凭据无限次验
+       scrypt」这件事从最松的那扇门重做一遍。
+       🔴 但不许挂到 unlock 那一档上——这条路只有在保险库**已解锁**时才走得通，
+       用户在改口令框里打错两次就把解锁的 5 次额度烧光，等于空闲自动锁之后连门都进不去，
+       而那时他其实一次都没试过解锁。自伤不是防御。 */
+    const pwGateKey = 'passphrase:' + clientIp(req);
     if (hasVault) {
-      const pwGate = throttle.unlock.check(pwGateKey);
+      const pwGate = throttle.passphrase.check(pwGateKey);
       if (!pwGate.allowed) {
         vault.audit.push({ kind: 'passphrase', status: 'denied', detail: 'throttled' });
         return json(res, 429, { error: '口令校验过于频繁，请稍后再试', retryAfterMs: pwGate.retryAfterMs });
@@ -298,12 +300,12 @@ async function routeApi(req, res, ctx) {
         zeroSecret(dek);
       }
     } catch (e) {
-      if (hasVault) throttle.unlock.failed(pwGateKey);
+      if (hasVault) throttle.passphrase.failed(pwGateKey);
       vault.audit.push({ kind: 'passphrase', status: 'fail', detail: String(e.message).slice(0, 60) });
       const st = /解锁口令不正确/.test(String(e.message)) ? 403 : 400;
       return json(res, st, { error: e.message });
     }
-    if (hasVault) throttle.unlock.passed(pwGateKey);
+    if (hasVault) throttle.passphrase.passed(pwGateKey);
     vault.audit.push({ kind: 'passphrase', status: 'ok', detail: hasVault ? 'changed' : 'set' });
     return json(res, 200, {
       ok: true,
@@ -854,7 +856,7 @@ async function routeApi(req, res, ctx) {
     return handleCredentialsApi(req, res, {
       storage: storage,
       vault: vault,
-      throttle: throttle.credential || throttle.reveal,
+      throttle: throttle.credential,
       json: json,
       readBody: readBody,
       bad: function (res2, status, message, extra) {

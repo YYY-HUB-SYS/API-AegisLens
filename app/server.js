@@ -60,6 +60,10 @@ const throttle = {
   unlock: createThrottle({ maxFails: 5 }),
   reveal: createThrottle({ maxFails: 30 }),
   credential: createThrottle({ maxFails: 20 }),
+  /* 改口令单独一档：它验 current，得限流，但它只在**已解锁**时可达——
+     和 unlock 共用额度会让人在改口令框里打错两次就把解锁的 5 次烧光，
+     之后空闲自动锁一锁就进不去门了（自伤，不是防御）。 */
+  passphrase: createThrottle({ maxFails: 5 }),
   /* 机器消费者单独一档：它和 credential 共用额度的话，一个脚本对着令牌接口试猜
      就能把人在凭证页的「显示」全部锁掉——反过来人编辑凭证也会误伤机器面。 */
   token: createThrottle({ maxFails: 20 })
