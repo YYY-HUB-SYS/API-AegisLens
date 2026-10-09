@@ -266,6 +266,26 @@ npm test        # optional: run the whole suite to verify the environment (count
 
 The data directory is fully separate from the repository; upgrades never touch recorded keys.
 
+### Rolling back to an older version
+
+A rollback is just checking out an older tag/commit and restarting — the data directory stays where it is.
+Three things to confirm first:
+
+- **Do not roll back after discarding `master.key`.** Older builds only understand `master.key` and have no idea
+  `vault.key` exists. What happens depends on how old:
+  - Rolling back to a build **after** `c08bde3`: startup is refused with "the data directory already contains a key
+    vault but master.key is missing". That is failing safely.
+  - Rolling back to anything **older** (including the original upstream release): it **silently generates a fresh
+    `master.key`**, the service starts normally, the UI opens — and the old vault becomes permanently
+    undecryptable, surfacing only as a read error. That is far worse than an abort.
+  If you really must go back, restore `master.key` from the pre-upgrade whole-directory backup first. With no such
+  backup, stay on the current version.
+- **New tables are invisible to older builds, not corrupted by them.** The `credentials`, `tokens` and `pools`
+  tables are simply never queried, and unknown fields in the JSON store are read and written back verbatim — a
+  rollback hides features, it does not damage data. Upgrading again brings them back.
+- **Take a whole-directory backup before rolling back** (the same `cp -a` command as above), so both the rollback
+  and the next upgrade have a way out.
+
 ## FAQ
 
 **The page asks for a passphrase and the API answers 423**
