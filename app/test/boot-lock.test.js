@@ -193,3 +193,65 @@ test('AKM_PASSPHRASE 能直接解锁启动；口令错时非交互环境要退�
     fs.rmSync(dir, { recursive: true, force: true });
   }
 }, { timeout: 60000 });
+
+/* 两条都是 2026-10-09 整改补的：前者钉住「闲置锁间隔其实可配 + 主界面读数据要续期」，
+   后者钉住「运行时关掉调度，不能被一次锁/解锁推翻」。两条都只有起真服务才测得出来。 */
+test('AKM_IDLE_LOCK_MINUTES 真的生效，且读数据会续期、轮询状态不会', async () => {
+  const dir = tempDir();
+  const port = freePort();
+  let h = start(dir, port, { AKM_IDLE_LOCK_MINUTES: '1' });
+  try {
+    const base = await waitReady(h);
+    await post(base, '/api/keys', { platform: 'deepseek', key: SECRET, name: 'idle' });
+    assert.strictEqual((await post(base, '/api/vault/passphrase', { next: PASS })).status, 200);
+    await post(base, '/api/vault/lock');
+    assert.strictEqual((await post(base, '/api/vault/unlock', { passphrase: PASS })).status, 200);
+
+    const just = (await get(base, '/api/vault/status')).data;
+    assert.ok(just.idleRemainingMs > 0 && just.idleRemainingMs <= 60000,
+      '设成 1 分钟就不该还是默认的 5 分钟，实得 ' + just.idleRemainingMs);
+
+    await new Promise(function (r) { setTimeout(r, 1500); });
+    assert.strictEqual((await get(base, '/api/keys')).status, 200, '数据读要成功');
+    const afterRead = (await get(base, '/api/vault/status')).data;
+    assert.ok(afterRead.idleRemainingMs > 59000,
+      '刚读过数据就该把计时推到接近满窗，实得 ' + afterRead.idleRemainingMs);
+
+    /* 反向：只轮询 /api/vault/status 不该续期，否则一个本机脚本就能把会话永远开着 */
+    await new Promise(function (r) { setTimeout(r, 1300); });
+    for (let i = 0; i < 3; i++) await get(base, '/api/vault/status');
+    const passive = (await get(base, '/api/vault/status')).data;
+    assert.ok(passive.idleRemainingMs < 59000,
+      '被动轮询不能续期，实得 ' + passive.idleRemainingMs);
+  } finally {
+    await stop(h);
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* Windows 句柄 */ }
+  }
+});
+
+test('运行时关掉定时调度后，一次锁/解锁不能把它偷偷开回来', async () => {
+  const dir = tempDir();
+  const port = freePort();
+  let h = start(dir, port, { AKM_SCHEDULE_ENABLED: '1', AKM_SCHEDULE_INTERVAL_MINUTES: '1' });
+  try {
+    const base = await waitReady(h);
+    await post(base, '/api/keys', { platform: 'deepseek', key: SECRET, name: 'sched' });
+    assert.strictEqual((await get(base, '/api/schedule')).data.schedule.enabled, true, '环境变量给的初值');
+
+    assert.strictEqual((await post(base, '/api/schedule', { enabled: false })).status, 200);
+    assert.strictEqual((await get(base, '/api/schedule')).data.schedule.enabled, false);
+
+    /* 锁一次再解锁：以前 openStore 看的是 config.schedule.enabled（环境变量），
+       于是这一步会把用户刚关掉的调度重新打开，接着按间隔朝全部厂商发真实请求 */
+    assert.strictEqual((await post(base, '/api/vault/passphrase', { next: PASS })).status, 200);
+    await post(base, '/api/vault/lock');
+    assert.strictEqual((await post(base, '/api/vault/unlock', { passphrase: PASS })).status, 200);
+
+    const st = (await get(base, '/api/schedule')).data.schedule;
+    assert.strictEqual(st.enabled, false, '锁/解锁不能推翻用户最后一次的显式指令');
+    assert.ok(!st.nextRunAt, '关着就不该还排着下一轮');
+  } finally {
+    await stop(h);
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* Windows 句柄 */ }
+  }
+});

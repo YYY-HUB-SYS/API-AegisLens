@@ -276,6 +276,17 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'POST' && path === '/api/vault/passphrase') {
     const b = await readBody(req);
     const hasVault = vaultMode(storage.dataDir) === 'envelope';
+    /* 改口令要先验 current。这是全应用最后一个「能拿真凭据无限次去验 scrypt」的入口：
+       解锁那一档限了 5 次，这里此前没限，等于把同一道口令校验从最松的那扇门重做一遍。
+       首次设口令不验任何东西，所以不吃这个额度。 */
+    const pwGateKey = 'unlock:' + clientIp(req);
+    if (hasVault) {
+      const pwGate = throttle.unlock.check(pwGateKey);
+      if (!pwGate.allowed) {
+        vault.audit.push({ kind: 'passphrase', status: 'denied', detail: 'throttled' });
+        return json(res, 429, { error: '口令校验过于频繁，请稍后再试', retryAfterMs: pwGate.retryAfterMs });
+      }
+    }
     let recoveryCode = null;
     try {
       if (hasVault) {
@@ -284,12 +295,15 @@ async function routeApi(req, res, ctx) {
         const dek = loadOrCreateMasterKey(storage.dataDir);
         enablePassphraseWith(storage.dataDir, dek, str(b.next));
         recoveryCode = createRecoveryEnvelope(storage.dataDir, dek, createRecoveryKey()).display;
+        zeroSecret(dek);
       }
     } catch (e) {
+      if (hasVault) throttle.unlock.failed(pwGateKey);
       vault.audit.push({ kind: 'passphrase', status: 'fail', detail: String(e.message).slice(0, 60) });
       const st = /解锁口令不正确/.test(String(e.message)) ? 403 : 400;
       return json(res, st, { error: e.message });
     }
+    if (hasVault) throttle.unlock.passed(pwGateKey);
     vault.audit.push({ kind: 'passphrase', status: 'ok', detail: hasVault ? 'changed' : 'set' });
     return json(res, 200, {
       ok: true,
@@ -845,15 +859,40 @@ async function routeApi(req, res, ctx) {
   return json(res, 404, { error: '接口不存在' });
 }
 
+/* 这三条不证明「有人在用保险库」：平台表与元数据是公开只读，/api/vault/status 是页面在轮询。
+   连它们都续期的话，一个本机脚本光靠轮询就能把会话永远开着，自动锁形同没有。 */
+const PASSIVE_PATHS = { '/api/platforms': 1, '/api/meta': 1, '/api/vault/status': 1 };
+
+/* 只抹「不是我们写的话」。第一版按 status>=500 一刀切，结果当场打死两条正常测试：
+   adapters 抛的是「模型列表接口不存在（HTTP 404）…」「密钥无效或无权限（HTTP 401）…」这类
+   **给人看的**中文说明，但它们不带 httpStatus，于是被归成 500 一起抹平了。
+   真正会泄内部话的是引擎与编程故障：SQLite 报错、undefined 取属性、ENOENT 之类。
+   判据用错误类型 + 引擎消息特征，而不是状态码。 */
+const ENGINE_FAULT = /^(SQLITE_|ERR_[A-Z_]+|ENOENT|EPERM|EACCES|EEXIST|TypeError|RangeError)|Cannot read propert|is not a function|Unexpected (token|end of input)|Invalid URL|too many open files/;
+
+function isEngineFault(e) {
+  if (e && e.httpStatus) return false;                     // 我们自己抛的，消息是写给人看的
+  if (e instanceof TypeError || e instanceof RangeError || e instanceof SyntaxError) return true;
+  return ENGINE_FAULT.test(String((e && e.message) || ''));
+}
+
 async function apiRouter(req, res, ctx) {
+  const path = new URL(req.url, 'http://127.0.0.1').pathname;
   try {
     if (req.method !== 'GET' && !sameOrigin(req)) {
       return json(res, 403, { error: '拒绝跨域写请求' });
     }
     await routeApi(req, res, ctx);
+    /* 真的读到/写到数据才算「人还在用」——主界面的操作不经 vault.key()（解密在 store 里），
+       以前只有凭证与令牌路径会续期，结果用户在密钥看板上忙到一半就被 5 分钟锁掉。
+       放在 routeApi 之后：423 之类的失败不该续期。 */
+    if (!PASSIVE_PATHS[path] && ctx.vault && ctx.vault.touch) ctx.vault.touch();
   } catch (e) {
+    const status = e.httpStatus || 500;
+    const leaky = isEngineFault(e);
+    if (leaky) console.error('[api] ' + req.method + ' ' + path + ' → ' + (e.stack || e.message));
     try {
-      json(res, e.httpStatus || 500, { error: e.message || '服务器内部错误' });
+      json(res, status, { error: leaky ? '服务器内部错误' : (e.message || '请求无效') });
     } catch (e2) { /* 响应已发出 */ }
   }
 }
@@ -862,6 +901,7 @@ module.exports = {
   apiRouter: apiRouter,
   refreshBalances: refreshBalances,
   testKeyAt: testKeyAt,
+  isEngineFault: isEngineFault,
   SCHEDULE_INTERVAL_MIN_MINUTES: SCHEDULE_INTERVAL_MIN_MINUTES,
   SCHEDULE_INTERVAL_MAX_MINUTES: SCHEDULE_INTERVAL_MAX_MINUTES
 };

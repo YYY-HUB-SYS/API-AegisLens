@@ -243,3 +243,22 @@ test('免密借来的 DEK 锁定后不得清零——那是存储层唯一的密
   s.lock();
   assert.ok(mine.every(function (b) { return b === 0; }));
 });
+
+test('touch()：只有真开着的信封会话才续期，且续期会重起计时', () => {
+  const c = clock();
+  const s = vault.createVaultSession({ now: c.now, idleLockMs: 60000 });
+  assert.strictEqual(s.touch(), false, '没解锁不该续期');
+  s.openLegacy(crypto.randomBytes(32));
+  assert.strictEqual(s.touch(), false, '免密模式没有锁可上，续期无意义');
+
+  const s2 = vault.createVaultSession({ now: c.now, idleLockMs: 60000 });
+  s2.attach(crypto.randomBytes(32), 'envelope');
+  assert.strictEqual(s2.touch(), true);
+  c.advance(40000);
+  assert.strictEqual(s2.lockIfIdle(), false, 'touch 之后 40 秒不该锁');
+  s2.touch();
+  c.advance(40000);
+  assert.strictEqual(s2.lockIfIdle(), false, '再 touch 一次，计时要从头算');
+  c.advance(25000);
+  assert.strictEqual(s2.lockIfIdle(), true, '距上次 touch 满 60 秒才锁');
+});

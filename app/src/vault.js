@@ -111,6 +111,14 @@ function createVaultSession(opts) {
       lastSeenAt = now();
       return dek;
     },
+    /* 显式记一次「人还在用」。给 HTTP 层用：主界面的读写不经过 key()（解密在 store 里），
+       所以以前只有凭证与令牌路径会续期，用户在密钥看板上忙到一半会被 5 分钟锁掉。
+       免密模式没有锁可上，返回 false 让它照原样不动。 */
+    touch: function () {
+      if (!open || mode === 'legacy') return false;
+      lastSeenAt = now();
+      return true;
+    },
     lockIfIdle: function () {
       /* 免密模式没有「解锁」这回事，也就无从自动锁——锁了就只能重启，用户会以为数据丢了 */
       if (!open || mode === 'legacy') return false;

@@ -2,6 +2,18 @@ const os = require('node:os');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
 
+/* 闲置自动锁的间隔。以前 server.js 读的是 config.idleLockMs，而这个字段压根不存在，
+   于是它永远 undefined、静默落回 vault.js 的 5 分钟——看起来可配，其实不可配。
+   现在它是真的可配；不设时返回 undefined，让 vault.js 的默认值当唯一权威，
+   免得两处各写一个「5 分钟」以后互相漂。 */
+function readIdleLockMs() {
+  const raw = String(process.env.AKM_IDLE_LOCK_MINUTES || '').trim();
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n * 60000);
+}
+
 const dataDir = process.env.AKM_DATA_DIR
   ? path.resolve(process.env.AKM_DATA_DIR)
   : path.join(os.homedir(), '.api-aegislens');
@@ -94,5 +106,6 @@ module.exports = {
   normalizeBind,
   proxy,
   resolveProxy,
+  idleLockMs: readIdleLockMs(),
   schedule: readScheduleConfig()
 };

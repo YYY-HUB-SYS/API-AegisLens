@@ -79,15 +79,21 @@ function openStore(dek, mode) {
      退出才释放。真人一次开机解一两次无所谓；测试里反复锁解要留意 Windows 上的临时目录删除。 */
   realStore = createStore(config.dataDir, dek);
   vault.attach(dek, mode);
-  /* 定时调度只在解锁之后才排第一轮：锁着的时候跑一轮只会每 60 分钟记一条 423 */
-  if (config.schedule.enabled) startScheduler();
+  /* 以调度器**自己的当前状态**为准，不看 config：环境变量只是初值，
+     用户运行时 POST /api/schedule {enabled:false} 关掉之后，一次锁/解锁不能把它偷偷开回来
+     ——那意味着「我已经让它别再朝厂商发请求了」在某次锁屏之后悄悄失效。 */
+  if (scheduler.status().enabled) startScheduler();
   return realStore;
 }
 
 function closeStore() {
   const had = !!realStore;
   realStore = null;
-  if (schedulerStarted) { scheduler.stop(); schedulerStarted = false; }
+  /* 无条件停：enabled 为假时 stop 只是清掉一个 null 定时器，没有副作用；
+     反过来如果只在 schedulerStarted 时停，运行时才开启的那一轮会躲过锁定继续按间隔跑，
+     每一轮都撞在 423 上——锁着的进程不该发外部请求。 */
+  scheduler.stop();
+  schedulerStarted = false;
   return had;
 }
 

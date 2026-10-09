@@ -462,3 +462,41 @@ test('免口令安装里「拆除明文密钥」必须被拒：那时删掉 mast
     assert.ok(fs.existsSync(path.join(h.dir, 'master.key')), '被拒时一个字节都不能少');
   } finally { await close(h); }
 });
+
+test('改口令吃解锁那一档限流——它是最后一个能无限次验真凭据的入口', async () => {
+  const h = harness({ unlockMaxFails: 2 });
+  const base = await serve(h);
+  try {
+    /* 首次设口令不验 current，所以不该吃额度 */
+    assert.strictEqual((await call(base, 'POST', '/api/vault/passphrase', { next: 'first-pass-9' })).status, 200);
+    assert.strictEqual((await call(base, 'POST', '/api/vault/passphrase', { current: 'wrong-pass-1', next: 'x-pass-99' })).status, 403);
+    assert.strictEqual((await call(base, 'POST', '/api/vault/passphrase', { current: 'wrong-pass-2', next: 'x-pass-99' })).status, 403);
+    const gated = await call(base, 'POST', '/api/vault/passphrase', { current: 'first-pass-9', next: 'second-pass-9' });
+    assert.strictEqual(gated.status, 429, '两次验错之后就该挡人，哪怕这次口令是对的');
+    assert.ok(gated.data.retryAfterMs > 0, '429 要带得等多久');
+    assert.strictEqual((await call(base, 'GET', '/api/vault/status')).data.passphraseSet, true, '被挡时不该已经把口令改掉');
+  } finally { await close(h); }
+});
+
+test('内部故障话不外泄，但我们自己写的人话照发', () => {
+  const { isEngineFault } = require('../src/api');
+  const authored = [
+    '模型列表接口不存在（HTTP 404）：该地址可能不支持 /models，请检查 Base URL 是否正确，或手动添加模型',
+    '密钥无效或无权限（HTTP 401）',
+    '保险库未解锁',
+    'label 最长 40 字符，当前 60'
+  ];
+  for (const m of authored) {
+    const e = new Error(m); e.httpStatus = 400;
+    assert.strictEqual(isEngineFault(e), false, '这条是写给人看的，不能抹：' + m);
+  }
+  /* 不带 httpStatus 的适配器消息同样是人话，不能按「500 就抹」一刀切 */
+  assert.strictEqual(isEngineFault(new Error('模型列表接口不存在（HTTP 404）')), false);
+  const leaks = [
+    'SQLITE_ERROR: database disk image is malformed',
+    "Cannot read properties of undefined (reading 'url')",
+    'ENOENT: no such file or directory, open \'/Users/x/.api-aegislens/keys.db\''
+  ];
+  for (const m of leaks) assert.strictEqual(isEngineFault(new Error(m)), true, '这条会泄内部话，必须抹：' + m);
+  assert.strictEqual(isEngineFault(new TypeError('boom')), true, '编程故障一律算内部话，哪怕消息看着无害');
+});
