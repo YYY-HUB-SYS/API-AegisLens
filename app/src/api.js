@@ -600,6 +600,13 @@ async function routeApi(req, res, ctx) {
     const k = requireKey(m[1]);
     const b = await readBody(req);
     const mid = decodeURIComponent(m[2]);
+    /* PATCH 只能改已经存在的模型行。storage.upsertModel 的语义是「没有就建」——那是拉取
+       /models 之后同步用的，拿它接 PATCH 等于允许任何人凭一条 URL 往库里凭空造一行：
+       前端路径拼错、脚本循环里带错 id、导入的脏数据都会留下这么一行，而且下一句的 404
+       永远走不到（getKey 已经把不存在的密钥挡在前面了），错误码还是 200。 */
+    if (!(k.models || []).some(function (x) { return x && x.id === mid; })) {
+      throw bad(404, '模型不存在：' + mid + '（PATCH 只改已有模型，新增请走拉取列表或手动添加）');
+    }
     const ctx = parseTokens(b.ctx, '上下文');
     const out = parseTokens(b.out, '最大输出');
     const upd = { id: mid };
@@ -828,7 +835,7 @@ async function routeApi(req, res, ctx) {
     if (await handleConsumerApi(req, res, {
       storage: storage,
       vault: vault,
-      throttle: throttle.token || throttle.credential || throttle.reveal,
+      throttle: throttle.token,
       json: json,
       readBody: readBody,
       fetchImpl: fetchImpl,

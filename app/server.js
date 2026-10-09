@@ -59,7 +59,10 @@ const vault = createVaultSession({ idleLockMs: config.idleLockMs });
 const throttle = {
   unlock: createThrottle({ maxFails: 5 }),
   reveal: createThrottle({ maxFails: 30 }),
-  credential: createThrottle({ maxFails: 20 })
+  credential: createThrottle({ maxFails: 20 }),
+  /* 机器消费者单独一档：它和 credential 共用额度的话，一个脚本对着令牌接口试猜
+     就能把人在凭证页的「显示」全部锁掉——反过来人编辑凭证也会误伤机器面。 */
+  token: createThrottle({ maxFails: 20 })
 };
 const scheduler = createScheduler({
   storage: storage,

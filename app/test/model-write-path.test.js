@@ -133,6 +133,30 @@ test('API：PATCH 只改 ctx 时，ctxSrc 变 manual 而 outSrc 保留 api', asy
   }
 });
 
+test('API：PATCH 一个不存在的模型 id 给 404，且不凭空造行', async () => {
+  /* storage.upsertModel 是「没有就建」——那是拉取 /models 之后的同步语义。PATCH 直接拿它
+     干活时，一句 `if (!rec) 404` 永远走不到（不存在的密钥早被 requireKey 挡了），于是
+     拼错的 URL、脚本循环里带错的 id 都能往库里落一行 src=manual 的空模型，
+     还回 200。修法是 PATCH 前先确认这一行真的在。 */
+  const { server, base } = await startServer(SOURCED_FETCH);
+  try {
+    let r = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-probe-ghost-01' });
+    const id = r.data.key.id;
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    assert.strictEqual(r.data.models.length, 1, '先确认只拉到了 probe-model');
+
+    r = await call(base, 'PATCH', '/api/keys/' + id + '/models/' + encodeURIComponent('ghost-model'), { ctx: 4096 });
+    assert.strictEqual(r.status, 404, '不存在的行不该被 PATCH 顺手建出来：' + JSON.stringify(r.data));
+    assert.match(r.data.error, /ghost-model/, '错误里要指名那条 id');
+
+    r = await call(base, 'GET', '/api/keys');
+    const k = r.data.keys.find(x => x.id === id);
+    assert.deepStrictEqual(k.models.map(m => m.id), ['probe-model'], '幻影行一条都不许落库');
+  } finally {
+    server.close();
+  }
+});
+
 test('API：只改 note 不动数值时，按字段来源原样保留', async () => {
   const { server, base } = await startServer(SOURCED_FETCH);
   try {
