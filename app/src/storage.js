@@ -260,6 +260,85 @@ function countUsernamesByUsername(list) {
   return credUsernameCounts(pairs);
 }
 
+/* ================= 消费者作用域令牌 =================
+   库里只存令牌的**元数据**：签好名的令牌本体永不落盘，只有 fingerprint（HMAC 单向、带 DEK 因子）。
+   存令牌本身等于在加密库旁边再放一份可重放的凭据，而吊销要看的是 tid 清单，不是令牌串。 */
+
+function tokStr(v) { return v == null ? '' : String(v); }
+
+/* 正整数数组：去重、升序。签发侧 consumer-tokens.js 已经校验过一轮，这里再夹一次是因为
+   JSON 后端会被手改过的 store.json 喂到，不能假定进来的东西是干净的。 */
+function tokIds(v) {
+  if (!Array.isArray(v)) return [];
+  const out = [];
+  for (const n of v) {
+    const x = Number(n);
+    if (Number.isSafeInteger(x) && x > 0 && out.indexOf(x) === -1) out.push(x);
+  }
+  return out.sort(function (a, b) { return a - b; });
+}
+
+function tokScopes(v) {
+  if (!Array.isArray(v)) return [];
+  const out = [];
+  for (const s of v) {
+    const x = String(s);
+    if (x && out.indexOf(x) === -1) out.push(x);
+  }
+  return out;
+}
+
+function tokUnix(v) {
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
+function tokNew(input) {
+  const i = input || {};
+  return {
+    tid: tokStr(i.tid),
+    fingerprint: tokStr(i.fingerprint),
+    label: tokStr(i.label),
+    scopes: tokScopes(i.scopes),
+    keyIds: tokIds(i.keyIds),
+    credIds: tokIds(i.credIds),
+    iat: tokUnix(i.iat),
+    exp: tokUnix(i.exp)
+  };
+}
+
+/* 「现在过期了没」是读出来的判断，不是写进去的状态：存成字段就会随时间失真 */
+function tokRecord(t) {
+  return {
+    id: t.id,
+    tid: t.tid,
+    fingerprint: t.fingerprint,
+    label: t.label,
+    scopes: t.scopes.slice(),
+    keyIds: t.keyIds.slice(),
+    credIds: t.credIds.slice(),
+    iat: t.iat,
+    exp: t.exp,
+    issuedAt: t.iat ? new Date(t.iat * 1000).toISOString() : null,
+    expiresAt: t.exp ? new Date(t.exp * 1000).toISOString() : null,
+    revokedAt: t.revokedAt == null ? null : String(t.revokedAt),
+    lastUsedAt: t.lastUsedAt == null ? null : String(t.lastUsedAt),
+    createdAt: t.createdAt
+  };
+}
+
+function tokJsonArray(v) { return JSON.stringify(Array.isArray(v) ? v : []); }
+
+function parseTokJson(v) {
+  if (v == null || v === '') return [];
+  try {
+    const parsed = JSON.parse(String(v));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
 /* ================= JSON 文件后端 ================= */
 
 function makeJsonStore(dataDir, masterKey) {
@@ -291,6 +370,13 @@ function makeJsonStore(dataDir, masterKey) {
       return Math.max(max, Number(p && p.id) || 0);
     }, 0) + 1;
   }
+  /* tokens 同理：消费者令牌是后加的能力 */
+  if (!Array.isArray(data.tokens)) data.tokens = [];
+  if (typeof data.nextTokenId !== 'number') {
+    data.nextTokenId = data.tokens.reduce(function (max, t) {
+      return Math.max(max, Number(t && t.id) || 0);
+    }, 0) + 1;
+  }
   function persist() {
     const tmp = file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
@@ -300,6 +386,11 @@ function makeJsonStore(dataDir, masterKey) {
   function findCred(id) {
     const n = credId(id);
     return data.credentials.find(function (x) { return x.id === n; }) || null;
+  }
+  function findToken(tid) {
+    const t = tokStr(tid);
+    if (!t) return null;
+    return data.tokens.find(function (x) { return x.tid === t; }) || null;
   }
   function trimHistory(keyId) {
     let seen = 0;
@@ -663,6 +754,50 @@ function makeJsonStore(dataDir, masterKey) {
 
     credentialUsernameCounts() {
       return countUsernamesByUsername(data.credentials.map(function (d) { return d.username; }));
+    },
+
+    /* ---------- 消费者令牌（与 SQLite 后端同名方法、同结果；存元数据不存令牌本体） ---------- */
+
+    createToken(input) {
+      const doc = tokNew(input);
+      doc.id = data.nextTokenId++;
+      doc.createdAt = nowIso();
+      doc.revokedAt = null;
+      doc.lastUsedAt = null;
+      data.tokens.push(doc);
+      persist();
+      return tokRecord(doc);
+    },
+
+    getToken(tid) {
+      const d = findToken(tid);
+      return d ? tokRecord(d) : null;
+    },
+
+    /* 新的在前：界面上刚签的那一把必须一眼看到，不必数到列表末尾 */
+    listTokens() {
+      return data.tokens.slice()
+        .sort(function (a, b) { return Number(b.id) - Number(a.id); })
+        .map(function (d) { return tokRecord(d); });
+    },
+
+    /* 幂等：已吊销的再吊销不改时间，也不重复落盘 */
+    revokeToken(tid) {
+      const d = findToken(tid);
+      if (!d) return null;
+      if (d.revokedAt == null) {
+        d.revokedAt = nowIso();
+        persist();
+      }
+      return tokRecord(d);
+    },
+
+    setTokenLastUsed(tid) {
+      const d = findToken(tid);
+      if (!d) return null;
+      d.lastUsedAt = nowIso();
+      persist();
+      return tokRecord(d);
     }
   };
 }
@@ -747,6 +882,22 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  pool_id INTEGER NOT NULL,',
     '  key_id INTEGER NOT NULL,',
     '  PRIMARY KEY (pool_id, key_id)',
+    ');',
+    /* 消费者令牌：tid 是令牌中 12 字节随机数的十六进制， UNIQUE 靠它兜住重复签发；
+       三个 *_json 列存的是明文清单（这些 id 在掩码列表里本来就看得见），签名令牌永不入库 */
+    'CREATE TABLE IF NOT EXISTS tokens (',
+    '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
+    '  tid TEXT NOT NULL UNIQUE,',
+    '  fingerprint TEXT DEFAULT \'\',',
+    '  label TEXT DEFAULT \'\',',
+    '  scopes_json TEXT DEFAULT \'[]\',',
+    '  key_ids_json TEXT DEFAULT \'[]\',',
+    '  cred_ids_json TEXT DEFAULT \'[]\',',
+    '  iat INTEGER DEFAULT 0,',
+    '  exp INTEGER DEFAULT 0,',
+    '  revoked_at TEXT,',
+    '  last_used_at TEXT,',
+    '  created_at TEXT',
     ');'
   ].join('\n'));
   try {
@@ -801,7 +952,12 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selPoolKeys: db.prepare('SELECT key_id FROM pool_keys WHERE pool_id = ? ORDER BY rowid'),
     insPoolKey: db.prepare('INSERT OR IGNORE INTO pool_keys (pool_id, key_id) VALUES (?, ?)'),
     delPoolKey: db.prepare('DELETE FROM pool_keys WHERE pool_id = ? AND key_id = ?'),
-    touchPool: db.prepare('UPDATE pools SET updated_at = ? WHERE id = ?')
+    touchPool: db.prepare('UPDATE pools SET updated_at = ? WHERE id = ?'),
+    insToken: db.prepare('INSERT INTO tokens (tid, fingerprint, label, scopes_json, key_ids_json, cred_ids_json, iat, exp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    selToken: db.prepare('SELECT * FROM tokens WHERE tid = ?'),
+    selAllTokens: db.prepare('SELECT * FROM tokens ORDER BY id DESC'),
+    revokeToken: db.prepare('UPDATE tokens SET revoked_at = ? WHERE tid = ? AND revoked_at IS NULL'),
+    setTokenLastUsed: db.prepare('UPDATE tokens SET last_used_at = ? WHERE tid = ?')
   };
 
   /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
@@ -930,6 +1086,24 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     const n = credId(id);
     return Number.isFinite(n) ? (stmt.selCredential.get(n) || null) : null;
   }
+
+  function tokenFromRow(row) {
+    return {
+      id: row.id,
+      tid: tokStr(row.tid),
+      fingerprint: tokStr(row.fingerprint),
+      label: tokStr(row.label),
+      scopes: tokScopes(parseTokJson(row.scopes_json)),
+      keyIds: tokIds(parseTokJson(row.key_ids_json)),
+      credIds: tokIds(parseTokJson(row.cred_ids_json)),
+      iat: tokUnix(row.iat),
+      exp: tokUnix(row.exp),
+      revokedAt: row.revoked_at,
+      lastUsedAt: row.last_used_at,
+      createdAt: row.created_at
+    };
+  }
+  function tokenRecord(row) { return row ? tokRecord(tokenFromRow(row)) : null; }
 
   return {
     backend: 'sqlite',
@@ -1231,6 +1405,43 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       return credUsernameCounts(stmt.selCredentialUsernames.all().map(function (r) {
         return { username: r.username, count: r.count };
       }));
+    },
+
+    /* ---------- 消费者令牌（与 JSON 后端同名方法、同结果；存元数据不存令牌本体） ---------- */
+
+    createToken(input) {
+      const doc = tokNew(input);
+      stmt.insToken.run(
+        doc.tid, doc.fingerprint, doc.label,
+        tokJsonArray(doc.scopes), tokJsonArray(doc.keyIds), tokJsonArray(doc.credIds),
+        doc.iat, doc.exp, nowIso()
+      );
+      return tokenRecord(stmt.selToken.get(doc.tid) || null);
+    },
+
+    getToken(tid) {
+      const t = tokStr(tid);
+      return tokenRecord(t ? (stmt.selToken.get(t) || null) : null);
+    },
+
+    /* 新的在前：与 JSON 后端同序 */
+    listTokens() { return stmt.selAllTokens.all().map(tokenRecord); },
+
+    /* 幂等：已吊销的再吊销不改时间，也不重复写 */
+    revokeToken(tid) {
+      const t = tokStr(tid);
+      const cur = t ? (stmt.selToken.get(t) || null) : null;
+      if (!cur) return null;
+      if (cur.revoked_at == null) stmt.revokeToken.run(nowIso(), cur.tid);
+      return tokenRecord(stmt.selToken.get(cur.tid) || null);
+    },
+
+    setTokenLastUsed(tid) {
+      const t = tokStr(tid);
+      const cur = t ? (stmt.selToken.get(t) || null) : null;
+      if (!cur) return null;
+      stmt.setTokenLastUsed.run(nowIso(), cur.tid);
+      return tokenRecord(stmt.selToken.get(cur.tid) || null);
     }
   };
 }
