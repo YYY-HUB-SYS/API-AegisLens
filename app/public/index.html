@@ -625,6 +625,7 @@
   .pool-empty .btn { margin-top: 16px; }
   </style>
   <link rel="stylesheet" href="/credentials-view.css">
+  <link rel="stylesheet" href="/consumer-view.css">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
@@ -843,6 +844,8 @@
   <main class="board" id="pool-board" style="display:none"></main>
   <!-- 凭证保险库视图：独立文件挂载，避免和上面的密钥板抢同一份 DOM -->
   <section id="vault" aria-label="账号密码保险库"></section>
+  <!-- 消费者令牌面板：同样独立文件，见 public/consumer-view.js -->
+  <section id="consumer-tokens" aria-label="消费者令牌"></section>
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
     <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p>
@@ -3317,6 +3320,17 @@
     window.credentialsView = window.CredentialsView.mountCredentialsView(root, {
       endpoints: { vaultInit: '/api/vault/passphrase' }
     });
+  })();
+</script>
+<script src="/consumer-view.js"></script>
+<script>
+  /* 消费者令牌面板同样在独立文件里。端点表它自己有默认值，这里不重复一遍——
+     上一轮凭证视图就是靠「宿主传映射」把契约错位压到零的，但那是因为它探的路径名和后端不一致；
+     消费者这条线前后端路径本来就同名，多写一份反而多一处会过期的地方。 */
+  (function () {
+    var root = document.getElementById('consumer-tokens');
+    if (!window.ConsumerView || !root) return;
+    window.consumerView = window.ConsumerView.mountConsumerView(root, {});
   })();
 </script>
 </body>

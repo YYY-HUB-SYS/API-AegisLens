@@ -20,7 +20,9 @@ const VENDOR_TYPES = {
    不放开整个 public 目录——否则数据目录之外的任意文件读取口子又开了一条 */
 const APP_ASSETS = {
   '/credentials-view.js': 'text/javascript; charset=utf-8',
-  '/credentials-view.css': 'text/css; charset=utf-8'
+  '/credentials-view.css': 'text/css; charset=utf-8',
+  '/consumer-view.js': 'text/javascript; charset=utf-8',
+  '/consumer-view.css': 'text/css; charset=utf-8'
 };
 
 function pathnameOf(url) {
