@@ -252,6 +252,19 @@
     return g;
   }
 
+  /* 令牌真正带上哪些资源：没勾对应作用域的那一类，那一类的勾选就不算。
+     被禁用的 checkbox 在 querySelectorAll(':checked') 里照样命中，以前是原样发出去的——
+     提示写着「勾了资源也不会进令牌」，实际一个不少：签出来的令牌上挂着永远调不通的资源，
+     列表显示「密钥 5」却一把都读不到，事后完全看不出当时是怎么签的。
+     draft 里仍保留原始勾选（重勾作用域就不用再挑一遍），只有这一道裁剪是权威。 */
+  function effectiveIds(draft) {
+    var g = scopeGroups(draft && draft.scopes);
+    return {
+      keyIds: g.key ? ((draft && draft.keyIds) || []) : [],
+      credIds: g.cred ? ((draft && draft.credIds) || []) : []
+    };
+  }
+
   // =========================================================================
   // 图标（内联 SVG，无 emoji，无外部 sprite）
   // =========================================================================
@@ -426,6 +439,8 @@
       if (ttl) state.draft.ttl = Number(ttl.value) || TTL_DEFAULT;
       state.draft.scopes = Array.prototype.slice.call(form.querySelectorAll('[data-scope]:checked'))
         .map(function (el) { return el.getAttribute('data-scope'); });
+      /* draft 忠实记 DOM 的勾选，包括被禁用的那一类——重绘时还得把它们显示回来，
+         用户重勾作用域就不用再挑一遍。是否进令牌在签发那一步按作用域裁剪。 */
       state.draft.keyIds = checkedIds(form, 'key');
       state.draft.credIds = checkedIds(form, 'cred');
       return state.draft;
@@ -440,17 +455,20 @@
       if (!label) { state.issueErr = 'label 不能为空：它是这把令牌唯一的人类标识。'; render(); return; }
       if (label.length > MAX_LABEL) { state.issueErr = 'label 最长 ' + MAX_LABEL + ' 字符，当前 ' + label.length; render(); return; }
       if (!d.scopes.length) { state.issueErr = 'scopes 不能为空：没有作用域的令牌等于废令牌。'; render(); return; }
-      var total = d.keyIds.length + d.credIds.length;
+      var eff = effectiveIds(d);
+      var keyIds = eff.keyIds.slice();
+      var credIds = eff.credIds.slice();
+      var total = keyIds.length + credIds.length;
       if (total > MAX_RESOURCE) { state.issueErr = '资源条目合计最多 ' + MAX_RESOURCE + ' 个（当前 ' + total + '）。'; render(); return; }
-      if (groups.key && !d.keyIds.length) { state.issueErr = '勾选了密钥类作用域但没选任何密钥：清单为空表示一把都读不到，这样的令牌签出来是废的。'; render(); return; }
-      if (groups.cred && !d.credIds.length) { state.issueErr = '勾选了 cred:read 但没选任何凭证：清单为空的 cred:read 读不到东西。'; render(); return; }
+      if (groups.key && !keyIds.length) { state.issueErr = '勾选了密钥类作用域但没选任何密钥：清单为空表示一把都读不到，这样的令牌签出来是废的。'; render(); return; }
+      if (groups.cred && !credIds.length) { state.issueErr = '勾选了 cred:read 但没选任何凭证：清单为空的 cred:read 读不到东西。'; render(); return; }
 
       state.issuing = true; state.issueErr = ''; state.note = null; render();
       api.send('POST', endpoints.issue, {
         label: label,
         scopes: d.scopes.slice(),
-        keyIds: d.keyIds.slice(),
-        credIds: d.credIds.slice(),
+        keyIds: keyIds,
+        credIds: credIds,
         ttlSeconds: d.ttl
       }).then(function (r) {
         state.issuing = false;
@@ -703,7 +721,8 @@
       var d = state.draft;
       var groups = scopeGroups(d.scopes);
       var locked = state.phase === 'locked';
-      var total = d.keyIds.length + d.credIds.length;
+      var eff = effectiveIds(d);
+      var total = eff.keyIds.length + eff.credIds.length;
       var dis = locked ? ' disabled' : '';
       var errHtml = state.issueErr
         ? '<div class="cvw-banner" data-kind="bad" role="alert">' + IC.alert +
@@ -873,7 +892,10 @@
     }
     function syncCounters() {
       var d = state.draft;
-      var total = d.keyIds.length + d.credIds.length;
+      /* 合计那条按「真正会进令牌的」数——它对着的是上限和签发结果；
+         每一类各自的「已选」说的是这个列表里勾了几个，忽略态下仍是原样。 */
+      var eff = effectiveIds(d);
+      var total = eff.keyIds.length + eff.credIds.length;
       var res = mountPoint.querySelector('[data-count-res]');
       if (res) {
         res.textContent = '已选 ' + total + ' / 上限 ' + MAX_RESOURCE;
@@ -998,7 +1020,8 @@
       esc: esc, classifyStatus: classifyStatus, parseTokens: parseTokens, parseKeys: parseKeys,
       parseCredentials: parseCredentials, relUntil: relUntil, relSince: relSince, spanText: spanText,
       fmtDateTime: fmtDateTime, retryText: retryText, tokenStatus: tokenStatus, ids: ids,
-      curlExampleLines: curlExampleLines, scopeGroups: scopeGroups, resourceSummary: resourceSummary
+      curlExampleLines: curlExampleLines, scopeGroups: scopeGroups, resourceSummary: resourceSummary,
+      effectiveIds: effectiveIds
     }
   };
   global.ConsumerView = API;
