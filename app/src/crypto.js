@@ -3,10 +3,17 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const STORE_FILENAMES = ['keys.db', 'store.json'];
+const MASTER_KEY_FILE = 'master.key';
+
+/* 界面上「明文密钥还在不在」必须问这一处，不能让前端自己猜：
+   拆除了 master.key 之后，数据目录里只剩 vault.key 包着 DEK，两者状态完全不同 */
+function hasRawMasterKey(dataDir) {
+  return fs.existsSync(path.join(dataDir, MASTER_KEY_FILE));
+}
 
 function loadOrCreateMasterKey(dataDir) {
   fs.mkdirSync(dataDir, { recursive: true });
-  const keyPath = path.join(dataDir, 'master.key');
+  const keyPath = path.join(dataDir, MASTER_KEY_FILE);
   if (fs.existsSync(keyPath)) {
     const buf = Buffer.from(fs.readFileSync(keyPath, 'utf8').trim(), 'hex');
     if (buf.length === 32) return buf;
@@ -167,7 +174,7 @@ function discardRawDek(dataDir, passphrase, options) {
   if (!blob) throw new Error('还没设置解锁口令，删了 master.key 整库就永久解不开');
   const dek = unwrapDek(blob, passphrase);
   zeroSecret(dek);
-  const p = path.join(dataDir, 'master.key');
+  const p = path.join(dataDir, MASTER_KEY_FILE);
   if (fs.existsSync(p)) fs.unlinkSync(p);
   return { discarded: true };
 }
@@ -192,7 +199,9 @@ module.exports = {
   discardRawDek,
   zeroSecret,
   deriveKek,
+  hasRawMasterKey,
   VAULT_FILE,
+  MASTER_KEY_FILE,
   KDF_DEFAULT,
   MIN_PASSPHRASE,
 };

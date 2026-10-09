@@ -87,7 +87,8 @@
     vaultStatus: '/api/vault/status',
     vaultUnlock: '/api/vault/unlock',
     vaultInit: '/api/vault/init',
-    vaultLock: '/api/vault/lock'
+    vaultLock: '/api/vault/lock',
+    vaultDiscard: '/api/vault/discard-master-key'
   };
 
   var CONFOUNDABLES = 'Il1O0oB8S5Z2tvwy'; // 排除的易混字符
@@ -354,6 +355,11 @@
       error: null,                // {kind,message}
       gateBusy: false,
       gateErr: '',
+      /* 明文 DEK 副本（master.key）在不在，由 /api/vault/status 一处报，界面不猜 */
+      securityOpen: false,
+      rawKeyPresent: null,        // null = 还没读到
+      discardBusy: false,
+      discardErr: '',
       list: [],
       listState: 'idle',          // idle|loading|ready|error
       listErr: null,
@@ -404,6 +410,7 @@
       if (!endpoints.vaultStatus) { state.status = 'unlock'; return; }
       api.get(endpoints.vaultStatus).then(function (r) {
         state.passphraseSet = !!(r.ok && r.data && r.data.passphraseSet);
+        if (r.ok && r.data && typeof r.data.rawKeyPresent === 'boolean') state.rawKeyPresent = r.data.rawKeyPresent;
         state.sessionMode = (r.ok && r.data && r.data.mode) || null;
         if (r.ok && r.data && (r.data.needsSetup === true || r.data.setup === false)) state.status = 'setup';
         else if (r.ok && (r.data && r.data.unlocked === true)) { state.status = 'unlocked'; afterUnlock(); }
@@ -712,6 +719,9 @@
         case 'gen-copy': copyText(state.modal ? state.modal.gen.output : ''); break;
         case 'gen-apply': { if (state.modal) { state.modal.draft.password = state.modal.gen.output; var pv = mountPoint.querySelector('#cv-f-pw'); if (pv) { pv.value = state.modal.gen.output; updatePwMeter(pv); } toast('生成口令已填入', 'ok'); } } break;
         case 'refresh-all': loadList(); if (state.activeTab === 'health') loadHealth(); toast('已刷新', 'ok'); break;
+        case 'security': { state.securityOpen = !state.securityOpen; state.discardErr = ''; render(); } break;
+        case 'security-close': { state.securityOpen = false; state.discardErr = ''; render(); } break;
+        case 'discard-key': discardRawKey(); break;
         default: break;
       }
     }
@@ -911,13 +921,74 @@
       var legacyRun = (state.passphraseSet && state.sessionMode === 'legacy')
         ? '<div class="cv-banner" data-kind="423" role="status"><div>口令已设置，但<strong>本次运行仍是免密的</strong>：重启服务后才会要求解锁。点「锁定」可立刻验证闸门是否真的落下。</div></div>'
         : '';
+      /* 「拆除明文密钥」只在设过口令之后出现：免口令时删掉 master.key 就是整库永久解不开，
+         后端也会当场拒。放在这里而不是密钥页，是因为改口令、锁定这些保险库级动作都在这条栏上。 */
+      var securityBtn = (showTools && state.passphraseSet)
+        ? '<button class="cv-btn ghost" data-act="security" type="button" aria-expanded="' +
+            (state.securityOpen ? 'true' : 'false') + '" data-warn="' + (state.rawKeyPresent ? '1' : '0') + '">' +
+            IC.shield + '<span>明文密钥</span></button>'
+        : '';
       return '<div class="cv-top">' +
         '<div class="cv-brand"><span class="cv-mark">' + IC.vault + '</span><div><h1>凭证保险库</h1><p class="cv-mono">LOCAL · ENCRYPTED · ZERO-UPLOAD</p></div></div>' +
         '<div class="cv-spacer"></div>' +
         '<span class="cv-status-chip" data-lock="' + lock + '"><span class="cv-led"></span>' + (lock === 'open' ? IC.unlock : IC.lock) + ' ' + lockTxt + '</span>' +
         (showTools ? '<button class="cv-btn" data-act="refresh-all" type="button" title="刷新">' + IC.refresh + '<span>刷新</span></button>' +
+          securityBtn +
           '<button class="cv-btn ghost" data-act="lock" type="button">' + IC.lock + '<span>锁定</span></button>' : '') +
-        '</div>' + legacyRun;
+        '</div>' + legacyRun + (state.securityOpen ? securityCard() : '');
+    }
+
+    /* 这条卡片是整个安全模型里唯一「不可逆」的开关，所以文案先把代价说满，
+       再谈收益；确认方式是「口令 + 勾选」两个独立动作，不是一句「你确定吗」 */
+    function securityCard() {
+      var err = state.discardErr
+        ? '<div class="cv-banner" data-kind="5xx" role="alert">' + IC.alert + '<span>' + escapeHtml(state.discardErr) + '</span></div>'
+        : '';
+      if (state.rawKeyPresent === false) {
+        return '<section class="cv-card cv-security" data-state="discarded">' +
+          '<h2>明文密钥：已拆除</h2>' +
+          '<p>数据目录里已经没有 <code>master.key</code>。现在能解开这个库的只有解锁口令，' +
+          '或「恢复码 + <code>recovery.env</code>」这一对。</p>' +
+          '<p class="cv-hint">备份请把 <code>vault.key</code> 与 <code>recovery.env</code> 一起带走；' +
+          '口令忘了、恢复码也没抄，那就是永久解不开，没有后门。</p>' +
+          '<button class="cv-btn ghost" data-act="security-close" type="button">收起</button></section>';
+      }
+      return '<section class="cv-card cv-security" data-state="present">' +
+        '<h2>明文密钥：还在原地</h2>' +
+        '<p>设口令只是把主密钥又包了一层，<code>master.key</code> 本身仍留在数据目录里。' +
+        '只要它在，<strong>拷走整个数据目录就等于拷走了解开一切的钥匙</strong>——口令并没有改变这一点。</p>' +
+        '<p class="cv-hint">拆除之后：口令成为唯一入口；忘记口令只能靠恢复码重置；这一步不可逆，' +
+        '而且服务端会先用你输入的口令实际解一次，成功才允许删。</p>' +
+        err +
+        '<div class="cv-field"><label class="cv-label" for="cv-discard-pw">输入解锁口令</label>' +
+        '<input class="cv-input mono" id="cv-discard-pw" type="password" autocomplete="off" ' +
+        'autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="••••••••"></div>' +
+        '<label class="cv-check"><input type="checkbox" id="cv-discard-ack">' +
+        '<span class="cv-check-txt">我知道这一步不可逆<small>拆掉之后只能靠口令或恢复码进来，两者都没了就是数据没了</small></span></label>' +
+        '<div class="cv-security-acts"><button class="cv-btn danger" data-act="discard-key" type="button"' +
+        (state.discardBusy ? ' disabled' : '') + '>' + (state.discardBusy ? '正在拆除…' : '拆除明文密钥') + '</button>' +
+        '<button class="cv-btn ghost" data-act="security-close" type="button">取消</button></div></section>';
+    }
+
+    function discardRawKey() {
+      var card = mountPoint.querySelector('.cv-security');
+      if (!card || state.discardBusy) return;
+      var pwEl = card.querySelector('#cv-discard-pw');
+      var ackEl = card.querySelector('#cv-discard-ack');
+      var pw = pwEl ? pwEl.value : '';
+      if (!ackEl || !ackEl.checked) { state.discardErr = '先勾那一项：这一步拆掉之后没法撤销。'; render(); return; }
+      if (!pw) { state.discardErr = '请输入解锁口令。'; render(); return; }
+      state.discardBusy = true; state.discardErr = ''; render();
+      api.send('POST', endpoints.vaultDiscard, { passphrase: pw, confirm: true }).then(function (r) {
+        state.discardBusy = false;
+        if (r.ok) {
+          state.rawKeyPresent = false;
+          toast('明文密钥已拆除', 'ok');
+        } else {
+          state.discardErr = (r.data && r.data.error) || r.classify.message || '拆除失败';
+        }
+        render();
+      });
     }
 
     // ---- 门屏（设置 / 解锁）----

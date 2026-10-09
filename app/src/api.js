@@ -1,6 +1,6 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
-const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek } = require('./crypto');
+const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek, hasRawMasterKey } = require('./crypto');
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
@@ -227,6 +227,9 @@ async function routeApi(req, res, ctx) {
       unlocked: vault.isUnlocked(),
       mode: vault.mode(),
       passphraseSet: vaultMode(storage.dataDir) === 'envelope',
+      /* 「拷走整个目录就能解」这件事到底还成不成立，看这一位：它说的是明文 DEK 副本在不在，
+         不是口令设没设——设了口令但没拆 master.key，两者同时为真 */
+      rawKeyPresent: hasRawMasterKey(storage.dataDir),
       /* 视图靠这个字段决定进「设置口令」还是「解锁」屏。凭证库强制要口令：
          给网站密码开免密，就是我们要改掉的那个毛病 */
       needsSetup: vaultMode(storage.dataDir) !== 'envelope',

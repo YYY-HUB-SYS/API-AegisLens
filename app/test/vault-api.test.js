@@ -427,11 +427,17 @@ test('拆除明文 master.key：要显式确认、口令必须对，拆完口令
     const wrongPw = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: 'wrong-pass-9', confirm: true });
     assert.strictEqual(wrongPw.status, 403);
     assert.ok(fs.existsSync(path.join(h.dir, 'master.key')), '口令不对也不能删');
+    /* 界面靠这一位决定卡片显示「还在」还是「已拆除」，两次被拒之后它必须还是 true */
+    const before = await call(base, 'GET', '/api/vault/status');
+    assert.strictEqual(before.data.rawKeyPresent, true, '明文 DEK 还在时不能报已拆除');
 
     const ok = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: 'correct-pass-1', confirm: true });
     assert.strictEqual(ok.status, 200, JSON.stringify(ok.data));
     assert.strictEqual(fs.existsSync(path.join(h.dir, 'master.key')), false);
     assert.ok(fs.existsSync(path.join(h.dir, 'vault.key')), '信封要还在，否则整库当场变砖');
+    const after = await call(base, 'GET', '/api/vault/status');
+    assert.strictEqual(after.data.rawKeyPresent, false, '文件删了状态就得翻，否则界面会一直催用户拆第二次');
+    assert.strictEqual(after.data.passphraseSet, true, '拆除不等于设了口令的反面');
 
     /* 拆完之后锁定再解锁：借来的 DEK 不能被 detach 清零，否则这一步就解不开了 */
     h.vault.lock();
@@ -440,5 +446,19 @@ test('拆除明文 master.key：要显式确认、口令必须对，拆完口令
     assert.strictEqual(re.data.mode, 'envelope');
     const st = await call(base, 'GET', '/api/vault/status');
     assert.ok(st.data.recent.some(function (r) { return r.kind === 'discard' && r.status === 'ok'; }));
+  } finally { await close(h); }
+});
+
+test('免口令安装里「拆除明文密钥」必须被拒：那时删掉 master.key 就是整库永久解不开', async () => {
+  const h = harness();
+  const base = await serve(h);
+  try {
+    const st = await call(base, 'GET', '/api/vault/status');
+    assert.strictEqual(st.data.rawKeyPresent, true, '新库里明文 DEK 当然在');
+    assert.strictEqual(st.data.passphraseSet, false);
+    const r = await call(base, 'POST', '/api/vault/discard-master-key', { passphrase: '', confirm: true });
+    assert.strictEqual(r.status, 400, JSON.stringify(r.data));
+    assert.match(r.data.error, /还没设置解锁口令/);
+    assert.ok(fs.existsSync(path.join(h.dir, 'master.key')), '被拒时一个字节都不能少');
   } finally { await close(h); }
 });

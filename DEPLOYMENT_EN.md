@@ -243,7 +243,7 @@ All data lives in the data directory (default `~/.api-aegislens`):
 
 **Backup**: stop the service, then copy the entire directory to a safe location (encrypted drive / USB stick). The backup must be a **pair** — the store without something that can unlock it is useless, and treat the backup itself as plaintext-equivalent to your API keys.
 
-`master.key` and `vault.key` are not alternatives: setting a passphrase merely **adds a layer**, and `master.key` stays on disk untouched until you explicitly run "拆除明文密钥" / discard the raw key (that operation unlocks once with the passphrase to prove it works before deleting). After discarding it, the only things that can open the store are the passphrase or the recovery code plus `recovery.env` — so `vault.key` and `recovery.env` must be in your backup too.
+`master.key` and `vault.key` are not alternatives: setting a passphrase merely **adds a layer**, and `master.key` stays on disk untouched until you explicitly run "plaintext key → discard" in the credential vault (that operation unlocks once with the passphrase to prove it works before deleting; the entry never appears while no passphrase is set). After discarding it, the only things that can open the store are the passphrase or the recovery code plus `recovery.env` — so `vault.key` and `recovery.env` must be in your backup too.
 
 **Restored and verified**: on 2026-10-07 this procedure was drilled in a temporary data directory (create key → stop → copy whole directory → delete the original → copy back → restart): the key decrypted to the identical value, and manually added models plus assigned tool entries survived. With the SQLite backend no `-wal`/`-shm` side files remain, so a whole-directory copy taken while stopped is a consistent snapshot.
 
