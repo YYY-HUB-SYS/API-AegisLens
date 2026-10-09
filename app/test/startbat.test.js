@@ -2,11 +2,9 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { exec } = require('node:child_process');
-const { promisify } = require('node:util');
 
-const execAsync = promisify(exec);
 const batPath = path.join(__dirname, '..', 'start.bat');
+const stopBatPath = path.join(__dirname, '..', 'stop.bat');
 
 function readBat() {
   const buf = fs.readFileSync(batPath);
@@ -39,11 +37,15 @@ test('start.bat：chcp 65001 必须先于任何中文执行', () => {
   );
 });
 
-test('start.bat：服务窗口内再次切换 UTF-8（新控制台不继承代码页）', () => {
+test('start.bat：用 --daemon 起后台实例，不再开子控制台窗口', () => {
   const { text } = readBat();
   assert.ok(
-    text.includes('cmd /k "chcp 65001 >nul & node server.js"'),
-    'start 命令应在子窗口内先 chcp 65001 再启动 node'
+    text.includes('node server.js --daemon'),
+    '应交给 --daemon 后台化，关掉这个窗口服务照常在跑'
+  );
+  assert.ok(
+    !/cmd\s+\/k/i.test(text),
+    '不应再出现 cmd /k 子窗口——那正是「窗口一关服务就停」的形态，已由 --daemon 取代'
   );
 });
 
@@ -55,7 +57,31 @@ test('start.bat：关键结构完整（切目录 / 检测 node / 打开浏览器
   assert.ok(text.includes('http://127.0.0.1:37700'));
 });
 
-test('start.bat：子窗口命令链可用（chcp + node 串联执行）', async () => {
-  const { stdout } = await execAsync('chcp 65001 >nul & node -e console.log(42)');
-  assert.strictEqual(stdout.trim(), '42');
+test('两个 bat 依赖的开关在 server.js 里真的存在（bat 与 CLI 不能各说各话）', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.ok(/--daemon/.test(server), 'server.js 必须处理 --daemon');
+  assert.ok(/--stop/.test(server), 'server.js 必须处理 --stop');
+});
+
+test('stop.bat：与 start.bat 同一套编码约束，停止动作交给 server.js --stop', () => {
+  const buf = fs.readFileSync(stopBatPath);
+  assert.ok(
+    !(buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf),
+    'stop.bat 不应以 UTF-8 BOM 开头'
+  );
+  const text = buf.toString('utf8');
+  assert.ok(
+    text.indexOf('chcp 65001') > 0 &&
+      (text.search(/[一-鿿]/) === -1 || text.search(/[一-鿿]/) > text.indexOf('chcp 65001')),
+    'stop.bat 的中文字符只能出现在 chcp 65001 之后'
+  );
+  assert.ok(
+    text.includes('@echo off') && text.includes('cd /d "%~dp0"') && text.includes('node server.js --stop'),
+    'stop.bat 应切到脚本目录后执行 server.js --stop'
+  );
+  assert.strictEqual(
+    (text.match(/(^|[^\r])\n/g) || []).length,
+    0,
+    'stop.bat 不应存在孤立的 LF'
+  );
 });
