@@ -11,7 +11,7 @@
 ![Loopback](https://img.shields.io/badge/listens-on%20127.0.0.1%20only-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
-[简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md)
+[简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md) ｜ [Security model](./SECURITY_EN.md)
 
 </div>
 
@@ -104,6 +104,8 @@ flowchart LR
 > Exposing it through nginx to a LAN or the public internet means everyone who can reach that address sees
 > this data. For remote use, take an SSH tunnel (see the
 > [deployment guide](./DEPLOYMENT_EN.md#lan-and-remote-access)).
+> The full list of trust boundaries — including the precondition each defence depends on, and an explicit list of
+> **what is not defended** — is in the [security model](./SECURITY_EN.md).
 
 ---
 
@@ -194,6 +196,7 @@ Measured on this fork on 2026-10-09 with Node v24.14.0: `tests 459 / pass 459 / 
 ├── api-aegislens-prd/        # product design document (opens in a browser, in Chinese)
 ├── demo/                     # interactive demo page (fake data, no backend)
 ├── index.html                # project homepage
+├── SECURITY_EN.md            # threat model: who is defended against, who is not, and each precondition
 └── DEPLOYMENT_EN.md          # deployment · backup · upgrades
 ```
 

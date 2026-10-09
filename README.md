@@ -11,7 +11,7 @@
 ![Loopback](https://img.shields.io/badge/监听-127.0.0.1%20only-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
-[简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [部署指南](./DEPLOYMENT.md) ｜ [产品设计文档](./api-aegislens-prd/api-aegislens-prd.html)
+[简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [部署指南](./DEPLOYMENT.md) ｜ [安全模型](./SECURITY.md) ｜ [产品设计文档](./api-aegislens-prd/api-aegislens-prd.html)
 
 </div>
 
@@ -99,6 +99,7 @@ flowchart LR
 > 要给服务端程序用，别让它来蹭这把万能钥匙——给每个消费者签一把[作用域令牌](#-机器消费者作用域令牌)。
 > 一旦用 nginx 等反代暴露到局域网或公网，任何能访问那个地址的人都能拿到这些数据 ——
 > 远程使用请走 SSH 隧道（详见[部署指南](./DEPLOYMENT.md#局域网与远程访问)）。
+> 完整的信任边界清单——包括每一条防线成立的前提，以及**明列防不住的东西**——见[安全模型](./SECURITY.md)。
 
 ---
 
@@ -177,6 +178,7 @@ npm test
 ├── api-aegislens-prd/        # 产品设计文档（可直接浏览器打开）
 ├── demo/                     # 交互演示页（纯前端假数据，无后端）
 ├── index.html                # 项目主页
+├── SECURITY.md               # 威胁模型：防谁、不防谁、每条防线的前提
 └── DEPLOYMENT.md             # 部署 · 备份 · 升级
 ```
 
