@@ -1082,7 +1082,7 @@
       var err = state.gateErr || (state.error ? rateMessage(state.error) : '');
       var isSetup = mode === 'setup';
       var title = isSetup ? '设置主口令' : '解锁保险库';
-      var sub = isSetup ? '首次使用：创建一个主口令来加密本地保险库。它不会被上传，也不会写入本机任何存储。'
+      var sub = isSetup ? '这一步只管凭证保险库（网站口令 / 私钥 / 动态码）。上面的 API Key 早已逐条加密，不设主口令也能先用；设了它，这一库才有「锁定」——未解锁时一个字节都不出。口令不上传，也不写进本机任何文件。'
         : '输入主口令以解密并显示你的凭证。口令仅驻留内存，锁定即清除。';
       var banner = state.error && state.error.kind !== 'ok' ? errorBanner(state.error) : '';
       var fields =
@@ -1098,10 +1098,10 @@
       }
       var busy = state.gateBusy;
       var action = '<button class="cv-btn primary block" type="button" data-act="gate-submit"' + (busy ? ' disabled' : '') + '>' +
-        (busy ? '<span class="cv-spin" style="width:16px;height:16px;border-width:2px"></span> 处理中…' : (isSetup ? IC.vault + ' 创建保险库' : IC.unlock + ' 解锁')) + '</button>';
+        (busy ? '<span class="cv-spin" style="width:16px;height:16px;border-width:2px"></span> 处理中…' : (isSetup ? IC.vault + ' 创建凭证库' : IC.unlock + ' 解锁')) + '</button>';
       var errHtml = err ? '<div class="cv-banner" data-kind="' + (isSetup ? '5xx' : '423') + '" role="alert">' + IC.alert + '<span>' + escapeHtml(err) + '</span></div>' : '';
       var note = '<div class="cv-gate-note">' + IC.shield + '<span>' + (isSetup
-        ? '主口令不可恢复找回（除非用稍后的恢复码）。请牢记——它不存于本机任何文件。'
+        ? '主口令不写在任何文件里，忘了就只能用下一步那 52 位恢复码重置 —— 所以请当场抄下来。'
         : '凭证内容当前以占位显示，解锁后才会解密填充。所有明文只在本页内存中短暂存在。') + '</span></div>';
 
       var preview = isSetup ? firstRunPreview() : lockedPreview();

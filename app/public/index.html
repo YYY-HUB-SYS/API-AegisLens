@@ -842,15 +842,18 @@
   <div class="filter-bar" id="filter-bar"></div>
   <main class="board" id="board"></main>
   <main class="board" id="pool-board" style="display:none"></main>
-  <!-- 凭证保险库视图：独立文件挂载，避免和上面的密钥板抢同一份 DOM -->
-  <section id="vault" aria-label="账号密码保险库"></section>
-  <!-- 消费者令牌面板：同样独立文件，见 public/consumer-view.js -->
-  <section id="consumer-tokens" aria-label="消费者令牌"></section>
+  <!-- 空状态必须紧跟看板：它原先被压在凭证面板和令牌面板后面，第一次打开的人
+       在首屏只看得到「设置主口令」，看不到「还没有任何密钥 / + 新增密钥」，
+       于是以为这工具的入口是那个口令表单。 -->
   <div class="empty" id="empty" style="display:none">
     <h3>还没有任何密钥</h3>
     <p>把散落各处的 AI API Key 收拢到这里：加密存储、测连通、拉模型清单、生成配置。</p>
     <button class="btn primary" data-act="empty-add">+ 新增密钥</button>
   </div>
+  <!-- 凭证保险库视图：独立文件挂载，避免和上面的密钥板抢同一份 DOM -->
+  <section id="vault" aria-label="账号密码保险库"></section>
+  <!-- 消费者令牌面板：同样独立文件，见 public/consumer-view.js -->
+  <section id="consumer-tokens" aria-label="消费者令牌"></section>
 
   <footer class="foot">
     <span id="foot-meta">本地服务运行中…</span>
