@@ -158,12 +158,12 @@ test('reveal 出来的密钥（API 私钥）必须渲染：那一行标着「密
   const c = { id: 3, hasPassword: false, hasSecret: true };
   const masked = view.__internals.secretRowInner(c, null);
   assert.match(masked, /显示密钥/, '掩码态的按钮要说清显示的是密钥：' + masked);
-  const shown = view.__internals.secretRowInner(c, { password: null, secret: 'sk-live-abc' });
-  assert.ok(shown.includes('sk-live-abc'), '私钥类凭证的明文要出现在行里：' + shown);
+  const shown = view.__internals.secretRowInner(c, { password: null, secret: 'sk-fixture-abc' });
+  assert.ok(shown.includes('sk-fixture-abc'), '私钥类凭证的明文要出现在行里：' + shown);
   assert.match(shown, /aria-label="复制密钥"/);
   /* 口令类照旧优先 password，别把两类搞混 */
-  const both = view.__internals.secretRowInner({ id: 3, hasPassword: true, hasSecret: true }, { password: 'pw1', secret: 'sk-live-abc' });
-  assert.ok(both.includes('pw1') && !both.includes('sk-live-abc'), both);
+  const both = view.__internals.secretRowInner({ id: 3, hasPassword: true, hasSecret: true }, { password: 'pw1', secret: 'sk-fixture-abc' });
+  assert.ok(both.includes('pw1') && !both.includes('sk-fixture-abc'), both);
 });
 
 /* ── 揭示那条链：后端 → 存态 → 渲染，少一环就是「点了没反应」 ──────── */

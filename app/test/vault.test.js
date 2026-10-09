@@ -152,7 +152,7 @@ test('限流：锁期满后的空桶会被扫掉，堆积到上限时按最旧�
 });
 
 test('掩码：末 4 位，短值原样，空值安全', () => {
-  assert.strictEqual(vault.maskSecret('sk-8f2ac41d5b9e7c03'), '7c03');
+  assert.strictEqual(vault.maskSecret('sk-demo-not-a-realkey-7c03'), '7c03');
   assert.strictEqual(vault.maskSecret('abcd'), 'abcd');
   assert.strictEqual(vault.maskSecret('ab'), 'ab');
   assert.strictEqual(vault.maskSecret(''), '');

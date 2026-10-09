@@ -45,7 +45,7 @@ test('主密钥：空目录正常生成（未被上面的保护误伤）', () =>
 test('字段加密：往返一致', () => {
   const dir = tempDir();
   const mk = loadOrCreateMasterKey(dir);
-  const plain = 'sk-8f2ac41d5b9e7c03a6d4f2a';
+  const plain = 'sk-demo-not-a-realkey-4f2a';
   const enc = encryptField(mk, plain);
   assert.ok(enc.startsWith('enc:v1:'));
   assert.notStrictEqual(enc, plain);

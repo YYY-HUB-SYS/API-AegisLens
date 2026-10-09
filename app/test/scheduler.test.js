@@ -27,7 +27,7 @@ function addKey(storage, platform, base) {
     name: platform + '-' + Math.random().toString(36).slice(2, 6),
     platform: platform,
     customName: '',
-    key: 'sk-live-0000abcd',
+    key: 'sk-fixture-0000abcd',
     endpoints: base ? [{ url: base, style: platform === 'anthropic' ? 'anthropic' : 'openai' }] : []
   }).id;
 }
