@@ -523,6 +523,20 @@
 
     <main>
 
+      <div class="callout">
+        <span class="label">这份设计文档与已发布实现的差异（务必先读）</span>
+        <p>本文档写于 <b>2026-09-02（v0.9）</b>，是实现之前的设计意图，<strong>不是当前行为的说明</strong>。
+        要看现在怎么做，读 <code>README.md</code> / <code>DEPLOYMENT.md</code> / <code>SECURITY.md</code>。
+        已核对出的实质差异，按可能造成的误解排序：</p>
+        <ul>
+          <li><strong>主密钥不落盘这件事没做</strong>。第 13 节写「加密主密钥托管于系统钥匙串（Windows 凭据管理器 / macOS Keychain），不落盘明文」——实现走的是另一条路：主密钥是数据目录里的 <code>master.key</code>，<strong>与密文同目录</strong>，所以「拷走整个数据目录等同拿到明文」在当前默认安装下成立。收紧的两条手段文档里没写：设解锁口令（scrypt 派生 KEK 包 DEK，产出 <code>vault.key</code>）与拆除明文 DEK 副本（不可逆）。零依赖的前提下不去碰系统钥匙串。</li>
+          <li><strong>定时调度默认是关的，间隔是 60 分钟，不是「默认每 24 小时」</strong>。而且<strong>界面里没有这个开关</strong>：只有环境变量 <code>AKM_SCHEDULE_ENABLED</code> / <code>AKM_SCHEDULE_INTERVAL_MINUTES</code>，以及运行时接口 <code>GET/POST /api/schedule</code>（改了不持久，重启回到环境变量）。不持久是有意的——不让一个复选框替所有人决定「要不要周期性朝厂商发真实请求」。间隔只认分钟，上下限 1 分钟 ~ 7 天。</li>
+          <li><strong>没有托盘，也没有「设置项」那张表</strong>。第 13 节的产品形态是常驻托盘应用，实际是命令行 / 后台服务：本机用 <code>node server.js --daemon</code>（配 <code>stop.bat</code>），macOS/Linux 交给 launchd / systemd；前台运行用 <code>npm start</code>。那张表里的端口、备份、刷新间隔都不在界面里，全部由 <code>AKM_PORT</code> / <code>AKM_BIND</code> / <code>AKM_DATA_DIR</code> / <code>AKM_PASSPHRASE</code> / <code>AKM_IDLE_LOCK_MINUTES</code> 控制。<code>AKM_BIND</code> 放开局域网时有条硬门槛：没设解锁口令直接拒绝启动。</li>
+          <li><strong>「数据不出本机」有两个例外，都是设计内的</strong>：一是主动手动刷新余额/测试连通/拉取模型时会带着该密钥去请求对应厂商；二是可选的联网补全只下载公共模型目录并在本地匹配，不发用户数据。</li>
+          <li><strong>文档没写到、但已经实现的三块</strong>：凭证保险库（网站口令 / API 私钥 / TOTP，强制口令 + 52 位恢复码）、机器消费者作用域令牌（<code>/api/consumer/*</code>，HKDF 派生 + HMAC 指纹入库）、账号池管理。明文出口也收紧了：列表只出末 4 位，明文改由 <code>POST /api/keys/:id/reveal</code> 单条按需给，受会话、限流与审计约束，闲置 5 分钟自动锁。</li>
+        </ul>
+      </div>
+
       <!-- ============ 1 产品概述 ============ -->
       <section id="overview">
         <h2><span class="idx">01</span>产品概述</h2>
@@ -1038,7 +1052,7 @@ DIFY_LLM_PROVIDER=deepseek
       <section id="module-status">
         <h2><span class="idx">10</span>核心功能 · 余额与有效期监控</h2>
         <h4>业务逻辑</h4>
-        <p>余额刷新由「手动刷新」与「定时调度」两条路径触发。手动刷新在用户点击「刷新余额」时对所有密钥发起查询；定时调度按可配置间隔（默认每 24 小时）在后台执行，结果写入本地缓存并更新看板标签。余额可查性按<strong>端点域名</strong>判定：密钥任一端点命中已知余额域名（DeepSeek / Moonshot / Kimi / 智谱）即标记为可查，与平台是否内置无关——自定义平台指向官方域名时同样生效。查询时遍历该密钥全部端点，用首个命中域名的端点发起请求；多个端点都命中时依次尝试，全部失败才判定「查询失败」。编辑密钥端点后，余额状态随域名命中情况自动重置（改离官方域名 → 暂不支持，改回 → 待查询）。有效期状态由系统按「当前日期与有效期至」的关系计算：未到期 30 天以上为「有效」，30 天内为「临期」，已过期为「已过期」。</p>
+        <p>余额刷新由「手动刷新」与「定时调度」两条路径触发。手动刷新在用户点击「刷新余额」时对所有密钥发起查询；定时调度<strong>默认关闭</strong>（<code>AKM_SCHEDULE_ENABLED</code> 开启），开启后按可配置间隔在后台执行（默认 60 分钟，1 分钟 ~ 7 天；界面里没有开关），结果写入本地缓存并更新看板标签。余额可查性按<strong>端点域名</strong>判定：密钥任一端点命中已知余额域名（DeepSeek / Moonshot / Kimi / 智谱）即标记为可查，与平台是否内置无关——自定义平台指向官方域名时同样生效。查询时遍历该密钥全部端点，用首个命中域名的端点发起请求；多个端点都命中时依次尝试，全部失败才判定「查询失败」。编辑密钥端点后，余额状态随域名命中情况自动重置（改离官方域名 → 暂不支持，改回 → 待查询）。有效期状态由系统按「当前日期与有效期至」的关系计算：未到期 30 天以上为「有效」，30 天内为「临期」，已过期为「已过期」。</p>
         <div class="table-wrap">
           <table>
             <thead>
@@ -1199,7 +1213,7 @@ DIFY_LLM_PROVIDER=deepseek
         <p>产品以常驻托盘应用运行：系统启动时可选自启，托盘图标提供「打开看板」「刷新余额」「退出」快捷操作。托盘进程承载本地 Web 服务，监听本机回环地址（默认 127.0.0.1），浏览器通过该地址访问看板。</p>
         <h4>数据安全</h4>
         <ul>
-          <li>密钥采用<strong>字段级加密</strong>存储，加密主密钥托管于系统钥匙串（Windows 凭据管理器 / macOS Keychain），不落盘明文。</li>
+          <li>密钥采用<strong>字段级加密</strong>存储。<mark class="key">设计里的「主密钥托管于系统钥匙串（Windows 凭据管理器 / macOS Keychain），不落盘明文」没有实现</mark>：实现走的是零依赖那条路——主密钥是数据目录里的 <code>master.key</code>，与密文同目录，因此「拷走整个数据目录等同拿到明文」在默认安装下成立。收紧的两个手段是本设计之外补的：设解锁口令（scrypt 派生 KEK 封装 DEK），以及拆除明文 DEK 副本（不可逆）。</li>
           <li>看板服务仅绑定本机回环地址，不暴露到局域网，防止他人访问。</li>
           <li>密钥明文默认掩码展示，查看明文需主动操作且自动恢复掩码。</li>
         </ul>
@@ -1210,9 +1224,9 @@ DIFY_LLM_PROVIDER=deepseek
               <tr><th>设置项</th><th>说明</th><th>默认</th></tr>
             </thead>
             <tbody>
-              <tr><td>服务端口</td><td>本地 Web 服务监听端口</td><td>127.0.0.1 随机端口</td></tr>
-              <tr><td>开机自启</td><td>系统登录后自动启动托盘</td><td>关</td></tr>
-              <tr><td>余额刷新间隔</td><td>定时调度频率</td><td>24 小时</td></tr>
+              <tr><td>服务端口</td><td>本地 Web 服务监听端口</td><td>设计写「随机端口」；实现是固定 <code>127.0.0.1:37700</code>，用 <code>AKM_PORT</code> / <code>AKM_BIND</code> 改，不在界面里</td></tr>
+              <tr><td>开机自启</td><td>系统登录后自动启动托盘</td><td>未实现（没有托盘）；自启交给 launchd / systemd 跑 <code>node server.js</code>，或 Windows 的 <code>app/start.bat</code></td></tr>
+              <tr><td>余额刷新间隔</td><td>定时调度频率</td><td>设计写「24 小时」；实现默认 <b>关</b>，开启后默认 <b>60 分钟</b>（1 分钟 ~ 7 天）。界面里没有这个开关，只有环境变量与 <code>GET/POST /api/schedule</code>（改了不持久）</td></tr>
               <tr><td>余额不足阈值</td><td>触发余额不足提示的阈值</td><td>可配置</td></tr>
               <tr><td>数据备份 / 导出</td><td>加密导出密钥数据</td><td>后续版本</td></tr>
             </tbody>

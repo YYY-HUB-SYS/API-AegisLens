@@ -7,8 +7,8 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-417%20passing-4B3FE3)
-![Loopback](https://img.shields.io/badge/listens-on%20127.0.0.1%20only-0B7285)
+![Tests](https://img.shields.io/badge/tests-488%20passing-4B3FE3)
+![Loopback](https://img.shields.io/badge/listens-loopback%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
 [简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md) ｜ [Security model](./SECURITY_EN.md)
@@ -68,6 +68,7 @@ add key → test connectivity → fetch models → generate config → record wh
 | 🗝️ | Credential vault | Website logins, TOTP secrets (live codes), API keys and notes, field-level encrypted the same way, with a generator and reuse/weak-password checks |
 | 🎟️ | Consumer-scoped tokens | Every server-side process gets its own narrow, expiring, individually revocable bearer token instead of sharing one master key with twenty consumers — see [scoped tokens](#-machine-consumers-scoped-tokens) |
 | 🧪 | Connectivity testing | Per endpoint, with latency and the exact failure reason on the card |
+| 🧺 | Account pools | Group several keys into one pool and watch member status / balance / expiry together; pool members still show only the last 4 characters, and the route still answers `423` while the vault is locked |
 | 🛰 | Model catalog | Automatic fetch plus a four-level fallback; Volcengine Ark Agent Plan ships with the official catalog |
 | 🔌 | Multiple endpoints | Up to 6 base URLs per key (OpenAI / Anthropic / custom compatibility mode) |
 | ⚙️ | Config generation | Dify / n8n / Claude Code / `.env`, with an explicit warning when the endpoint style does not fit |
@@ -232,18 +233,26 @@ Released under the **MIT** license — see [LICENSE](./LICENSE).
 QQ 638694 · WeChat reincat): field-level encrypted storage, the platform adapters, model-catalog fetching and
 one-click config generation are his. His copyright line stays in `LICENSE`, as the MIT licence requires.
 
-How much this version adds is measurable rather than a matter of phrasing. `git blame` over the code and data
-files in `app/src` + `app/public` + `index.html` — 16,457 lines in total:
+How much this version adds is measurable rather than a matter of phrasing. The method, so it can be reproduced:
+`git blame --line-porcelain` over each of the 36 files listed by `git ls-files app/src app/public index.html`,
+counting `author` lines — 17,031 lines in total:
 
 | Author | Lines | Share |
 |---|---|---|
-| YYY-HUB-SYS (this version) | 11,943 | 72.6% |
-| Reinhard (original) | 4,514 | 27.4% |
+| YYY-HUB-SYS (this version) | 12,518 | 73.5% |
+| Reinhard (original) | 4,513 | 26.5% |
 
-**16 of those files contain not a single upstream line**: `vault.js`, `recovery.js`, `credentials-api.js`,
-`consumer-tokens.js`, `consumer-api.js`, `totp.js`, `passgen.js`, `scheduler.js`, `daemon.js`, `model-shape.js`,
-the two front-end views (`credentials-view.*`, `consumer-view.*`), and the two Apple site-rule tables that ship
-in the repo (`password-rules.json`, `change-password-URLs.json` — third-party data, see below).
+24 files contain not a single upstream line, but **those 24 are not one kind of thing**, and lumping them
+together would overstate this version's share of the work:
+
+- **12 JS + 2 CSS** are written by this version: `vault.js`, `recovery.js`, `credentials-api.js`,
+  `consumer-tokens.js`, `consumer-api.js`, `totp.js`, `passgen.js`, `scheduler.js`, `daemon.js`,
+  `model-shape.js`, and the two front-end views `credentials-view.*` / `consumer-view.*`
+- **2 SVGs** are this project's own brand mark (shield + aperture)
+- **2 JSON tables** (`password-rules.json`, `change-password-URLs.json`) and **1 font file** come from
+  *other* upstreams — third-party material, not our work; see the licence section below
+- **5 files** are the licences and credits that ship with them (`CREDITS.md`, `OFL.txt`,
+  `LICENSE-ISC.txt`, …) — third-party text as well; this version only put them where they belong
 
 What this version adds or rewrites: the passphrase envelope and recovery code, idle auto-lock, rate limiting and
 masked audit output, closing all six plaintext exits, the credential vault, TOTP and password generation,

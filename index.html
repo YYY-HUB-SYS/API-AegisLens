@@ -415,7 +415,7 @@
       <h1>一次录入，全盘掌握，<br>随处可用。</h1>
       <p class="hero-lead">
         把散落各处的 AI 平台 API Key 收拢到本地统一管理——<strong>加密存储、连通性测试、模型目录自动拉取</strong>，一键生成
-        Dify / n8n / Claude Code / .env 配置片段。全程只监听 <code>127.0.0.1</code>，数据不出本机。
+        Dify / n8n / Claude Code / .env 配置片段。默认只监听 <code>127.0.0.1</code>，数据不出本机。
       </p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="https://github.com/YYY-HUB-SYS/API-AegisLens" target="_blank" rel="noopener">
@@ -433,9 +433,9 @@
       </div>
       <div class="hero-facts">
         <span class="fact-chip">AES-256-GCM 字段级加密</span>
-        <span class="fact-chip">仅监听 127.0.0.1</span>
+        <span class="fact-chip">默认只监听 127.0.0.1</span>
         <span class="fact-chip">Node.js ≥ 18 · 零依赖</span>
-        <span class="fact-chip">100+ 项自动化测试</span>
+        <span class="fact-chip">400+ 项自动化测试</span>
       </div>
     </div>
 
@@ -598,14 +598,14 @@
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11"/></svg>
           字段级加密落盘
         </h3>
-        <p>只有密钥字段以 AES-256-GCM 加密后写入存储文件，其余字段为明文；主密钥与数据同目录，<strong>整个数据目录等同明文密钥</strong>。导出的 JSON 亦为明文。</p>
+        <p>只有密钥字段以 AES-256-GCM 加密后写入存储文件，其余字段为明文；主密钥与数据同目录，<strong>整个数据目录等同明文密钥</strong>。导出的 JSON <strong>默认连 key 字段都不带</strong>，要含明文得在导出时显式勾「包含明文密钥（风险自担）」，勾上才逐条向保险库取用——那一份文件就是明文，风险自担不是一句客气话。</p>
       </div>
       <div class="security-card">
         <h3>
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4.5 12.5 5 5 10-11"/></svg>
           仅本地监听
         </h3>
-        <p>服务只绑定 <code>127.0.0.1</code>，不暴露到局域网与公网；界面与接口同源，数据全程不出本机。</p>
+        <p>默认只绑定 <code>127.0.0.1</code>，不暴露到局域网与公网；界面与接口同源，数据全程不出本机。想让别的设备访问，得显式设 <code>AKM_BIND</code>——而<strong>没设解锁口令时这条会被直接拒绝启动</strong>（不是警告），因为局域网里任何人都能对着界面点「显示」。放开了就不再是「数据不出本机」，边界改成看你局域网有多大，见部署指南。</p>
       </div>
       <div class="security-card">
         <h3>
@@ -775,12 +775,37 @@
                 <tr>
                   <th scope="row" class="mono" style="white-space:nowrap">AKM_PORT</th>
                   <td class="mono">37700</td>
-                  <td>服务监听端口（仅 127.0.0.1）</td>
+                  <td>服务监听端口</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="white-space:nowrap">AKM_BIND</th>
+                  <td class="mono">127.0.0.1</td>
+                  <td>监听地址。默认只有本机能连；填局域网 IP 或 <code>0.0.0.0</code> 才对其他设备可达，而<strong>没设解锁口令时这样设会直接启动失败</strong>——那条门槛是故意不留缝的</td>
                 </tr>
                 <tr>
                   <th scope="row" class="mono" style="white-space:nowrap">AKM_DATA_DIR</th>
                   <td class="mono">~/.api-aegislens</td>
                   <td>数据目录（加密存储与主密钥）</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="white-space:nowrap">AKM_PASSPHRASE</th>
+                  <td>未设</td>
+                  <td>启动时自动解锁。只在没得选的时候用（计划任务 / systemd）：它等于把口令明文写进配置里，常规路径还是界面上的解锁门</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="white-space:nowrap">AKM_IDLE_LOCK_MINUTES</th>
+                  <td class="mono">5</td>
+                  <td>解锁后无操作多久自动上锁（分钟）。真正读写数据的请求会续期，页面轮询那几个只读接口不会——否则标签页一直开着就永远不锁</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="white-space:nowrap">AKM_SCHEDULE_ENABLED</th>
+                  <td>关</td>
+                  <td>开启定时刷新余额。<strong>默认关</strong>：开了之后服务每次活着都会周期性朝全部厂商发真实请求，这件事得用户自己点</td>
+                </tr>
+                <tr>
+                  <th scope="row" class="mono" style="white-space:nowrap">AKM_SCHEDULE_INTERVAL_MINUTES</th>
+                  <td class="mono">60</td>
+                  <td>定时刷新间隔（分钟，1 分钟 ~ 7 天，超出夹取）。界面里没有这项开关，运行时接口 <code>POST /api/schedule</code> 改了不持久，重启回到这里的值</td>
                 </tr>
                 <tr>
                   <th scope="row" class="mono" style="white-space:nowrap">AKM_PROXY</th>
@@ -885,17 +910,18 @@
         </ul>
       </div>
       <div class="foot-col">
-        <h4>作者</h4>
+        <h4>署名</h4>
         <ul>
-          <li>个人主页：<a href="https://www.oldgao.com" target="_blank" rel="noopener">www.oldgao.com</a></li>
+          <li>本版本维护：<a href="https://github.com/YYY-HUB-SYS" target="_blank" rel="noopener">YYY-HUB-SYS</a></li>
+          <li>原始设计与实现：Reinhard · <a href="https://www.oldgao.com" target="_blank" rel="noopener">www.oldgao.com</a></li>
           <li>QQ：638694</li>
           <li>微信：reincat</li>
         </ul>
       </div>
     </div>
     <div class="foot-bottom">
-      <span>© 2026 API-AegisLens · MIT License</span>
-      <span class="mono">local-first · zero-dependency · 127.0.0.1 only</span>
+      <span>© 2026 oldgao · YYY-HUB-SYS · MIT License</span>
+      <span class="mono">local-first · zero-dependency · loopback by default</span>
     </div>
   </div>
 </footer>

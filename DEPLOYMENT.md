@@ -62,6 +62,10 @@ node server.js --stop      # 停掉后台实例
 
 环境变量都是可选的，按需设置：
 
+> 前缀为什么是 `AKM_` 而不是项目现在的名字：它是更名前那个名字留下的（上游仓库叫
+> `ai-key-manager`，见 [README 的许可与致谢](./README.md#-许可与致谢)），`AKM_PORT` 自首个可运行
+> 版本 `c809121` 就在用。改名没有动环境变量——所以不存在 `AEGIS_` 前缀，别照着项目名去猜。
+
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `AKM_PORT` | `37700` | 监听端口 |
@@ -266,11 +270,14 @@ cp -a ~/.api-aegislens /你的加密盘/api-aegislens-$(date +%F)
 ## 升级
 
 ```bash
-cd api-aegislens
+cd API-AegisLens        # git clone 出来的目录名跟仓库名一致
 git pull
-npm test        # 可选：跑一遍全部测试确认环境正常（项数以命令输出为准，别信文档里的固定数字）
-# 重启服务（自启方式对应的 restart 命令，或重新运行 npm start）
+cd app && npm test      # 可选：跑一遍全部测试确认环境正常（项数以命令输出为准，别信文档里的固定数字）
+# 重启服务（自启方式对应的 restart 命令，或在 app 下重新运行 npm start）
 ```
+
+`package.json` 在 `app/` 里，不在仓库根——`npm test` / `npm start` 都得先 `cd app`，
+在外面敲只会得到 `ENOENT: no such file or directory, open '…\package.json'`。
 
 数据目录与代码仓库完全分离，升级不影响已录入的密钥。
 

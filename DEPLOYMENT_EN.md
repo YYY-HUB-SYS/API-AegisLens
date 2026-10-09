@@ -62,6 +62,11 @@ This sequence was run end to end in an isolated data directory on a non-default 
 
 Every environment variable is optional:
 
+> Why the prefix is `AKM_` rather than the project's current name: it comes from the pre-rename name
+> (the upstream repository was `ai-key-manager`, see [Licence and credits](./README_EN.md#-license-and-credits)),
+> and `AKM_PORT` has been in use since the first runnable version, `c809121`. The rename never touched the
+> environment variables — so there is no `AEGIS_` prefix; don't derive one from the product name.
+
 | Variable | Default | Description |
 |---|---|---|
 | `AKM_PORT` | `37700` | Listening port |
@@ -259,11 +264,14 @@ All data lives in the data directory (default `~/.api-aegislens`):
 ## Upgrading
 
 ```bash
-cd api-aegislens
+cd API-AegisLens        # the clone lands in a directory named after the repository
 git pull
-npm test        # optional: run the whole suite to verify the environment (count whatever the command reports, not a number copied from docs)
-# Restart the service (the restart command for your auto-start method, or npm start again)
+cd app && npm test      # optional: run the whole suite to verify the environment (count whatever the command reports, not a number copied from docs)
+# Restart the service (the restart command for your auto-start method, or run npm start again from app/)
 ```
+
+`package.json` lives in `app/`, not at the repository root — both `npm test` and `npm start` need
+`cd app` first, otherwise you just get `ENOENT: no such file or directory, open '...\package.json'`.
 
 The data directory is fully separate from the repository; upgrades never touch recorded keys.
 

@@ -56,6 +56,10 @@ The README says it at the top; here is its exact meaning:
 - **Passphrase set, currently locked**: nothing is obtainable (`423`).
 - **Passphrase set, currently unlocked**: a process that can reach the port can still reveal — the passphrase
   defends "nobody is at the keyboard", not "a process acts after you logged in".
+- **Account pools are not a second plaintext exit**: `GET /api/pools` returns the same masked view `GET /api/keys`
+  uses (last 4 characters only) and answers `423` while the vault is locked. This deserves its own line because a
+  pool resolves its members into full key records to render them, so leaking `rec.key` here is one careless line
+  away — and that would turn "we closed `/api/keys`" into "just call `/api/pools` instead".
 - To tighten it: **discard `master.key` under "credential vault → plaintext key"**, then press "lock" when you are
   done. After that, with the vault locked, no file on this machine can decrypt the data on its own.
 

@@ -7,8 +7,8 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20后端-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
-![Tests](https://img.shields.io/badge/测试-461%20全绿-4B3FE3)
-![Loopback](https://img.shields.io/badge/监听-127.0.0.1%20only-0B7285)
+![Tests](https://img.shields.io/badge/测试-488%20全绿-4B3FE3)
+![Loopback](https://img.shields.io/badge/监听-默认%20127.0.0.1-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
 [简体中文](./README.md) ｜ [English](./README_EN.md) ｜ [部署指南](./DEPLOYMENT.md) ｜ [安全模型](./SECURITY.md) ｜ [产品设计文档](./api-aegislens-prd/api-aegislens-prd.html)
@@ -67,6 +67,7 @@ npm start
 | 🗝️ | 凭证保险库 | 网站账号密码、两步验证密钥（TOTP 实时出码）、API 密钥与备注，同样字段级加密；带口令生成器与复用/弱口令体检 |
 | 🎟️ | 消费者作用域令牌 | 给服务端程序各发一把窄权限、会过期、可单独吊销的 Bearer 令牌，替掉「二十个进程共用一把万能钥匙」；见[作用域令牌](#-机器消费者作用域令牌) |
 | 🧪 | 连通性测试 | 按端点验证，延迟与失败原因都落到卡片上 |
+| 🧺 | 账号池 | 把多把 Key 归成一个池子，统一看成员的状态 / 余额 / 有效期；池成员照样只出末 4 位，锁定状态下同样 `423` |
 | 🛰 | 模型目录 | 自动拉取 + 四级兜底，火山方舟 Agent Plan 内置官方目录 |
 | 🔌 | 多兼容端点 | 一把 Key 最多 6 个 Base URL（OpenAI / Anthropic / 自定义模式） |
 | ⚙️ | 配置生成 | Dify / n8n / Claude Code / `.env`，端点风格不符会明确警告 |
@@ -213,18 +214,25 @@ npm test
 （个人主页 <https://www.oldgao.com> · QQ 638694 · 微信 reincat）：字段级加密存储、平台适配器、
 模型目录拉取、一键配置生成这套骨架是他的。`LICENSE` 中他的版权行按 MIT 的要求原样保留。
 
-在此之上由 **YYY-HUB-SYS** 完成的这份版本，改动量是可以量的。`git blame` 统计 `app/src` + `app/public` +
-`index.html` 里的代码与数据文件，共 16,457 行：
+在此之上由 **YYY-HUB-SYS** 完成的这份版本，改动量是可以量的。口径写清楚以便复现：
+对 `git ls-files app/src app/public index.html` 列出的 36 个文件逐个跑
+`git blame --line-porcelain`，按 `author` 行计数，共 17,031 行：
 
 | 作者 | 行数 | 占比 |
 |---|---|---|
-| YYY-HUB-SYS（本版本） | 11,943 | 72.6% |
-| Reinhard（原始版本） | 4,514 | 27.4% |
+| YYY-HUB-SYS（本版本） | 12,518 | 73.5% |
+| Reinhard（原始版本） | 4,513 | 26.5% |
 
-其中 **16 个文件一行都不来自上游**：`vault.js`、`recovery.js`、`credentials-api.js`、`consumer-tokens.js`、
-`consumer-api.js`、`totp.js`、`passgen.js`、`scheduler.js`、`daemon.js`、`model-shape.js`、
-两个前端视图（`credentials-view.*`、`consumer-view.*`），以及两份随仓的 Apple 站点规则表
-（`password-rules.json`、`change-password-URLs.json`，属第三方数据，见下）。
+其中 24 个文件一行都不来自上游，但**这 24 个不是一回事**，混在一起说会夸大本版本的工作量：
+
+- **12 个 JS + 2 个 CSS** 是本版本写的：`vault.js`、`recovery.js`、`credentials-api.js`、
+  `consumer-tokens.js`、`consumer-api.js`、`totp.js`、`passgen.js`、`scheduler.js`、
+  `daemon.js`、`model-shape.js`，两个前端视图 `credentials-view.*`、`consumer-view.*`
+- **2 枚 SVG** 是自绘的项目标识（盾牌 + 光阑）
+- **2 份 JSON**（`password-rules.json`、`change-password-URLs.json`）和 **1 个字体文件**
+  是从**别的**上游取来的第三方材料，不是我们写的，见下方许可证一节
+- **5 份** 是随仓的许可证与说明文件（`CREDITS.md`、`OFL.txt`、`LICENSE-ISC.txt` 等）
+  —— 它们同样是第三方文本，本版本只是把它们放到该在的位置
 
 本版本新增或重写的部分：解锁口令信封与恢复码、闲置自动锁、限流与脱敏审计、六族明文出口收口、
 账号密码保险库、TOTP 与口令生成器、消费者作用域令牌、定时调度、后台化与「非回环监听必须先有口令」这条不变量、
