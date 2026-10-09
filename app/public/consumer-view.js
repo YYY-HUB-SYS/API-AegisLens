@@ -1021,7 +1021,12 @@
       parseCredentials: parseCredentials, relUntil: relUntil, relSince: relSince, spanText: spanText,
       fmtDateTime: fmtDateTime, retryText: retryText, tokenStatus: tokenStatus, ids: ids,
       curlExampleLines: curlExampleLines, scopeGroups: scopeGroups, resourceSummary: resourceSummary,
-      effectiveIds: effectiveIds
+      effectiveIds: effectiveIds,
+      /* 界面里硬抄了一份后端的额度常量（注释写着来源，来源不会自己来对账）。
+         单独导出是为了让 test/consumer-view.test.js 逐条比对——改了后端不红，
+         就是界面允许用户填一个服务端必拒的值。 */
+      limits: { SCOPES: SCOPES, MAX_LABEL: MAX_LABEL, MAX_RESOURCE: MAX_RESOURCE,
+        MIN_TTL: MIN_TTL, MAX_TTL: MAX_TTL, TTL_DEFAULT: TTL_DEFAULT }
     }
   };
   global.ConsumerView = API;

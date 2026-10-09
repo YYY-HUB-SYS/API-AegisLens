@@ -129,6 +129,28 @@ test('限流按 key 隔离，成功一次清零', () => {
   assert.strictEqual(t.check('a').allowed, true);
 });
 
+/* 限流桶是这套设计里唯一会自己长出来的东西：键里带来源 IP，凭证那一路还带记录 id。
+   以前只增不减——锁期满后被 check() 重置成 {fails:0,until:0} 的条目此后谁都不再删；
+   撒一片来源地址的尝试还能把失败计数无限堆下去。常驻几周的 daemon 上就是缓慢的内存泄漏。 */
+test('限流：锁期满后的空桶会被扫掉，堆积到上限时按最旧的丢', () => {
+  const c = clock(0);
+  const t = vault.createThrottle({ now: c.now, maxFails: 1, lockMs: 1000, sweepEvery: 8, maxBuckets: 4 });
+  for (let i = 0; i < 8; i++) {
+    const k = 'ip-' + i;
+    t.failed(k);
+    c.advance(1500);
+    assert.strictEqual(t.check(k).allowed, true, k + ' 锁期满该放行');
+  }
+  t.failed('sweep-probe');
+  assert.strictEqual(t.size(), 1, '过期的空桶要扫掉，只留刚写那一条，实得 ' + t.size() + ' 条');
+
+  /* 上限那一层是撒地址的兜底。清扫按节奏做（不每次插入都排一遍），
+     所以保证的是"有界"而不是"精确等于上限"：桶数 ≤ maxBuckets + sweepEvery。 */
+  for (let i = 0; i < 400; i++) t.failed('spray-' + i);
+  assert.ok(t.size() <= 4 + 8, '桶数必须有界（上限 + 一个清扫节奏），实得 ' + t.size());
+  assert.ok(t.size() >= 1, '刚写进去的那条不能先被丢');
+});
+
 test('掩码：末 4 位，短值原样，空值安全', () => {
   assert.strictEqual(vault.maskSecret('sk-8f2ac41d5b9e7c03'), '7c03');
   assert.strictEqual(vault.maskSecret('abcd'), 'abcd');

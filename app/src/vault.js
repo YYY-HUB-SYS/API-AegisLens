@@ -4,6 +4,10 @@
 const DEFAULT_IDLE_LOCK_MS = 5 * 60 * 1000;
 const DEFAULT_MAX_FAILS = 5;
 const DEFAULT_LOCK_MS = 5 * 60 * 1000;
+/* 限流桶的清扫节奏：每 64 次写入扫一遍，最多留 4096 个键（约几百 KB）。
+   见 createThrottle 里那段注释——正常单机用不到上限那一层，它是撒地址攻击下的兜底。 */
+const DEFAULT_SWEEP_EVERY = 64;
+const DEFAULT_MAX_BUCKETS = 4096;
 const DEFAULT_AUDIT_MAX = 200;
 const CREDENTIAL_SECRET_FIELDS = ['passwordEnc', 'secretEnc', 'totpEnc', 'noteEnc'];
 
@@ -140,6 +144,33 @@ function createThrottle(opts) {
   const maxFails = numOr(o.maxFails, DEFAULT_MAX_FAILS);
   const lockMs = numOr(o.lockMs, DEFAULT_LOCK_MS);
   const buckets = {};
+  /* 计数器只增不减是个真泄漏。键里带来源 IP（凭证那一路还带记录 id），两条写入路径都会留下永久条目：
+     - 某个来源被锁过一次，锁期满后 check() 把它重置成 {fails:0,until:0}，这一条此后谁都不再删；
+     - 攻击者撒一片来源地址，每个地址留两三条失败计数，就永远占着。
+     成功那条路本来就 delete，所以缺的只是"没人再来"的那部分清扫。
+     清扫只在写入时顺带做，不起定时器：这套设计里没有任何东西在后台跑。 */
+  let written = 0;
+  const sweepEvery = numOr(o.sweepEvery, DEFAULT_SWEEP_EVERY);
+  const maxBuckets = numOr(o.maxBuckets, DEFAULT_MAX_BUCKETS);
+  function sweep(nowMs) {
+    Object.keys(buckets).forEach(function (k) {
+      const b = buckets[k];
+      if (b.fails === 0 && (b.until || 0) <= nowMs) delete buckets[k];
+    });
+    const left = Object.keys(buckets);
+    if (left.length <= maxBuckets) return;
+    /* 还超上限就按最后活动时间丢最旧的。丢掉一条失败计数等于给那个来源重新发额度，
+       所以只在内存真的撑不住时才做——上限按一万多个键算也就几百 KB，正常用不到这一层。 */
+    left.sort(function (a, b) { return (buckets[a].at || 0) - (buckets[b].at || 0); });
+    const drop = left.length - maxBuckets;
+    for (let i = 0; i < drop; i++) delete buckets[left[i]];
+  }
+  function touch(key, next) {
+    next.at = now();
+    buckets[key] = next;
+    if (++written % sweepEvery === 0) sweep(now());
+    return next;
+  }
 
   function peek(key) {
     const b = buckets[key] || { fails: 0, until: 0 };
@@ -150,19 +181,21 @@ function createThrottle(opts) {
     check: function (key) {
       const b = peek(key);
       if (b.until > now()) return { allowed: false, retryAfterMs: b.until - now() };
-      if (b.until) buckets[key] = { fails: 0, until: 0 };
+      if (b.until) touch(key, { fails: 0, until: 0 });
       return { allowed: true, retryAfterMs: 0 };
     },
     failed: function (key) {
       const b = peek(key);
       const fails = b.fails + 1;
       const locked = fails >= maxFails;
-      buckets[key] = { fails: locked ? 0 : fails, until: locked ? now() + lockMs : 0 };
+      touch(key, { fails: locked ? 0 : fails, until: locked ? now() + lockMs : 0 });
       if (o.onFail) o.onFail(key, fails, locked);
       return { locked: locked, failsRemaining: locked ? 0 : Math.max(0, maxFails - fails) };
     },
     passed: function (key) { delete buckets[key]; },
     peek: peek,
+    /* 只有测试和排障会用：桶的数量是这套限流唯一会自己长出来的东西 */
+    size: function () { return Object.keys(buckets).length; },
     reset: function () { Object.keys(buckets).forEach(function (k) { delete buckets[k]; }); }
   };
 }

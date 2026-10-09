@@ -4,8 +4,23 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const view = require('../public/consumer-view.js');
+const tokens = require('../src/consumer-tokens.js');
 
 const eff = view.__internals.effectiveIds;
+
+/* 界面把后端的额度抄了一份写死的（consumer-view.js 那几行注释就是来源）。
+   抄一份本身有理由——浏览器拿不到服务端常量；但抄了就没人负责它跟着变。
+   后端一改，界面会继续让用户填一个必被 400 拒掉的值，而且拒得很突然。 */
+test('消费者视图里抄的额度常量，必须和 consumer-tokens 的实际值逐条一致', () => {
+  const l = view.__internals.limits;
+  assert.deepStrictEqual([...l.SCOPES].sort(), [...tokens.SCOPES].sort(),
+    '作用域集合不一致（顺序可以不同，集合不能差）');
+  assert.strictEqual(l.MAX_LABEL, tokens.MAX_LABEL_LEN, 'label 上限');
+  assert.strictEqual(l.MAX_RESOURCE, tokens.MAX_TOTAL_RESOURCE_IDS, '资源条目合计上限');
+  assert.strictEqual(l.MIN_TTL, tokens.MIN_TTL_SECONDS, '最短有效期');
+  assert.strictEqual(l.MAX_TTL, tokens.MAX_TTL_SECONDS, '最长有效期');
+  assert.strictEqual(l.TTL_DEFAULT, tokens.DEFAULT_TTL_SECONDS, '默认有效期');
+});
 
 test('没勾对应作用域的那一类资源，不能跟着进令牌（提示语一直是这么写的）', () => {
   /* 旧行为：draft 里勾了就全发。disabled 的 checkbox 在 :checked 里照样命中，
