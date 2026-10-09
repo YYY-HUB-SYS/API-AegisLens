@@ -6,6 +6,33 @@ const { vaultMode, unlockDek, MIN_PASSPHRASE } = require('./src/crypto');
 const { createStore } = require('./src/storage');
 const { createScheduler } = require('./src/scheduler');
 const { createVaultSession, createThrottle } = require('./src/vault');
+const daemon = require('./src/daemon');
+
+const ARGV = process.argv.slice(2);
+
+/* --stop / --daemon 必须在碰密钥、建 store 之前处理完并退出：
+   这俩只是进程管理，不该顺手把保险库解一遍 */
+if (ARGV.indexOf('--stop') !== -1) {
+  const r = daemon.stopInstance(config.dataDir, config.port);
+  if (r.stopped) { console.log('已停止 API-AegisLens（pid ' + r.pid + '）'); process.exit(0); }
+  if (r.reason === 'corrupt') { console.error(config.dataDir + '/' + daemon.PID_FILENAME + ' 读不出内容：请人工确认后删除该文件再试。'); process.exit(1); }
+  if (r.reason === 'kill-failed') { console.error('停止失败：' + r.message); process.exit(1); }
+  console.log('没有在运行（没有活的 ' + daemon.PID_FILENAME + '）');
+  process.exit(0);
+}
+if (ARGV.indexOf('--daemon') !== -1) {
+  const cur = daemon.runningInstance(config.dataDir, config.port);
+  if (cur && cur.pid) { console.error('已有一个实例在跑（pid ' + cur.pid + '）；要重启先执行 node server.js --stop'); process.exit(1); }
+  const pid = daemon.spawnDaemon({
+    script: __filename,
+    cwd: __dirname,
+    env: process.env,
+    args: ARGV.filter(function (a) { return a !== '--daemon'; })
+  });
+  console.log('已在后台启动（pid ' + pid + '），浏览器访问 http://' + (config.isLoopbackBind(config.bind) ? '127.0.0.1' : config.bind) + ':' + config.port);
+  console.log('停止：node server.js --stop');
+  process.exit(0);
+}
 
 /* store 在解锁之前根本不存在：没 DEK 就不该有一个「能解密的对象」摆在进程里。
    外面这层门面负责把这件事说清楚——元信息照读（vault 路由要用 dataDir），
@@ -73,6 +100,15 @@ function handleLock() {
   return was;
 }
 
+/* 不变量：监听地址不是回环，就必须已经有解锁口令。
+   没有口令时凭证与密钥接口是敞开的，同网段任何设备都能取走明文——这条不接受任何折中。 */
+if (!config.isLoopbackBind(config.bind) && vaultMode(config.dataDir) !== 'envelope') {
+  console.error('拒绝启动：监听地址 ' + config.bind + ' 不是回环，而数据目录还没有解锁口令。');
+  console.error('先在界面上给保险库设一个解锁口令（或启动时给 AKM_PASSPHRASE），再放开局域网监听。');
+  console.error('只想换端口请保持默认 127.0.0.1；确实清楚风险再设口令，不要用环境变量绕过这条。');
+  process.exit(1);
+}
+
 /* 开机三条路：没设过口令（legacy，照旧免密自启）／设了且环境变量给了口令（直接解）
    ／设了但没给口令（起服务、只放行 vault 路由，等界面解锁）。 */
 var bootError = null;
@@ -116,20 +152,27 @@ const app = createApp({
   onLock: handleLock
 });
 
+const visitUrl = 'http://' + (config.isLoopbackBind(config.bind) ? '127.0.0.1' : config.bind) + ':' + config.port;
+
 app.on('error', function (e) {
   if (e.code === 'EADDRINUSE') {
     console.error('端口 ' + config.port + ' 已被占用：可能已有一个 API-AegisLens 在运行。');
-    console.error('请直接用浏览器访问 http://127.0.0.1:' + config.port + '，或用环境变量 AKM_PORT 换端口。');
+    console.error('请先执行 node server.js --stop，或用环境变量 AKM_PORT 换端口。');
     process.exit(1);
   }
   console.error('启动失败：' + e.message);
   process.exit(1);
 });
 
-app.listen(config.port, '127.0.0.1', function () {
+app.listen(config.port, config.bind, function () {
+  daemon.writePid(config.dataDir, { port: config.port, bind: config.bind, version: pkg.version });
   console.log('');
   console.log('  API-AegisLens v' + pkg.version + ' 已启动');
-  console.log('  浏览器访问: http://127.0.0.1:' + config.port);
+  console.log('  浏览器访问: ' + visitUrl);
+  if (!config.isLoopbackBind(config.bind)) {
+    console.log('  ⚠ 监听在 ' + config.bind + '：同一网段的设备都能访问，明文只在解锁后才可能流出');
+    console.log('  ⚠ 这是 HTTP。跨机器用建议走 SSH/WireGuard 隧道或自签 TLS，别裸放到公网');
+  }
   console.log('  数据目录: ' + config.dataDir);
   if (bootState === 'locked') {
     console.log('  保险库状态: 已锁定 —— 解锁前所有密钥与凭证接口都返回 423，只有 /api/vault/* 可用');
@@ -144,6 +187,14 @@ app.listen(config.port, '127.0.0.1', function () {
       ? '开启，每 ' + sched.intervalMinutes + ' 分钟跑一轮密钥测试 + 余额刷新；POST /api/schedule 可关可改间隔，重启后回到此默认'
       : '关闭（AKM_SCHEDULE_ENABLED=1 或 POST /api/schedule {"enabled":true} 开启）'));
   }
-  console.log('  停止服务: 在本窗口按 Ctrl+C');
+  console.log('  停止服务: 前台按 Ctrl+C；后台（--daemon）用 node server.js --stop');
   console.log('');
+});
+
+/* pid 文件在正常退出与信号两条路上都要清；异常退出留下死文件也不要紧，
+   runningInstance 还会用「号码活着 + 端口对得上」再判一次 */
+function cleanupPid() { daemon.clearPid(config.dataDir, process.pid); }
+process.on('exit', cleanupPid);
+['SIGINT', 'SIGTERM'].forEach(function (sig) {
+  process.on(sig, function () { cleanupPid(); process.exit(0); });
 });

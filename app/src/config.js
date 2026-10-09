@@ -8,6 +8,21 @@ const dataDir = process.env.AKM_DATA_DIR
 
 const port = Number(process.env.AKM_PORT || 37700);
 
+/* 默认只绑回环。AKM_BIND 可以放开到局域网，但放开之后「必须先有解锁口令」这条
+   不变量由 server.js 把关——这里只负责把地址规范化并说清它算不算回环。
+   0.0.0.0 / :: 是「所有网卡」，不是回环。 */
+function normalizeBind(raw) {
+  const v = String(raw == null ? '' : raw).trim();
+  if (!v) return '127.0.0.1';
+  return v.replace(/^\[/, '').replace(/\]$/, '');
+}
+
+function isLoopbackBind(b) {
+  return b === '127.0.0.1' || b === 'localhost' || b === '::1';
+}
+
+const bind = normalizeBind(process.env.AKM_BIND);
+
 function normalizeProxyUrl(raw) {
   let v = String(raw).trim();
   if (!v) return null;
@@ -71,4 +86,13 @@ function readScheduleConfig() {
   };
 }
 
-module.exports = { dataDir, port, proxy, resolveProxy, schedule: readScheduleConfig() };
+module.exports = {
+  dataDir,
+  port,
+  bind,
+  isLoopbackBind,
+  normalizeBind,
+  proxy,
+  resolveProxy,
+  schedule: readScheduleConfig()
+};
