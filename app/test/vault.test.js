@@ -262,3 +262,27 @@ test('touch()：只有真开着的信封会话才续期，且续期会重起计�
   c.advance(25000);
   assert.strictEqual(s2.lockIfIdle(), true, '距上次 touch 满 60 秒才锁');
 });
+
+/* index.html 门上那个「X 分 Y 秒后自动上锁」的倒计时为什么永远不出现，答案在这一位：
+   门只在已锁定时出现，而 idleRemaining() 见 !open 就返回 0。倒计时是死代码，已删；
+   这条测试替删掉的它站岗——哪天有人把提醒接回未解锁的看板上，这个 0 就是他必须先跨过的东西。 */
+test('idleRemaining()：锁定态与免密态恒为 0，只有开着的信封会话才给出剩余时间', () => {
+  const c = clock();
+  const s = vault.createVaultSession({ now: c.now, idleLockMs: 60000 });
+  assert.strictEqual(s.idleRemaining(), 0, '还没解锁就没有剩余');
+
+  const legacy = vault.createVaultSession({ now: c.now, idleLockMs: 60000 });
+  legacy.openLegacy(crypto.randomBytes(32));
+  assert.strictEqual(legacy.idleRemaining(), 0, '免密模式没有计时');
+
+  const s2 = vault.createVaultSession({ now: c.now, idleLockMs: 60000 });
+  s2.attach(crypto.randomBytes(32), 'envelope');
+  assert.strictEqual(s2.idleRemaining(), 60000, '刚接上就是满窗');
+  c.advance(20000);
+  assert.strictEqual(s2.idleRemaining(), 40000);
+  s2.touch();
+  assert.strictEqual(s2.idleRemaining(), 60000, '续期之后剩余要回到满窗');
+  c.advance(61000);
+  assert.strictEqual(s2.lockIfIdle(), true);
+  assert.strictEqual(s2.idleRemaining(), 0, '锁上之后又归零——那个倒计时从不显示的原因就在这儿');
+});

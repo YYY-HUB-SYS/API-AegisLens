@@ -2956,7 +2956,6 @@
     limited: 0,         /* 429 剩余秒数；>0 时按钮锁死，归零自动恢复可点 */
     recoverOpen: false, /* 「忘了口令」展开区状态 */
     limitTimer: null,
-    idleTimer: null,
     watchdog: null
   };
   function gateEl(id) { return document.getElementById(id); }
@@ -2964,13 +2963,10 @@
     if (gateState.limitTimer) { clearInterval(gateState.limitTimer); gateState.limitTimer = null; }
     gateState.limited = 0;
   }
-  function gateStopIdle() {
-    if (gateState.idleTimer) { clearInterval(gateState.idleTimer); gateState.idleTimer = null; }
-  }
   function gateStopWatchdog() {
     if (gateState.watchdog) { clearTimeout(gateState.watchdog); gateState.watchdog = null; }
   }
-  function gateStopTimers() { gateStopLimit(); gateStopIdle(); gateStopWatchdog(); }
+  function gateStopTimers() { gateStopLimit(); gateStopWatchdog(); }
   function gateMsg(text, kind) {
     var box = gateEl('gate-msg');
     box.textContent = text || '';
@@ -3064,14 +3060,14 @@
     if (wrap) wrap.style.visibility = 'hidden';
   }
 
-  function gateShow(st) {
+  function gateShow() {
     var wasOpen = gateState.open;
     gateState.open = true;
     gateEl('gate').hidden = false;
     gateStopTimers();
     gateState.mode = 'form';
     gateSync();
-    if (wasOpen) { gateIdle(st && st.idleRemainingMs); return; }
+    if (wasOpen) return;
     gateScrub();
     gateEl('gate-pass').value = '';
     gateEl('gate-recode').value = ''; gateEl('gate-next').value = ''; gateEl('gate-next2').value = '';
@@ -3079,25 +3075,13 @@
     gateMsg('');
     gateStatus('保险库未解锁，输入口令即可载入密钥列表。');
     gateSync();
-    gateIdle(st && st.idleRemainingMs);
+    /* 这里原来还挂着一个「无操作 X 分 Y 秒后自动上锁」的倒计时（gateIdle）。它是死代码：
+       倒计时读的是 /api/vault/status 的 idleRemainingMs，而那位在**已锁定**时恒为 0
+       （vault.js 的 idleRemaining 见 !open 就 return 0），门只会在锁着的时候出现，
+       所以 ms>0 永远不成立，一次都没显示过。
+       要真想要「锁屏前提醒一句」，得在未解锁的看板侧做个跟着 lastSeenAt 走的指示器——
+       那是新功能，不是这段代码的本意能顺手做到的，已记进已知限制。 */
     setTimeout(function () { if (gateState.open) gateEl('gate-pass').focus(); }, 40);
-  }
-
-  /* idleRemainingMs 只做提示，不参与判定；到点重新确认状态，不假设它还开着 */
-  function gateIdle(ms) {
-    gateStopIdle();
-    if (typeof ms !== 'number' || !(ms > 0)) return;
-    var left = ms;
-    var say = function () {
-      var s = Math.ceil(left / 1000);
-      gateStatus('无操作 ' + Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒后会自动上锁。');
-    };
-    say();
-    gateState.idleTimer = setInterval(function () {
-      left -= 1000;
-      if (left <= 0) { gateStopIdle(); gateStatus(''); gateCheck(false); return; }
-      say();
-    }, 1000);
   }
 
   /* 状态本身取不到：不能白屏、也不能替人假装已解锁，给一条有重试的错误态 */
@@ -3116,7 +3100,7 @@
   function gateEngage() {
     /* api() 挂在最前面，万一有比 gateState 更早发出的请求撞回 423，这里不许炸 */
     if (typeof gateState === 'undefined' || !gateState) return;
-    if (!gateState.open) gateShow(null);
+    if (!gateState.open) gateShow();
     else gateStatus('保险库在刚才的操作里重新上锁了，请再次输入口令。');
     gateCheck(false);
   }
@@ -3143,7 +3127,7 @@
         setTimeout(function () { location.reload(); }, 350);
         return undefined;
       }
-      gateShow(s);
+      gateShow();
       return undefined;
     }, function (e) {
       if (!first) {

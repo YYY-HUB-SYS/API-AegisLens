@@ -85,7 +85,9 @@ function resolveProxy() {
 const proxy = resolveProxy();
 
 /* 定时调度默认关：一旦开启，服务每次活着的时候都会周期性朝全部厂商发真实请求，
-   这件事得用户自己点（AKM_SCHEDULE_ENABLED 或界面上的开关）。
+   这件事得用户自己点（AKM_SCHEDULE_ENABLED / AKM_SCHEDULE_INTERVAL_MINUTES）。
+   界面里**没有**调度开关——运行时那对 API（GET/POST /api/schedule）是留给脚本用的，
+   改完不持久、重启回到 env 的值，这是有意的：别让一个复选框悄悄替所有人决定 outbound。
    间隔只认分钟，上下限由 api.js 那对常量夹住，这里不做二次判断。 */
 const SCHEDULE_DEFAULT_INTERVAL_MINUTES = 60;
 
