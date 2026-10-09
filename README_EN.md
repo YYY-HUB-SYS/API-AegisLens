@@ -181,7 +181,7 @@ backends plus shadow-store detection), credential routes, consumer-scoped tokens
 the ordering of the gates on all four data routes), TOTP and password generation, API integration and
 validation, platform adapters (catalog, balance domain matching, special auth), proxy and start scripts,
 frontend templates and modal behaviour. The exact count moves with the code — **trust the command output**.
-Measured on this fork on 2026-10-09 with Node v24.14.0: `tests 459 / pass 459 / fail 0`.
+Measured on this version on 2026-10-09 with Node v24.14.0: `tests 461 / pass 461 / fail 0`.
 
 ---
 
@@ -226,7 +226,30 @@ We would rather list them here than let them surprise you.
 
 Released under the **MIT** license — see [LICENSE](./LICENSE).
 
-This is a maintenance fork of [roseion/ai-key-manager](https://github.com/roseion/ai-key-manager).
-The original design and implementation are by **Reinhard**: homepage <https://www.oldgao.com> · QQ 638694 · WeChat reincat.
-On top of it, this branch renamed the project, moved the data directory out of the code tree, tightened the
-encryption boundaries, and made the documentation match what the code actually does.
+**The original design and implementation come from Reinhard, author of
+[roseion/ai-key-manager](https://github.com/roseion/ai-key-manager)** (homepage <https://www.oldgao.com> ·
+QQ 638694 · WeChat reincat): field-level encrypted storage, the platform adapters, model-catalog fetching and
+one-click config generation are his. His copyright line stays in `LICENSE`, as the MIT licence requires.
+
+How much this version adds is measurable rather than a matter of phrasing. `git blame` over the code and data
+files in `app/src` + `app/public` + `index.html` — 16,457 lines in total:
+
+| Author | Lines | Share |
+|---|---|---|
+| YYY-HUB-SYS (this version) | 11,943 | 72.6% |
+| Reinhard (original) | 4,514 | 27.4% |
+
+**16 of those files contain not a single upstream line**: `vault.js`, `recovery.js`, `credentials-api.js`,
+`consumer-tokens.js`, `consumer-api.js`, `totp.js`, `passgen.js`, `scheduler.js`, `daemon.js`, `model-shape.js`,
+the two front-end views (`credentials-view.*`, `consumer-view.*`), and the two Apple site-rule tables that ship
+in the repo (`password-rules.json`, `change-password-URLs.json` — third-party data, see below).
+
+What this version adds or rewrites: the passphrase envelope and recovery code, idle auto-lock, rate limiting and
+masked audit output, closing all six plaintext exits, the credential vault, TOTP and password generation,
+scoped consumer tokens, scheduled probing, background running plus the "non-loopback bind requires a passphrase"
+invariant, the [security model](./SECURITY_EN.md), and a line-by-line correction of both language docs against
+measured behaviour.
+
+Third-party material shipped in the repo (Lucide icons under ISC plus MIT for the Feather-derived set,
+JetBrains Mono under OFL, Apple `password-manager-resources` under MIT) is documented and verified in the
+[supply-chain section of SECURITY.md](./SECURITY_EN.md#supply-chain-and-telemetry).

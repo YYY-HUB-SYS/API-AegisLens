@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20后端-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
-![Tests](https://img.shields.io/badge/测试-459%20全绿-4B3FE3)
+![Tests](https://img.shields.io/badge/测试-461%20全绿-4B3FE3)
 ![Loopback](https://img.shields.io/badge/监听-127.0.0.1%20only-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -163,7 +163,7 @@ npm test
 覆盖加密、保险库会话与限流、恢复信封、存储（双后端 + 影子库检测）、凭证路由、消费者作用域令牌
 （签发 / 验签 / 吊销 / 四条数据路由的门禁顺序）、TOTP 与口令生成、API 集成与校验、平台适配器（目录 / 余额域名 / 特殊认证）、
 代理与启动脚本、前端模板与弹层行为。
-项数随代码演进变化，**以实跑输出为准**：本 fork 于 2026-10-09 在 Node v24.14.0 实跑 `tests 459 / pass 459 / fail 0`。
+项数随代码演进变化，**以实跑输出为准**：本版本于 2026-10-09 在 Node v24.14.0 实跑 `tests 461 / pass 461 / fail 0`。
 
 ---
 
@@ -208,6 +208,27 @@ npm test
 
 本项目以 **MIT** 许可发布，见 [LICENSE](./LICENSE)。
 
-这是 [roseion/ai-key-manager](https://github.com/roseion/ai-key-manager) 的维护分支（fork），
-原始设计与实现归功于原作者 **Reinhard**：个人主页 <https://www.oldgao.com> · QQ 638694 · 微信 reincat。
-本分支在其之上完成了更名、数据目录搬迁、加密边界与文档一致性等一系列修正。
+**原始设计与实现来自 [roseion/ai-key-manager](https://github.com/roseion/ai-key-manager) 的作者 Reinhard**
+（个人主页 <https://www.oldgao.com> · QQ 638694 · 微信 reincat）：字段级加密存储、平台适配器、
+模型目录拉取、一键配置生成这套骨架是他的。`LICENSE` 中他的版权行按 MIT 的要求原样保留。
+
+在此之上由 **YYY-HUB-SYS** 完成的这份版本，改动量是可以量的。`git blame` 统计 `app/src` + `app/public` +
+`index.html` 里的代码与数据文件，共 16,457 行：
+
+| 作者 | 行数 | 占比 |
+|---|---|---|
+| YYY-HUB-SYS（本版本） | 11,943 | 72.6% |
+| Reinhard（原始版本） | 4,514 | 27.4% |
+
+其中 **16 个文件一行都不来自上游**：`vault.js`、`recovery.js`、`credentials-api.js`、`consumer-tokens.js`、
+`consumer-api.js`、`totp.js`、`passgen.js`、`scheduler.js`、`daemon.js`、`model-shape.js`、
+两个前端视图（`credentials-view.*`、`consumer-view.*`），以及两份随仓的 Apple 站点规则表
+（`password-rules.json`、`change-password-URLs.json`，属第三方数据，见下）。
+
+本版本新增或重写的部分：解锁口令信封与恢复码、闲置自动锁、限流与脱敏审计、六族明文出口收口、
+账号密码保险库、TOTP 与口令生成器、消费者作用域令牌、定时调度、后台化与「非回环监听必须先有口令」这条不变量、
+[安全模型](./SECURITY.md)，以及中英两份文档按实测结果逐条订正。
+
+第三方随仓材料（Lucide 图标 ISC + 部分 Feather MIT、JetBrains Mono OFL、Apple
+`password-manager-resources` MIT）的许可证与来源核验记录，见
+[SECURITY.md 的供应链一节](./SECURITY.md#供应链与遥测)。
