@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-492%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-496%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/listens-loopback%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -18,7 +18,7 @@
 > [!NOTE]
 > Bring the API keys scattered across AI platforms into one local dashboard: field-level encrypted storage,
 > connectivity testing, automatic model catalog fetching, and one-click config snippets for
-> Dify / n8n / Claude Code / `.env`. The service listens on `127.0.0.1` only, and a key is sent
+> Dify / n8n / Claude Code / `.env`. By default the service listens on `127.0.0.1` only, and a key is sent
 > **only to the endpoint you typed in** — online enrichment fetches public model catalogs and never carries a key.
 
 ---
@@ -60,23 +60,105 @@ add key → test connectivity → fetch models → generate config → record wh
 
 ---
 
-## 📦 Capabilities
+## 🧩 Feature map
 
-| | Capability | In one line |
+Every row below points at **an entry in the interface** and at **the route behind it**, and both sides were
+counted out of this repository (as of `646afc7`: `app/src/api.js` + `credentials-api.js` + `consumer-api.js`
+come to **47 routes** as method + path combinations, **38 path shapes** after deduplication; the UI actions
+`data-act` dedupe to **64**). `app/test/docs.test.js` re-checks those two numbers against the code — change a
+route without updating the docs and it goes red. Anything that has a route but no entry in the interface is
+kept in [this section](#-apis-with-no-ui-entry-yet) rather than padded into this one.
+
+### Keys and endpoints
+
+| Capability | UI entry | Route | Limits |
+|---|---|---|---|
+| Platform catalog | add-key form → platform dropdown | `GET /api/platforms` | **13** built in + custom; a custom platform may pick one of three endpoint styles: OpenAI / Anthropic / custom |
+| CRUD | "+ add key", card "edit / delete" | `POST` `PUT` `DELETE /api/keys/{id}` | an empty name falls back to the last 4 characters of the key |
+| Lists only return masks | the board itself | `GET /api/keys` | the last 4 characters and nothing else; neither the ciphertext nor the plaintext leaves this route |
+| Plaintext on demand | card "reveal" | `POST /api/keys/{id}/reveal` | needs an unlocked session; its own rate-limit tier (the 20/30 one) and audited |
+| Multiple compatible endpoints | "+ add endpoint" in the form | with `POST/PUT /api/keys` | **capped at 6, checked once on each side** (`MAX_EPS` in the front end, `normEps()` in the back end; sending 7 measured as a straight 400 `最多支持 6 个 Base URL` — "at most 6 base URLs are supported"); each one can be tested and can fetch models on its own |
+| Connectivity test | "test" on the card / on an endpoint row | `POST /api/keys/{id}/test` | uses the model-list route where there is one, otherwise an auth probe on the chat endpoint; the badge says **which endpoint number** passed |
+| Special auth | card "auth notes" | part of the platform catalog | preset per platform (e.g. the `api-key` header for Xiaohongshu Dots), overridable entry by entry |
+
+### Model catalog and parameters
+
+| Capability | UI entry | Route | Limits |
+|---|---|---|---|
+| Fetch the model list | card "models" → "fetch" | `POST /api/keys/{id}/models/fetch` | context / max output reported by the platform itself **take precedence** |
+| Four-level fallback enrichment | "fill in unknowns" | `POST /api/keys/{id}/models/enrich` | platform route → built-in metadata table → online lookup of public catalogs → manual; the online step sends no user data |
+| Add a model / edit parameters by hand | "add manually" and "note" on a model row | `POST /api/keys/{id}/models`, `PATCH .../models/{modelId}` | PATCH only edits rows that **already exist**; anything else gets 404, no row is invented |
+| Marking by field provenance | the provenance tag on a model row | same as above | `ctxSrc` / `outSrc` are one of api / meta / web / manual / builtin; a field a person changed survives a re-fetch |
+| Capability flags | expand a model row | same as above | `reasoning`, `modalitiesIn`, `rpm`, plus the two warning flags `outGtCtx` / `conflict` |
+| Default model | "set as default" on a model row | `PUT /api/keys/{id}` | read by both config generation and the board |
+| Endpoints with no model-list route | same as above | `POST /api/keys/{id}/models/fetch` | for endpoints that have not implemented `/models` (Volcengine Ark Agent Plan and the like), key usability is confirmed against the **built-in official model catalog** and the provenance is marked `builtin` |
+
+### Config generation and destinations
+
+| Capability | UI entry | Route | Limits |
+|---|---|---|---|
+| One-click config snippet | card "generate config" | rendered in the front end only | four templates — Dify / n8n / Claude Code / `.env` — with model parameters and auth notes filled in |
+| Endpoint-style validation | same, warning at the top | — | warns outright when the compatibility mode does not match what the target tool expects, instead of silently emitting a wrong config |
+| Copy the whole block | "copy the whole snippet" | — | uses `navigator.clipboard`, falls back to `execCommand` |
+| Record destinations | "mark as configured" | `POST` `DELETE /api/keys/{id}/assigned` | which tools this key was configured into, visible at a glance on the card |
+
+### Balance, expiry and account pools
+
+| Capability | UI entry | Route | Limits |
+|---|---|---|---|
+| Balance check | "refresh balance" | `POST /api/refresh-balances` | covers DeepSeek / Moonshot·Kimi / Zhipu; matched by endpoint **domain**, so a custom platform pointing at an official domain can be queried too |
+| Expiry status | status badge on the card | with `GET /api/keys` | more than 30 days left is "valid", within 30 days is "expiring soon", past the date is "expired" |
+| Observation history | ⚠️ no UI entry yet | `GET /api/keys/{id}/history?kind=test\|balance` | the most recent **1000** rows per key, 200 rows read back by default |
+| Scheduled refresh | ⚠️ no UI switch yet | `GET` `POST /api/schedule` | **off by default**; the interval defaults to 60 minutes and is clamped between 1 minute and 7 days; runtime changes do not persist |
+| Account pools | "pools" in the top bar | `GET` `POST /api/pools`, `PUT` `DELETE /api/pools/{id}`, `POST` `DELETE /api/pools/{id}/keys[/{keyId}]` | unique names, ≤40 characters; members still expose only the last 4 characters, and the routes answer `423` while locked |
+
+### Credential vault (site passwords / private keys / two-factor)
+
+| Capability | UI entry | Route | Limits |
+|---|---|---|---|
+| Credential CRUD | credential panel | `GET` `POST /api/credentials`, `GET` `PUT` `DELETE /api/credentials/{id}` | title ≤200, private key ≤512 characters; password / private key / TOTP seed / note are four fields encrypted separately |
+| Plaintext on demand | "show / hide" | `POST /api/credentials/{id}/reveal` | its own rate-limit tier; plaintext lives in memory only, retracted after 30 seconds and retracted immediately when you switch tabs |
+| Two-factor codes | the live-code ring | `GET /api/credentials/{id}/totp` | accepts bare Base32 and a whole `otpauth://` URI; `period` / `digits` / `algorithm` follow the URI, and the ring progress follows the server's `step` |
+| Password generator | the generator inside the form | front end only (`node:crypto` CSPRNG) | length 8–64, four character classes, look-alike characters can be excluded; reads the site's rules |
+| Per-site password rules | the hint line above | `GET /api/credentials/{id}/password-policy` | the rules table comes from Apple's public data (MIT, licence ships in the repo); falls back to the default rules when it cannot be resolved |
+| Health check | the "health" tab of the panel | `GET /api/credentials/health` | reused usernames, weak passwords, passwords past their change deadline; **returns no password content** |
+
+### Machine consumers and scoped tokens
+
+The full write-up is in [this section](#-machine-consumers-scoped-tokens). Quick view:
+
+| Capability | UI entry | Route |
 |---|---|---|
-| 🔐 | Encrypted storage | Only the secret fields are AES-256-GCM encrypted at rest; an optional unlock passphrase wraps the master key with a scrypt-derived key |
-| 🗝️ | Credential vault | Website logins, TOTP secrets (live codes), API keys and notes, field-level encrypted the same way, with a generator and reuse/weak-password checks |
-| 🎟️ | Consumer-scoped tokens | Every server-side process gets its own narrow, expiring, individually revocable bearer token instead of sharing one master key with twenty consumers — see [scoped tokens](#-machine-consumers-scoped-tokens) |
-| 🧪 | Connectivity testing | Per endpoint, with latency and the exact failure reason on the card |
-| 🧺 | Account pools | Group several keys into one pool and watch member status / balance / expiry together; pool members still show only the last 4 characters, and the route still answers `423` while the vault is locked |
-| 🛰 | Model catalog | Automatic fetch plus a four-level fallback; Volcengine Ark Agent Plan ships with the official catalog |
-| 🔌 | Multiple endpoints | Up to 6 base URLs per key (OpenAI / Anthropic / custom compatibility mode) |
-| ⚙️ | Config generation | Dify / n8n / Claude Code / `.env`, with an explicit warning when the endpoint style does not fit |
-| 💰 | Balance monitoring | Matched by endpoint **domain** against official APIs, so a custom platform pointing at an official domain still works |
-| ⏳ | Expiry tracking | Due within 30 days / expired, detected automatically and flagged on the board |
-| 🌐 | Proxy autodetection | Unreachable relays go through the system / environment proxy (CONNECT tunnel) |
-| 📝 | Special auth notes | Per-key auth notes, pre-filled for platforms that need a custom header (e.g. Xiaohongshu Dots uses `api-key`) |
-| 🧩 | Zero dependencies | Standard library only, no `npm install`; the UI is a single file with no CDN. The only binary shipped in the repo is a local vendored monospace font subset (OFL licensed, see `app/public/vendor/fonts/CREDITS.md`) |
+| Issue / revoke / list | consumer-token panel | `GET` `POST /api/consumer/tokens`, `POST /api/consumer/tokens/{tid}/revoke` |
+| A machine reads key plaintext / runs a test / reads a balance / reads a credential | — (for scripts) | `GET /api/consumer/keys/{id}`, `POST .../test`, `GET .../balance`, `GET /api/consumer/credentials/{id}` |
+| Scopes | the four checkboxes on the issuing form | 4 of them: `key:read` `key:test` `balance:read` `cred:read`; an empty resource list = not a single item readable |
+
+### Vault and session security
+
+| Capability | UI entry | Limits |
+|---|---|---|
+| Unlock passphrase | forced on the first visit to the panel | at least 8 characters; a scrypt(N=2^15, r=8, p=1)-derived KEK wraps the DEK |
+| Recovery code | the screen where you set the passphrase | 52 characters / 256 bits, **never written to disk**, and shown that one time only |
+| Forgotten passphrase | "reset with a recovery code" on the gate | after a reset the recovery code rotates on the spot; no recovery code plus an already-discarded plaintext master key = permanently unopenable |
+| Discard the plaintext master key | "plaintext key" in the panel | the only irreversible action; before it, an actual unwrap with the passphrase must have succeeded; the button does not appear at all on a passphrase-free install |
+| Idle auto-lock | none (tunable via `AKM_IDLE_LOCK_MINUTES`, default 5 minutes) | only requests that actually read or write data extend the clock; the read-only routes the page polls do **not**; a passphrase-free install has no lock to engage |
+| Rate-limit tiers | none | unlock 5 / plaintext reveal 30 / credentials 20 / tokens 20 / passphrase change 5, a 5-minute lock window, and the tiers do not cover for each other |
+| Audit | the `recent` field of `GET /api/vault/status` | records only the action, the target id and the result; not one byte of plaintext or passphrase enters the audit |
+
+### Operations and the interface
+
+| Capability | Entry | Notes |
+|---|---|---|
+| Foreground run | `cd app && npm start` | logs go to the terminal, Ctrl+C stops it |
+| Background run | `node server.js --daemon` / `--stop` | the pid and the port are written to `server.pid` in the data directory; `--stop` only acts when the process is alive and the port matches |
+| Windows double-click | `app/start.bat` / `app/stop.bat` | starts it in the background and opens the browser automatically; closing that popup does not stop the service |
+| Handing it to another supervisor | `app/workbench.bat` + `workbench.json` | stays in the foreground on purpose; the process and its logs belong to the supervisor |
+| Start at boot | launchd / systemd / Task Scheduler | set `AKM_PASSPHRASE` for non-interactive runs; a wrong passphrase exits as a failed start instead of dressing up as "started, just locked" |
+| Proxy | `AKM_PROXY` | `off` forces a direct connection; by default it looks at the environment variables first, then the Windows system proxy (CONNECT tunnel) |
+| Two storage backends | automatic | Node ≥22 takes SQLite, 18–21 falls back to JSON silently; **neither side migrates the other**, and startup reports the shadow store |
+| Import / export | "export / import" in the top bar | exports **leave out even the key field** by default; including plaintext takes an explicit tick and is then fetched entry by entry |
+| Theme / single column | the two switches in the top bar | light is the default; narrow screens can switch to a single column |
+| Zero dependencies | — | standard library only, no `npm install`; the front end is a single file with no CDN, and the only binary shipped in the repo is the locally vendored monospace font subset (OFL) |
 
 ---
 
@@ -170,6 +252,25 @@ specific one via the buttons on that address row.
 
 ---
 
+## 🚪 APIs with no UI entry yet
+
+This list exists so **a route is not passed off as a feature**. The three below are really implemented and
+watched by tests, but for now they can only be used from the command line or a script; if you cannot find a
+button for them in the interface, do not look at the interface and guess that they are there.
+
+| Route | Status | How to use it |
+|---|---|---|
+| `GET /api/keys/{id}/history?kind=test\|balance` | observation history has been written all along (the most recent 1000 rows per key), **but there is no history panel in the interface** | `curl "http://127.0.0.1:37700/api/keys/1/history?kind=test&limit=20"` |
+| `GET` / `POST /api/schedule` | a runtime switch, **that checkbox does not exist in the interface**; changes are not persisted — a restart falls back to the value from the environment variables | `curl -X POST .../api/schedule -d '{"enabled":true,"intervalMinutes":360}'` |
+| `GET /api/meta` | version, storage backend and data directory only; in the interface it appears once, in the startup log | `curl` it before starting the service to confirm `dataDir` is the store you meant |
+
+None of the three is an oversight: the UI entries for the history and for the schedule switch also have to
+decide "how many rows to show, in what order, whether to warn about the lock coming up" — that is a new
+feature, not a matter of wiring a button onto a route.
+**Think it through and bring it up yourself, or open an issue.**
+
+---
+
 ## 🧪 Tests
 
 ```bash
@@ -182,7 +283,7 @@ backends plus shadow-store detection), credential routes, consumer-scoped tokens
 the ordering of the gates on all four data routes), TOTP and password generation, API integration and
 validation, platform adapters (catalog, balance domain matching, special auth), proxy and start scripts,
 frontend templates and modal behaviour. The exact count moves with the code — **trust the command output**.
-Measured on this version on 2026-10-09 with Node v24.14.0: `tests 492 / pass 492 / fail 0`.
+Measured on this version on 2026-10-09 with Node v24.14.0: `tests 496 / pass 496 / fail 0`.
 
 ---
 
@@ -222,6 +323,7 @@ We would rather list them here than let them surprise you.
 - **Online lookup is a guess** — the same model name has different limits at different providers, which is why platform-reported values win; anything resolved online stays labelled `web`
 - **The export `type` is validated in the UI only** — the interface rejects foreign files, but `POST /api/import` looks at `keys` alone. This is deliberate: the front end never forwards `type`, so a mandatory backend check would break the app's own import, and a "check it only if present" rule stops nothing that an omitted field could bypass. Closing it properly takes a change on both sides
 - **Nothing warns you before the auto-lock** — after 5 idle minutes (`AKM_IDLE_LOCK_MINUTES`) the vault locks itself and the UI shows no countdown or near-lock hint; a form you're still typing in just hits `423`. There *was* an "auto-locks in X min Y s" countdown on the unlock gate, and it was dead code: it read `idleRemainingMs`, which is always `0` while the vault is **locked**, and the gate only ever appears while it's locked — so it never rendered once. It's gone. Programs can still ask `GET /api/vault/status`; a human-facing progress bar would be a new feature that has to track the idle clock of the *unlocked* session
+- **Three capabilities have routes but no entry in the interface** — observation history, scheduled refresh and the `/api/meta` detail; see [this section](#-apis-with-no-ui-entry-yet)
 - **`index.html` is read into memory at startup** — editing the front end requires a service restart to take effect
 
 ---
