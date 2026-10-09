@@ -66,6 +66,7 @@ add key → test connectivity → fetch models → generate config → record wh
 |---|---|---|
 | 🔐 | Encrypted storage | Only the secret fields are AES-256-GCM encrypted at rest; an optional unlock passphrase wraps the master key with a scrypt-derived key |
 | 🗝️ | Credential vault | Website logins, TOTP secrets (live codes), API keys and notes, field-level encrypted the same way, with a generator and reuse/weak-password checks |
+| 🎟️ | Consumer-scoped tokens | Every server-side process gets its own narrow, expiring, individually revocable bearer token instead of sharing one master key with twenty consumers — see [scoped tokens](#-machine-consumers-scoped-tokens) |
 | 🧪 | Connectivity testing | Per endpoint, with latency and the exact failure reason on the card |
 | 🛰 | Model catalog | Automatic fetch plus a four-level fallback; Volcengine Ark Agent Plan ships with the official catalog |
 | 🔌 | Multiple endpoints | Up to 6 base URLs per key (OpenAI / Anthropic / custom compatibility mode) |
@@ -93,14 +94,59 @@ flowchart LR
 
 > [!IMPORTANT]
 > **Threat model: other processes on this machine are out of scope.**
-> The service binds to `127.0.0.1`, and list endpoints **return only the last 4 characters** of a key;
-> plaintext comes out of exactly one route, `POST /api/keys/:id/reveal`, gated by the session, rate-limited
-> and audited. But **the default install is passphrase-free**: until you set an unlock passphrase, any local
-> process running as you can still reveal keys one by one. Once a passphrase is set, every credential route
-> answers `423` until you unlock. Key metadata (name, platform, endpoints, masked tail) stays visible even
-> while locked — it is what the page needs to render the cards, and it is not secret material.
+> The service binds to `127.0.0.1` by default, and list endpoints **return only the last 4 characters** of a
+> key; plaintext comes out of exactly one route, `POST /api/keys/:id/reveal`, gated by the session,
+> rate-limited and audited. But **the default install is passphrase-free**: until you set an unlock
+> passphrase, any local process running as you can still reveal keys one by one. Once a passphrase is set,
+> the key, credential and pool routes all answer `423` until you unlock.
+> If a server-side program needs these keys, do not hand it that one master key — issue it a
+> [scoped consumer token](#-machine-consumers-scoped-tokens) instead.
 > Exposing it through nginx to a LAN or the public internet means everyone who can reach that address sees
-> this data. For remote use, take an SSH tunnel (see the [deployment guide](./DEPLOYMENT_EN.md)).
+> this data. For remote use, take an SSH tunnel (see the
+> [deployment guide](./DEPLOYMENT_EN.md#lan-and-remote-access)).
+
+---
+
+## 🔑 Machine consumers: scoped tokens
+
+If several server-side programs need these keys (CLIs, agent frameworks, internal services), do not let
+them share your unlock passphrase and do not let them scrape `GET /api/keys`. Issue each consumer its own
+**narrow, expiring, individually revocable** token:
+
+| scope | Route it unlocks | What comes back |
+|---|---|---|
+| `key:read` | `GET /api/consumer/keys/:id` | the plaintext of that key |
+| `key:test` | `POST /api/consumer/keys/:id/test` | the connectivity result — **not** the plaintext |
+| `balance:read` | `GET /api/consumer/keys/:id/balance` | the stored balance snapshot (does not refresh) |
+| `cred:read` | `GET /api/consumer/credentials/:id` | that credential's plaintext password / TOTP seed |
+
+Every scope also carries a **resource allow-list** (which key ids, which credential ids). The list is an
+enumeration, not a wildcard: an empty list means "reads nothing", and granting everything means listing
+everything. Revoking a key therefore does not leave an old token silently still covering it.
+
+Issuance happens in the UI (the token string is shown **once, at creation**; afterwards the store keeps only
+its HMAC fingerprint, and so do the logs and the audit ring). From the command line it is the same:
+
+```bash
+curl -s -X POST http://127.0.0.1:37700/api/consumer/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"label":"my-agent","scopes":["key:read"],"keyIds":[3],"ttlSeconds":2592000}'
+
+curl -s http://127.0.0.1:37700/api/consumer/keys/3 \
+  -H 'Authorization: Bearer v1.xxxxx.yyyyy'
+```
+
+Three boundaries are worth knowing before they bite you in production:
+
+- **Changing the passphrase revokes nothing.** Setting, changing or discarding `master.key` all keep the same
+  DEK (they only re-wrap it), and token validity is bound to the DEK alone — measured end to end, not inferred.
+  To take a token down, use "revoke" in the UI.
+- **After a reboot, consumers get `423` first.** Without a DEK the service cannot even answer "did I sign this
+  token", so it reports "the server is locked" rather than "your token is broken". Either unlock once in the
+  browser, or use `AKM_PASSPHRASE` in non-interactive setups (at the cost described in the deployment guide).
+- **Denials are typed, not one flat 401**: `missing` / `malformed` / `bad-signature` / `expired` / `revoked` /
+  `unknown` return 401, insufficient scope returns 403, a locked vault returns 423. `unknown` (valid signature,
+  tid not in the store) is exactly what a rebuilt vault or a different data directory looks like.
 
 ---
 
@@ -128,10 +174,12 @@ cd app
 npm test
 ```
 
-Coverage: encryption, storage (both backends plus shadow-store detection), API integration and validation,
-platform adapters (catalog, balance domain matching, special auth), proxy and start scripts, frontend
-templates and modal behaviour. The exact count moves with the code — **trust the command output**.
-Measured on this fork on 2026-10-09 with Node v24.14.0: `tests 417 / pass 417 / fail 0`.
+Coverage: encryption, vault session with idle auto-lock and throttling, the recovery envelope, storage (both
+backends plus shadow-store detection), credential routes, consumer-scoped tokens (issue / verify / revoke, and
+the ordering of the gates on all four data routes), TOTP and password generation, API integration and
+validation, platform adapters (catalog, balance domain matching, special auth), proxy and start scripts,
+frontend templates and modal behaviour. The exact count moves with the code — **trust the command output**.
+Measured on this fork on 2026-10-09 with Node v24.14.0: `tests 459 / pass 459 / fail 0`.
 
 ---
 
@@ -157,13 +205,16 @@ We would rather list them here than let them surprise you.
 
 - **Without a passphrase, local processes can still reveal keys one by one** — the gate is open by default; lists show only the last 4 characters, but `reveal` needs no credential. Setting a passphrase is what closes this
 - **The DEK still sits next to the data by default** — a passphrase only wraps it. To reach "copying the directory gets you nothing", discard `master.key` from the UI (irreversible, and it is only allowed after a passphrase-verified unwrap succeeds)
+- **Machine consumers are not "boot and go"** — once a passphrase is set, somebody has to unlock after a reboot (or you configure `AKM_PASSPHRASE` for non-interactive runs); until then, even a perfectly valid token gets `423`. This is not an oversight: a credential that unlocks automatically must exist in plaintext somewhere on this machine, which is exactly what this design refuses to do. Once unlocked there is no "every five minutes we drop the consumers" cliff either — each accepted token request counts as real use and extends the idle clock; the vault only locks when nobody is using it
+- **On a passphrase-free install the issuing route is as open as `reveal`** — it has its own rate-limit bucket and the audit ring records only HMAC fingerprints, but with no passphrase set it asks for nothing. Setting a passphrase is the fix
+- **A token is not a gateway** — a consumer with `key:read` still receives the plaintext key and calls the provider itself. "let a program use the model without ever touching the key" is a relay gateway, which this tool does not have yet
 - **A forgotten passphrase means the recovery code is the only way out** — it is shown once when you set the passphrase and never stored. Lose both and the vault is permanently unreadable; there is no backdoor
 - **No KeePass (KDBX) import** — KDBX4 needs a full variant-KDF and HMAC-block implementation, outside the zero-dependency scope. Credentials also have **no** import path from other password managers; only this tool's own export format is accepted
 - **Exported JSON has no plaintext keys by default** — you must explicitly tick "include plaintext keys (at your own risk)", which reveals them one by one. For routine backups, copy the data directory instead
 - **Balance APIs cover three providers** — DeepSeek / Moonshot·Kimi / Zhipu. SiliconFlow's `/v1/user/info` was retired upstream on 2026-08-14 (410), so it is not listed
 - **Custom compatibility modes cannot be auto-tested** — when an endpoint style is neither `openai` nor `anthropic`, connectivity testing and model fetching ask you to handle it manually
 - **Online lookup is a guess** — the same model name has different limits at different providers, which is why platform-reported values win; anything resolved online stays labelled `web`
-- **The export `type` is validated in the UI only** — the interface rejects foreign files, but `POST /api/import` looks at `keys` alone. This is deliberate: the front end never forwards `type`, so a mandatory backend check would break the app's own import, and a "check it only if present" rule stops nothing that a omitted field couldn't bypass. Closing it properly takes a change on both sides
+- **The export `type` is validated in the UI only** — the interface rejects foreign files, but `POST /api/import` looks at `keys` alone. This is deliberate: the front end never forwards `type`, so a mandatory backend check would break the app's own import, and a "check it only if present" rule stops nothing that an omitted field could bypass. Closing it properly takes a change on both sides
 - **`index.html` is read into memory at startup** — editing the front end requires a service restart to take effect
 
 ---
