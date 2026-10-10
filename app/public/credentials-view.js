@@ -384,7 +384,7 @@
     }
     var ph = isKeyOnly ? '••••••••••••' : '••••••••';
     return '<span class="cv-redact" aria-hidden="true">' + ph + '</span>' +
-      '<span class="cv-mini-acts"><button class="cv-ghost-ico" type="button" data-act="reveal" data-id="' + escapeHtml(c && c.id) + '" aria-pressed="false" aria-label="显示' + (isKeyOnly ? '密钥' : '口令') + '">' + IC.eye + '<span>显示</span></button></span>';
+      '<span class="cv-mini-acts"><button class="cv-ghost-ico with-label" type="button" data-act="reveal" data-id="' + escapeHtml(c && c.id) + '" aria-pressed="false" aria-label="显示' + (isKeyOnly ? '密钥' : '口令') + '">' + IC.eye + '<span>显示</span></button></span>';
   }
 
   /* reveal 响应 → 驻内存的明文态。这一格上一轮正好漏过一次：只修了渲染层认不认 secret，
