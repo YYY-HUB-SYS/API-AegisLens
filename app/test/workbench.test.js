@@ -304,6 +304,21 @@ test('双列是开关：属性、按钮、持久化与栅格规则齐备', () =>
     '降回单列的断点要 ≤800px，否则 1080 宽的屏永远拿不到两列，实得 ' + colsBreak[1] + 'px');
 });
 
+test('单卡操作只重绘那一张卡，不许整板重建（用户 10-10：点 B 卡「模型清单」，A 卡跟着闪）', () => {
+  const html = readHomepage();
+  assert.ok(/function rerenderCard\(/.test(html), '要有"只重绘一张卡"的入口');
+  assert.ok(html.includes('node.replaceWith(holder.firstElementChild)'),
+    '重绘要替换那张卡自己的节点，而不是往 #board 里塞');
+  for (const act of ['toggle-models', 'toggle-auth', 'toggle-assigned', 'cancel-assigned']) {
+    const re = new RegExp("act === '" + act + "'[\\s\\S]{0,240}?rerenderCard\\(k\\.id\\)");
+    assert.ok(re.test(html), act + ' 只影响一张卡，必须走 rerenderCard；整板 render() 会让别的卡片跟着重画');
+  }
+  assert.ok(/dropRevealed\(id\); rerenderCard\(id\)/.test(html),
+    '30 秒自动收回明文同样只重绘那一张卡');
+  assert.ok(/ui\.drawerOpen\[k\.id\] = !ui\.drawerOpen\[k\.id\];\s*\n?\s*rerenderCard\(k\.id\)/.test(html),
+    '抽屉开合这一条就是用户报的那一下，别退回 render()');
+});
+
 test('卡片脚注合并成一行，端点命名统一且按钮不再单字', () => {
   const html = readHomepage();
   assert.ok(!html.includes('class="kc-l2"'), 'kc-l2 那行只放两个右对齐按钮，是空洞的来源');

@@ -1189,7 +1189,7 @@
   function holdRevealed(id, secret) {
     revealTmp[id] = secret;
     clearTimeout(revealTimers[id]);
-    revealTimers[id] = setTimeout(function () { dropRevealed(id); render(); }, 30000);
+    revealTimers[id] = setTimeout(function () { dropRevealed(id); rerenderCard(id); }, 30000);
   }
   function dropRevealed(id) {
     clearTimeout(revealTimers[id]);
@@ -1199,18 +1199,18 @@
   /* 卡片「显示明文 / 复制完整 Key」共用这条路径：成功显示 30 秒后自动收回，失败把话留在卡片上 */
   function requestReveal(k) {
     revealNote[k.id] = { pending: true };
-    render();
+    rerenderCard(k.id);
     return revealKey(k.id).then(function (d) {
       dropRevealed(k.id);
       delete revealNote[k.id];
       holdRevealed(k.id, d.key);
-      render();
+      rerenderCard(k.id);
       return d;
     }, function (e) {
       dropRevealed(k.id);
       revealNote[k.id] = { err: revealFailText(e) };
       toast(revealFailText(e), 'warn');
-      render();
+      rerenderCard(k.id);
       throw e;
     });
   }
@@ -1609,6 +1609,18 @@
     openOverlay('overlay-pool');
   }
 
+  /* 只重绘一张卡。整板 innerHTML 重建会让**别的卡片**跟着重画一次（用户 10-10 实测：
+     点 B 卡的「模型清单」，A 卡的抽屉区也跟着闪），还会顺手丢掉滚动位置、焦点和
+     正在输入的框。节点找不到时（被筛掉、被删掉）退回整板重绘，保证状态一致。 */
+  function rerenderCard(id) {
+    var node = document.querySelector('.keycard[data-id="' + id + '"]');
+    var k = state.keys.filter(function (x) { return x.id === id; })[0];
+    if (!node || !k) { render(); return; }
+    var holder = document.createElement('div');
+    holder.innerHTML = renderCard(k);
+    node.replaceWith(holder.firstElementChild);
+  }
+
   function renderCard(k) {
     var st = keyStatus(k);
     var revealed = revealTmp[k.id] || '';
@@ -1832,7 +1844,7 @@
       return;
     }
     if (act === 'reveal') {
-      if (revealTmp[k.id]) { dropRevealed(k.id); delete revealNote[k.id]; render(); return; }
+      if (revealTmp[k.id]) { dropRevealed(k.id); delete revealNote[k.id]; rerenderCard(k.id); return; }
       if (revealNote[k.id] && revealNote[k.id].pending) return;
       requestReveal(k).catch(function () {});
       return;
@@ -1843,12 +1855,12 @@
     }
     if (act === 'toggle-auth') {
       ui.authOpen[k.id] = !ui.authOpen[k.id];
-      render();
+      rerenderCard(k.id);
       return;
     }
     if (act === 'toggle-assigned') {
       ui.assignedOpen[k.id] = !ui.assignedOpen[k.id];
-      render();
+      rerenderCard(k.id);
       var toolInput = document.querySelector('[data-tool-input]');
       if (toolInput) toolInput.focus();
       return;
@@ -1859,7 +1871,7 @@
     }
     if (act === 'cancel-assigned') {
       ui.assignedOpen[k.id] = false;
-      render();
+      rerenderCard(k.id);
       return;
     }
     if (act === 'rm-assigned') {
@@ -1900,7 +1912,7 @@
     }
     if (act === 'toggle-models') {
       ui.drawerOpen[k.id] = !ui.drawerOpen[k.id];
-      render();
+      rerenderCard(k.id);
       return;
     }
     if (act === 'fetch-models') {
@@ -2023,12 +2035,12 @@
     if (ui.modelsLoading[k.id]) return;
     ui.modelsLoading[k.id] = true;
     ui.drawerOpen[k.id] = true;
-    render();
+    rerenderCard(k.id);
     api('POST', '/keys/' + k.id + '/models/fetch', { endpointIndex: idx || 0 }).then(function (data) {
       k.models = data.models;
       k.modelsFetched = true;
       ui.modelsLoading[k.id] = false;
-      render();
+      rerenderCard(k.id);
       var msg = '已拉取 ' + data.models.length + ' 个模型（地址 #' + ((idx || 0) + 1) + '）';
       var e = data.enrich;
       if (e && e.enriched > 0) msg += '，联网补全 ' + e.enriched + ' 个模型参数';
@@ -2037,7 +2049,7 @@
       toast(msg, 'ok');
     }).catch(function (e) {
       ui.modelsLoading[k.id] = false;
-      render();
+      rerenderCard(k.id);
       toast(e.message, 'warn');
     });
   }
@@ -2046,11 +2058,11 @@
     if (ui.enriching[k.id]) return;
     ui.enriching[k.id] = true;
     ui.drawerOpen[k.id] = true;
-    render();
+    rerenderCard(k.id);
     api('POST', '/keys/' + k.id + '/models/enrich').then(function (data) {
       k.models = data.models;
       ui.enriching[k.id] = false;
-      render();
+      rerenderCard(k.id);
       var s = data.summary || {};
       if (!s.checked) { toast('所有模型参数均已完整，无需补全', 'ok'); return; }
       var msg = '联网补全 ' + s.enriched + ' / ' + s.checked + ' 个模型';
@@ -2097,10 +2109,10 @@
     api('POST', '/keys/' + k.id + '/assigned', { tool: name }).then(function (data) {
       k.assigned = data.assigned;
       ui.assignedOpen[k.id] = false;
-      render();
+      rerenderCard(k.id);
       toast('已记录「' + k.name + '」配置到 ' + name, 'ok');
     }).catch(function (e) {
-      if (e.status === 409) { ui.assignedOpen[k.id] = false; render(); }
+      if (e.status === 409) { ui.assignedOpen[k.id] = false; rerenderCard(k.id); }
       toast(e.message, 'warn');
     });
   }
