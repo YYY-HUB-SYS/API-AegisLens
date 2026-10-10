@@ -1663,6 +1663,20 @@
   function boardGroupLabels() {
     return Array.from(new Set(state.keys.map(platLabel)));
   }
+  function toggleGroup(label) {
+    if (!label) return;
+    if (ui.collapsedGroup[label]) delete ui.collapsedGroup[label]; else ui.collapsedGroup[label] = true;
+    saveCollapsed();
+    render();
+  }
+  function toggleCollapseAll() {
+    var labels = boardGroupLabels();
+    var anyOpen = labels.some(function (l) { return !ui.collapsedGroup[l]; });
+    ui.collapsedGroup = {};
+    if (anyOpen) labels.forEach(function (l) { ui.collapsedGroup[l] = true; });
+    saveCollapsed();
+    render();
+  }
 
   function renderCard(k) {
     var st = keyStatus(k);
@@ -1863,9 +1877,17 @@
 
   /* ================= 看板事件（委托） ================= */
 
+  /* 「收起全部 / 展开全部」画在筛选行右侧，不在 #board 的委托范围内 */
+  document.getElementById('filter-bar').addEventListener('click', function (ev) {
+    if (ev.target.closest('[data-act="collapse-all"]')) toggleCollapseAll();
+  });
+
   document.getElementById('board').addEventListener('click', function (ev) {
     var btn = ev.target.closest('[data-act]');
     if (!btn) return;
+    /* 组标题不在 .keycard 里，折叠这两条必须走在「必须有卡片」那道守卫之前，
+       否则点了没有任何反应（第一版就是这么漏的，运行时实测卡片数纹丝不动）。 */
+    if (btn.dataset.act === 'toggle-group') { toggleGroup(btn.dataset.label); return; }
     var card = btn.closest('.keycard');
     if (!card) return;
     var k = findKey(Number(card.dataset.id));
@@ -1951,21 +1973,6 @@
     if (act === 'ep-test' || act === 'ep-models') {
       var epIdx = Number(btn.dataset.idx) || 0;
       if (act === 'ep-test') { runTest(k, epIdx); } else { fetchModels(k, epIdx); }
-      return;
-    }
-    if (act === 'toggle-group') {
-      var glabel = btn.dataset.label;
-      if (ui.collapsedGroup[glabel]) delete ui.collapsedGroup[glabel]; else ui.collapsedGroup[glabel] = true;
-      saveCollapsed();
-      render();
-      return;
-    }
-    if (act === 'collapse-all') {
-      var anyOpen = boardGroupLabels().some(function (l) { return !ui.collapsedGroup[l]; });
-      ui.collapsedGroup = {};
-      if (anyOpen) boardGroupLabels().forEach(function (l) { ui.collapsedGroup[l] = true; });
-      saveCollapsed();
-      render();
       return;
     }
     if (act === 'toggle-models') {
