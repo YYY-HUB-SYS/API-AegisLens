@@ -14,7 +14,11 @@
 [简体中文](./README.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md) ｜ [Security model](./SECURITY_EN.md) ｜ [API & limits](./docs/API_EN.md) ｜ [Product design doc](./api-aegislens-prd/api-aegislens-prd.html) (written before the implementation; includes unshipped items, divergence notice at the top of the page)
 </div>
 
-> Not sure yet? Open [`demo/index.html`](./demo/index.html) in a browser — real UI, fake data, no Node required, nothing touches your disk.
+![The key board: stat strip, grouping by platform, masked keys and endpoint style badges](./docs/assets/hero-board.png)
+
+*This is the board (light is the default theme). The four keys in the picture are fake data from an isolated demo store (`sk-demo-*`). The UI itself is currently Chinese-only — these docs describe exactly what the Chinese labels say.*
+
+*Not sure yet? Open [`demo/index.html`](./demo/index.html) in a browser — real UI, fake data, no Node required, nothing touches your disk.*
 
 ---
 
@@ -59,8 +63,6 @@ Pure Node.js standard library — after `git clone` you do **not** need `npm ins
 - **A machine you treat as untrusted** — the threat model explicitly does not defend against other processes on this host, see [Security model](./SECURITY_EN.md#what-is-not-defended-plainly)
 - **A general password manager** — the credential vault covers passwords and TOTP you need on this machine; there is no KeePass (KDBX) import and no migration path from other managers
 
----
-
 ## What it does
 
 Ten lines, and every one of them has a button in the UI:
@@ -77,6 +79,10 @@ Ten lines, and every one of them has a button in the UI:
 - **Zero dependencies** // standard library only, single-file frontend, no CDN; the only binary in the repo is a vendored monospace font subset (OFL)
 
 Every capability, endpoint, field limit and number lives in [API & limits](./docs/API_EN.md) — each path and each figure there is counted out of the source and re-checked against it by `app/test/docs.test.js`, so documenting an endpoint that does not exist turns the suite red.
+
+![The credential vault: masked passwords and a live TOTP code with its ring](./docs/assets/credential-vault.png)
+
+*The unlocked credential vault: passwords stay masked, TOTP codes are generated on the spot (the ring follows the server's `step`), and plaintext is retracted after 30 seconds — or immediately when the tab loses focus.*
 
 ---
 
@@ -134,8 +140,6 @@ flowchart LR
 > Expose it through nginx or similar and anyone who can reach that address can read this data — for remote use, go through an SSH or WireGuard tunnel (see the [deployment guide](./DEPLOYMENT_EN.md#lan-and-remote-access)).
 > The full trust-boundary list, including the precondition of every defence and **what is explicitly not defended**, is in the [security model](./SECURITY_EN.md).
 
----
-
 ## Known limitations
 
 Listed so that they never arrive as a surprise.
@@ -143,13 +147,10 @@ Listed so that they never arrive as a surprise.
 - On a passphrase-free install a local process can still read keys one by one: neither `reveal` nor token minting needs a credential (the latter has its own rate-limit bucket and is audited by fingerprint only) — setting a passphrase is what tightens this
 - The DEK still lives next to the data by default; "copying the folder is not enough to decrypt" requires discarding the plaintext master key once (**irreversible**, and the server only allows it after a real passphrase unlock)
 - Consumer tokens are not "boot-and-go": once a passphrase is set, somebody must unlock after a restart, and valid tokens get `423` until then
-- A token is not a gateway — this tool does not proxy requests
-- Forget the passphrase and the only way in is that 52-character recovery code; lose both and the vault is permanently unreadable. There is no backdoor
+- A token is not a gateway — this tool does not proxy requests. Forget the passphrase and the only way in is that 52-character recovery code; lose both and the vault is permanently unreadable. There is no backdoor
 - Exported JSON **omits the `key` field entirely** by default; including plaintext needs an explicit opt-in and item-by-item retrieval. For backups, copy the data directory instead
-- No KeePass (KDBX) import — KDBX4 needs a full variant-KDF and HMAC-block implementation, which is out of scope for a zero-dependency project
-- Balance queries cover DeepSeek / Moonshot·Kimi / Zhipu only (SiliconFlow's `/v1/user/info` was retired by the vendor with HTTP 410 on 2026-08-14)
-- Endpoints whose style is neither `openai` nor `anthropic` are not auto-tested; the tool asks you to handle them instead of guessing
-- Web-filled metadata is a guess: the same model id has different limits at different providers, so platform-reported values win and anything from the web is labelled `web`
+- No KeePass (KDBX) import (KDBX4 needs a full variant-KDF and HMAC-block implementation, out of scope for a zero-dependency project); balance queries cover DeepSeek / Moonshot·Kimi / Zhipu only (SiliconFlow's `/v1/user/info` was retired by the vendor with HTTP 410 on 2026-08-14)
+- Endpoints whose style is neither `openai` nor `anthropic` are not auto-tested, and web-filled metadata is a guess too: the same model id has different limits at different providers, so platform-reported values win and anything from the web is labelled `web`
 - The `type` field of an import file is validated in the frontend only; `POST /api/import` accepts any `keys` array (closing this properly needs both sides, see the deployment guide note)
 - There is no countdown before the auto-lock. The door used to show one, but it was dead code: it read `idleRemainingMs`, which is always `0` while **locked**, and the door only appears while locked — so it never rendered, and it has been removed
 - Three capabilities have endpoints but no UI entry: observation history (last 1000 rows per key), the scheduler toggle, and `/api/meta` detail. They are listed here so endpoints are not sold as features
