@@ -188,6 +188,18 @@
   .chev.open { transform: rotate(90deg); }
   .grp-n { font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-3); background: var(--surface-2); border-radius: var(--r-pill); padding: 1px 7px; }
   .fb-collapse { margin-left: auto; align-self: center; }
+  .tool-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .tool-pick {
+    display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+    border: 1px solid var(--rule); border-radius: var(--r-pill); background: var(--surface);
+    padding: 3px 9px; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2);
+    transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  }
+  .tool-pick:hover { border-color: var(--accent-line); color: var(--accent-ink); }
+  .tool-pick:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+  .tool-pick .tp-form { font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+  .tool-pick.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+  .tool-pick.on .tp-form { color: var(--accent-ink); }
   .group.collapsed { margin-bottom: 2px; }
   .group.collapsed .group-title { margin-bottom: 6px; }
   /* 多列流而不是 grid：grid 按行对齐，一个组 3 张卡、隔壁组 1 张卡时
@@ -1678,6 +1690,38 @@
     render();
   }
 
+  /* 去向快选。形态（GUI / CLI / IDE）写进字符串本身而不是新开字段：assigned 现在是纯字符串数组，
+     双后端、导出格式、消费者令牌的资源清单都吃这个形状，为它开 schema 要连迁移一起谈。 */
+  var TOOL_PRESETS = [
+    { name: 'Dify', form: 'GUI' }, { name: 'n8n', form: 'GUI' },
+    { name: 'Cherry Studio', form: 'GUI' }, { name: 'WorkBuddy', form: 'GUI' },
+    { name: 'Claude Code', form: 'CLI' }, { name: 'Codex CLI', form: 'CLI' },
+    { name: 'OpenClaw', form: 'CLI' }, { name: 'Qoder', form: 'IDE' },
+    { name: 'CodeBuddy', form: 'IDE' }, { name: 'Cursor', form: 'IDE' }
+  ];
+  /* 名字里已经带形态词的（Codex CLI）不再追加，否则读起来是「Codex CLI · CLI」 */
+  function toolPresetLabel(t) {
+    return t.name.slice(-t.form.length).toUpperCase() === t.form ? t.name : t.name + ' \u00B7 ' + t.form;
+  }
+  /* 重绘会把芯片换成新节点，键盘操作的人会掉回页面顶部，所以事后把焦点还回同一枚芯片 */
+  function focusToolPick(tool) {
+    if (!tool || !window.CSS || !CSS.escape) return;
+    var el = document.querySelector('.tool-pick[data-tool="' + CSS.escape(tool) + '"]');
+    if (el) el.focus();
+  }
+  function renderToolPicks(k) {
+    var taken = k.assigned || [];
+    return '<div class="tool-picks" role="group" aria-label="常用工具快速选择">' +
+      TOOL_PRESETS.map(function (t) {
+        var label = toolPresetLabel(t);
+        var on = taken.indexOf(label) > -1;
+        return '<button class="tool-pick' + (on ? ' on' : '') + '" type="button" data-act="pick-assigned" data-tool="' +
+          esc(label) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' +
+          (on ? '已登记，再点一次取消' : '按 ' + t.form + ' 形态登记') + '">' + esc(t.name) +
+          (label === t.name ? '' : '<span class="tp-form">' + t.form + '</span>') + '</button>';
+      }).join('') + '</div>';
+  }
+
   function renderCard(k) {
     var st = keyStatus(k);
     var revealed = revealTmp[k.id] || '';
@@ -1708,7 +1752,7 @@
           '<input data-tool-input maxlength="40" placeholder="工具名，如 Dify、n8n、Cherry Studio" aria-label="配置到的工具名" autocomplete="off">' +
           '<button class="btn primary small" data-act="add-assigned">添加</button>' +
           '<button class="btn small" data-act="cancel-assigned">取消</button>' +
-        '</div>' : '';
+        '</div>' + renderToolPicks(k) : '';
 
     var modelsBtnLabel = k.modelsFetched ? ('模型清单 ' + (k.models || []).length) : '模型清单';
 
@@ -1930,6 +1974,12 @@
       if (toolInput) toolInput.focus();
       return;
     }
+    if (act === 'pick-assigned') {
+      var pick = btn.dataset.tool || '';
+      if ((k.assigned || []).indexOf(pick) > -1) { removeAssigned(k, pick); return; }
+      addAssignedTool(k, pick, true);
+      return;
+    }
     if (act === 'add-assigned') {
       addAssignedTool(k, card.querySelector('[data-tool-input]').value.trim());
       return;
@@ -1939,15 +1989,7 @@
       rerenderCard(k.id);
       return;
     }
-    if (act === 'rm-assigned') {
-      var tool = btn.dataset.tool;
-      api('DELETE', '/keys/' + k.id + '/assigned/' + encodeURIComponent(tool)).then(function (data) {
-        k.assigned = data.assigned;
-        render();
-        toast('已从配置清单移除「' + tool + '」', 'warn');
-      }).catch(function (e) { toast(e.message, 'warn'); });
-      return;
-    }
+    if (act === 'rm-assigned') { removeAssigned(k, btn.dataset.tool); return; }
     if (act === 'edit') { openForm(k); return; }
     if (act === 'del') {
       if (btn.dataset.armed === '1') {
@@ -2167,12 +2209,23 @@
     }).catch(function (e) { toast(e.message, 'warn'); });
   }
 
-  function addAssignedTool(k, name) {
+  function removeAssigned(k, tool) {
+    if (!tool) return;
+    api('DELETE', '/keys/' + k.id + '/assigned/' + encodeURIComponent(tool)).then(function (data) {
+      k.assigned = data.assigned;
+      render();
+      focusToolPick(tool);
+      toast('已从配置清单移除「' + tool + '」', 'warn');
+    }).catch(function (e) { toast(e.message, 'warn'); });
+  }
+  function addAssignedTool(k, name, keepOpen) {
     if (!name) { toast('请填写工具名', 'warn'); return; }
     api('POST', '/keys/' + k.id + '/assigned', { tool: name }).then(function (data) {
       k.assigned = data.assigned;
-      ui.assignedOpen[k.id] = false;
+      /* 从快选进来的保持输入行展开：一次配三四个工具很常见，点一下就收走等于逼人反复开 */
+      if (!keepOpen) ui.assignedOpen[k.id] = false;
       rerenderCard(k.id);
+      if (keepOpen) focusToolPick(name);
       toast('已记录「' + k.name + '」配置到 ' + name, 'ok');
     }).catch(function (e) {
       if (e.status === 409) { ui.assignedOpen[k.id] = false; rerenderCard(k.id); }

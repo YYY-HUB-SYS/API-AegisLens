@@ -121,7 +121,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 | 项 | 值 | 出处 |
 |---|---|---|
 | 路由总数 | 47(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 66 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 界面动作 | 67 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `MAX_EPS`、`adapters.js` 的 `normEps` |
 | 口令最短 | 8 位 | `crypto.js` |

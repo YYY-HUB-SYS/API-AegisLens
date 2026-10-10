@@ -127,7 +127,7 @@ explicit checkbox, which then reveals items one by one.
 | Item | Value | Source |
 |---|---|---|
 | Total routes | 47 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 66 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| UI actions | 67 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS`, `normEps` in `adapters.js` |
 | Minimum passphrase length | 8 characters | `crypto.js` |
