@@ -181,6 +181,15 @@
     display: flex; align-items: center; gap: 10px; margin: 6px 0 10px;
   }
   .group-title::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  button.group-title { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+  button.group-title:hover .plat { color: var(--ink); }
+  button.group-title:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 3px; border-radius: 4px; }
+  .chev { width: 0; height: 0; flex-shrink: 0; border-left: 4px solid currentColor; border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent; transition: transform var(--t-fast) var(--ease); }
+  .chev.open { transform: rotate(90deg); }
+  .grp-n { font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-3); background: var(--surface-2); border-radius: var(--r-pill); padding: 1px 7px; }
+  .fb-collapse { margin-left: auto; align-self: center; }
+  .group.collapsed { margin-bottom: 2px; }
+  .group.collapsed .group-title { margin-bottom: 6px; }
   /* 多列流而不是 grid：grid 按行对齐，一个组 3 张卡、隔壁组 1 张卡时
      矮的那侧会留出一整行空档。columns 让每组各自往下堆，列高自动配平。 */
   :root[data-cols="2"] .board { display: block; columns: 2; column-gap: 16px; }
@@ -1107,7 +1116,7 @@
 
   var state = { keys: [], platforms: {}, meta: null, filter: 'all', pools: [], view: 'keys' };
   var ui = {
-    drawerOpen: {}, editingNote: {}, editingSupp: {},
+    drawerOpen: {}, editingNote: {}, editingSupp: {}, collapsedGroup: {},
     manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {}
   };
   var editingId = null;
@@ -1483,11 +1492,16 @@
       { key: 'warn', label: '临期', count: counts.warn },
       { key: 'exp', label: '过期/停用', count: counts.exp }
     ];
+    var labels = boardGroupLabels();
+    var openCount = labels.filter(function (l) { return !ui.collapsedGroup[l]; }).length;
     document.getElementById('filter-bar').innerHTML = tabs.map(function (t) {
       var cls = (state.filter === t.key ? 'active' : '') + (t.count ? '' : ' empty');
       return '<button data-filter="' + t.key + '" class="' + cls + '">' +
         esc(t.label) + ' <span class="count">' + t.count + '</span></button>';
-    }).join('');
+    }).join('') + (labels.length > 1 ?
+      '<button class="fb-collapse" data-act="collapse-all" title="' + (openCount === labels.length ? '收起全部分组' : '展开全部分组') + '">' +
+        (openCount === labels.length ? '收起全部' : '展开全部') +
+        (openCount === labels.length ? '' : ' <span class="count">' + (labels.length - openCount) + ' 组已收起') + '</button>' : '');
   }
 
   function renderBoard() {
@@ -1510,8 +1524,15 @@
       byLabel[label].keys.push(k);
     });
     document.getElementById('board').innerHTML = groups.map(function (g) {
-      return '<section class="group"><div class="group-title"><span class="plat-dot" style="background:' + g.color + '"></span>' + esc(g.label) + '</div>' +
-        g.keys.map(renderCard).join('') + '</section>';
+      /* 组标题就是折叠开关：一屏十几把密钥时，「只看我要的那两家」比筛选标签更快。
+         收起时整组卡片不渲染（不是 display:none），列高才会让给真正展开的组。 */
+      var shut = !!ui.collapsedGroup[g.label];
+      return '<section class="group' + (shut ? ' collapsed' : '') + '">' +
+        '<button class="group-title" type="button" data-act="toggle-group" data-label="' + esc(g.label) + '" aria-expanded="' + (shut ? 'false' : 'true') + '">' +
+          '<span class="chev' + (shut ? '' : ' open') + '" aria-hidden="true"></span>' +
+          '<span class="plat-dot" style="background:' + g.color + '"></span>' + esc(g.label) +
+          '<span class="grp-n">' + g.keys.length + '</span></button>' +
+        (shut ? '' : g.keys.map(renderCard).join('')) + '</section>';
     }).join('');
     if (filteredKeys.length === 0) {
       if (state.keys.length === 0) {
@@ -1626,6 +1647,21 @@
   function metaModelsDate() {
     var m = state.meta || {};
     return m.metaModels || '';
+  }
+
+  function saveCollapsed() {
+    try {
+      localStorage.setItem('aegis-collapsed', JSON.stringify(Object.keys(ui.collapsedGroup).filter(function (l) { return ui.collapsedGroup[l]; })));
+    } catch (e) { /* 隐私模式下写不进去，折叠就只活在这一页 */ }
+  }
+  function loadCollapsed() {
+    try {
+      var raw = localStorage.getItem('aegis-collapsed');
+      (raw ? JSON.parse(raw) : []).forEach(function (l) { ui.collapsedGroup[String(l)] = true; });
+    } catch (e) { /* 读不到就当全展开 */ }
+  }
+  function boardGroupLabels() {
+    return Array.from(new Set(state.keys.map(platLabel)));
   }
 
   function renderCard(k) {
@@ -1915,6 +1951,21 @@
     if (act === 'ep-test' || act === 'ep-models') {
       var epIdx = Number(btn.dataset.idx) || 0;
       if (act === 'ep-test') { runTest(k, epIdx); } else { fetchModels(k, epIdx); }
+      return;
+    }
+    if (act === 'toggle-group') {
+      var glabel = btn.dataset.label;
+      if (ui.collapsedGroup[glabel]) delete ui.collapsedGroup[glabel]; else ui.collapsedGroup[glabel] = true;
+      saveCollapsed();
+      render();
+      return;
+    }
+    if (act === 'collapse-all') {
+      var anyOpen = boardGroupLabels().some(function (l) { return !ui.collapsedGroup[l]; });
+      ui.collapsedGroup = {};
+      if (anyOpen) boardGroupLabels().forEach(function (l) { ui.collapsedGroup[l] = true; });
+      saveCollapsed();
+      render();
       return;
     }
     if (act === 'toggle-models') {
@@ -2955,6 +3006,7 @@
       state.meta = results[2];
       state.pools = (results[3] && results[3].pools) || [];
       buildPlatformSelect();
+      loadCollapsed();
       var m = state.meta || {};
       document.getElementById('foot-meta').textContent =
         'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
