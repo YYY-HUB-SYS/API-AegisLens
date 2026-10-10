@@ -242,12 +242,15 @@
 
 .cvw-row {
   display: flex; flex-direction: column; gap: 9px; min-width: 0; padding: 13px 14px;
-  border: 1px solid var(--cvw-rule); border-left: 3px solid var(--cvw-rule);
+  border: 1px solid var(--cvw-rule);
   border-radius: var(--cvw-r-ctl); background: var(--cvw-surface-2);
 }
-.cvw-row[data-status="active"] { border-left-color: var(--cvw-accent); }
-.cvw-row[data-status="expired"] { border-left-color: var(--cvw-warn); border-style: dashed; border-left-style: solid; }
-.cvw-row[data-status="revoked"] { border-left-color: var(--cvw-danger); opacity: 0.86; }
+/* 状态原先靠 3px 左色条表达，两重问题：一是设计清单里点名的"侧边色条"反模式，
+   二是和右侧徽标（.cvw-badge::before 那颗状态圆点）重复表达同一件事。
+   现在只走整圈边框取色 + 虚线/透明度，和主看板的发丝线是同一套手笔。 */
+.cvw-row[data-status="active"] { border-color: var(--cvw-accent-line); }
+.cvw-row[data-status="expired"] { border-color: var(--cvw-warn); border-style: dashed; }
+.cvw-row[data-status="revoked"] { opacity: 0.72; }
 .cvw-row[data-confirming="1"] { border-color: var(--cvw-danger); background: var(--cvw-danger-soft); }
 
 .cvw-row-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; min-width: 0; }

@@ -78,6 +78,9 @@
     --code-bg: #EDEFF5; --code-ink: #1B1E2B;
     --code-k: #0B6B48; --code-c: #5C6478; --code-s: #8A5A00;
     --toast-bg: #1E2233; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+    /* toast 三种底色都是深色，所以字色必须反过来走亮。原先直接复用浅色主题的 --code-ink
+       （一块近黑的深墨），深墨压深底，实测对比度 1.05:1，等于每条操作反馈都读不见。 */
+    --toast-ink: #F1F3FA;
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
@@ -99,6 +102,7 @@
     --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
     /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
     --code-bg: #232833; --toast-bg: #2A3040;
+    --toast-ink: #E8EAF4;
     --code-ink: #E8EAF4; --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -160,14 +164,16 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* 统计条：去掉卡片外壳，用发丝分隔线做节奏 */
-  .stats { display: flex; gap: 0; padding: 14px 0; flex-wrap: wrap; }
-  .stat { display: flex; align-items: baseline; gap: 7px; padding: 0 18px; border-left: 1px solid var(--rule); }
-  .stat:first-child { border-left: none; padding-left: 0; }
+  /* 统计条：整条只留一根发丝底线。原先每个 .stat 挂 1px 左竖线、只给 :first-child 去掉，
+     窄屏 flex-wrap 一换行，每行第一个又带上竖线，就是你说的"0 未测试 那里位置偏移"。
+     同时 .stat.zero 原先把数字从 24px 降到 18px，基线对齐下相邻两档高度不同也会错位，
+     现在弱化只走颜色和透明度，字号不动。 */
+  .stats { display: flex; gap: 26px; padding: 14px 0 13px; flex-wrap: wrap; border-bottom: 1px solid var(--rule-soft); }
+  .stat { display: flex; align-items: baseline; gap: 7px; }
   .stat .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
   .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); }
-  .stat.zero .num { font-size: var(--fs-lg); color: var(--ink-3); }
-  .stat.zero .lbl { color: var(--ink-3); }
+  .stat.zero { opacity: 0.66; }
+  .stat.zero .num, .stat.zero .lbl { color: var(--ink-3); }
 
   .board { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
   .group-title {
@@ -180,7 +186,10 @@
   :root[data-cols="2"] .board { display: block; columns: 2; column-gap: 16px; }
   :root[data-cols="2"] .group { break-inside: avoid; margin-bottom: 20px; }
   :root[data-cols="2"] .keycard { min-width: 0; }
-  @media (max-width: 1100px) {
+  /* 断点从 1100px 降到 720px。1100 那一档让 1080 宽的屏（竖屏笔记本、常见小屏）
+     永远命中，"双列"按钮按了等于没按 —— 用户 10-10 实测的"双列约等于失效"。
+     720 以下两列各只剩 ~350px，端点 URL 会被挤到反复换行，那时才真该回单列。 */
+  @media (max-width: 720px) {
     :root[data-cols="2"] .board { columns: 1; }
   }
 
@@ -227,6 +236,11 @@
   .param.url .val { flex: 1 1 14ch; min-width: 14ch; }
   .param.url .ep-style-tag { flex-shrink: 0; }
   .param.key .val { flex: 0 0 auto; }
+  /* 明文一取出来，.param.key .val 不可收缩（上一行的 flex:0 0 auto）会把同行的端点、
+     默认模型整排挤到下一行，卡片高度一跳 —— 这就是"reveal 之后版面变乱"。
+     取到明文时让这一条独占一行并允许换行：整段 Key 可读，别的药丸不再被推走。 */
+  .param.key.is-revealed { flex: 1 1 100%; }
+  .param.key.is-revealed .val { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
   .ep-acts {
     display: inline-flex; align-items: center; gap: 6px;
     margin-left: auto; flex-shrink: 0;
@@ -396,8 +410,11 @@
   }
   /* display:flex 会盖掉 hidden 属性：这两条不写死，门要么关不上、要么开不了 */
   .gate[hidden], .gate [hidden] { display: none !important; }
+  /* 浮层只留一种分离手段：投影。.modal 一直是"无边框 + 投影"，这张门卡原先
+     又描 1px 边又压 44px 大投影，是清单里点名的 ghost-card 配对，也和同页另一张弹层
+     手笔不一致。门本来就压在深色遮罩上，分离靠遮罩 + 投影足够。 */
   .gate-card {
-    background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-card);
+    background: var(--surface); border-radius: var(--r-card);
     box-shadow: var(--shadow-modal); width: min(460px, 94vw); padding: 24px 26px 18px;
   }
   .gate-card h3 { font-size: var(--fs-lg); margin-bottom: 4px; text-wrap: balance; }
@@ -529,7 +546,7 @@
 
   .toasts { position: fixed; top: 18px; right: 18px; z-index: var(--z-toast); display: flex; flex-direction: column; gap: 8px; }
   .toast {
-    background: var(--toast-bg); color: var(--code-ink); font-size: var(--fs-sm); font-weight: 600;
+    background: var(--toast-bg); color: var(--toast-ink); font-size: var(--fs-sm); font-weight: 600;
     border-radius: var(--r-ctl); padding: 10px 15px; max-width: 46ch;
     box-shadow: var(--shadow-toast); animation: toastIn 220ms var(--ease);
   }
@@ -591,8 +608,14 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 1ms !important; animation-delay: 0ms !important;
+      animation-iteration-count: 1 !important;
       transition-duration: 1ms !important; scroll-behavior: auto !important;
     }
+    /* 少了 iteration-count 这一句，0.7s linear infinite 的 .spin 在减弱动效下会变成
+       "每 1ms 转一圈"的狂转，比原来更晃眼。转又不能停（停了就等于没有反馈），
+       所以换成不位移的呼吸：still 表示"在忙"，但没有旋转。 */
+    .spin { animation: spin-breathe 1.2s ease-in-out infinite !important; }
+    @keyframes spin-breathe { 50% { opacity: 0.35; } }
   }
   /* ================= 账号池 ================= */
   .pool-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
@@ -1644,7 +1667,7 @@
             (k.reg ? '<span class="m-item">注册于 <b>' + esc(k.reg) + '</b></span>' : '') +
           '</div>' +
           '<div class="params">' +
-            '<span class="param key" data-key-copy="' + k.id + '">' +
+            '<span class="param key' + (revealed ? ' is-revealed' : '') + '" data-key-copy="' + k.id + '">' +
               '<span class="lbl2">Key</span>' +
               '<span class="val">' + esc(rvNote.pending ? '取用中…' : (revealed || keyMaskText(k))) + '</span>' +
               (rvNote.err ? '<span class="val" style="color:var(--warn)">取不到明文 · ' + esc(rvNote.err) + '</span>' : '') +

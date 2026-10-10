@@ -296,7 +296,12 @@ test('双列是开关：属性、按钮、持久化与栅格规则齐备', () =>
   assert.ok(html.includes("localStorage.getItem('aegis-cols')"), '列数选择要持久化');
   assert.ok(html.slice(0, html.indexOf('<style>')).includes("setAttribute('data-cols'"),
     'data-cols 必须在 style 之前落好，否则首屏先单列再跳两列');
-  assert.ok(html.includes('@media (max-width: 1100px)'), '窄屏要把双列降回单列');
+  /* 断点必须低于常见小屏宽度。原先写死 1100px，结果 1080 宽的竖屏笔记本永远命中这一档，
+     "双列"按钮按了等于没按（用户 10-10 实测报的"双列约等于失效"）。 */
+  const colsBreak = html.match(/@media \(max-width:\s*(\d+)px\)\s*\{[^}]*:root\[data-cols="2"\] \.board \{ columns: 1/);
+  assert.ok(colsBreak, '窄屏要把双列降回单列');
+  assert.ok(Number(colsBreak[1]) <= 800,
+    '降回单列的断点要 ≤800px，否则 1080 宽的屏永远拿不到两列，实得 ' + colsBreak[1] + 'px');
 });
 
 test('卡片脚注合并成一行，端点命名统一且按钮不再单字', () => {
