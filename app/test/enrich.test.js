@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const enrich = require('../src/enrich');
 const adapters = require('../src/adapters');
+const tmp = require('./tmp.js');
 const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
@@ -182,7 +183,7 @@ function makeMockFetch(mode) {
 }
 
 async function startServer(fetchImpl) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-enrich-'));
+  const dir = tmp.mk('akm-enrich');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const server = createApp({

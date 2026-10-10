@@ -7,6 +7,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createStore } = require('../src/storage');
 
 const BACKENDS = [];
@@ -22,7 +23,7 @@ const RECORD_FIELDS = ['id', 'tid', 'fingerprint', 'label', 'scopes', 'keyIds', 
 /* issuedAt/expiresAt 由 iat/exp 现算，两条后端必然相同；只有这三处是 nowIso() 取的 */
 const TIME_FIELDS = ['revokedAt', 'lastUsedAt', 'createdAt'];
 
-function tmp(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-' + prefix + '-')); }
+function newDir(prefix) { return tmp.mk('aegis-' + prefix); }
 
 /* store 没有 close()，SQLite 句柄要等进程退出才释放，Windows 上目录因此删不掉；清理尽力而为 */
 function sweep(dir) {
@@ -67,7 +68,7 @@ function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms || 2); }
 
 BACKENDS.forEach(function (backend) {
   test('形状与字段顺序（' + backend + '）', () => {
-    const dir = tmp('tok-shape-' + backend);
+    const dir = newDir('tok-shape-' + backend);
     try {
       const s = store(dir, backend);
       const r = s.createToken({
@@ -80,7 +81,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test('issuedAt/expiresAt 由 iat/exp 现算，不是第二条真相（' + backend + '）', () => {
-    const dir = tmp('tok-derive-' + backend);
+    const dir = newDir('tok-derive-' + backend);
     try {
       const s = store(dir, backend);
       const r = s.createToken({ tid: 'b'.repeat(24), label: 'x', scopes: ['key:read'], iat: 1700000000, exp: 1700086400 });
@@ -90,7 +91,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test('脏输入被夹成规范形状，两条后端夹法一致（' + backend + '）', () => {
-    const dir = tmp('tok-norm-' + backend);
+    const dir = newDir('tok-norm-' + backend);
     try {
       const s = store(dir, backend);
       const r = s.createToken({
@@ -114,7 +115,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test('列表新的在前；吊销幂等；使用只动 lastUsedAt（' + backend + '）', async () => {
-    const dir = tmp('tok-ops-' + backend);
+    const dir = newDir('tok-ops-' + backend);
     try {
       const s = store(dir, backend);
       const a = s.createToken({ tid: 'd'.repeat(24), label: 'A', scopes: ['key:read'], iat: 1700000000, exp: 1700003600 });
@@ -140,7 +141,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test('重开 store 读回逐字段一致：这些元数据是真落盘，不是内存对象（' + backend + '）', () => {
-    const dir = tmp('tok-persist-' + backend);
+    const dir = newDir('tok-persist-' + backend);
     try {
       const s = store(dir, backend);
       const made = s.createToken({
@@ -167,7 +168,7 @@ BACKENDS.forEach(function (backend) {
 test('两条后端整份轨迹逐字相同', () => {
   if (BACKENDS.length < 2) return;
   function run(backend) {
-    const dir = tmp('tok-trace-' + backend);
+    const dir = newDir('tok-trace-' + backend);
     try {
       const s = store(dir, backend);
       const a = s.createToken({ tid: 'a'.repeat(24), fingerprint: 'f1', label: 'A', scopes: ['key:read'], keyIds: [1, 2], iat: 1700000000, exp: 1700003600 });

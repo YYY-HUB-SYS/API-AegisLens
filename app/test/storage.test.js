@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
 
@@ -16,7 +17,7 @@ try {
 backends.push('json');
 
 function newStore(backend) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-store-' + backend + '-'));
+  const dir = tmp.mk('akm-store-' + backend);
   const mk = loadOrCreateMasterKey(dir);
   return { store: createStore(dir, mk, { backend: backend }), dir: dir };
 }
@@ -209,7 +210,7 @@ test('createStore auto 模式返回可用后端', () => {
 });
 
 test('createStore 指定 sqlite 但不可用时抛错', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-store-nosqlite-'));
+  const dir = tmp.mk('akm-store-nosqlite');
   loadOrCreateMasterKey(dir);
   const Module = require('node:module');
   const orig = Module.prototype.require;
@@ -227,7 +228,7 @@ test('createStore 指定 sqlite 但不可用时抛错', () => {
 });
 
 test('另一份后端留有数据时标记 shadowStore，避免"升级 Node 后密钥全没了"被误判成丢数据', () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-shadow-'));
+  const dir = tmp.mk('akm-shadow');
   const mk = loadOrCreateMasterKey(dir);
   const jsonStore = createStore(dir, mk, { backend: 'json' });
   jsonStore.createKey({
@@ -242,7 +243,7 @@ test('另一份后端留有数据时标记 shadowStore，避免"升级 Node 后�
   assert.strictEqual(mixed.shadowStore, 'keys.db', '空目录外的另一份库必须被指出');
   assert.strictEqual(mixed.listKeys().length, 1, '影子库不应污染当前读取结果');
 
-  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-shadow2-'));
+  const other = tmp.mk('akm-shadow2');
   createStore(other, mk, { backend: 'json' }).createKey({
     name: '旧数据', platform: 'openai', customName: '', key: KEY_VALUE,
     base: 'https://api.openai.com/v1', model: 'gpt-4o', reg: '', exp: ''

@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createStore } = require('../src/storage');
 
 const FIELDS = {
@@ -16,7 +17,7 @@ const FIELDS = {
   reasoning: true, modalitiesIn: ['text', 'image'], rpm: 2640, note: null
 };
 
-function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-mfield-')); }
+function newDir() { return tmp.mk('aegis-mfield'); }
 
 /* store 没有 close()，SQLite 句柄要等进程退出才释放，Windows 上目录因此删不掉。
    清理只能是尽力而为 —— 断言已经跑完，删不动不该让测试变红。 */
@@ -25,7 +26,7 @@ function sweep(dir) {
 }
 
 function fresh(backend) {
-  const dir = tmp();
+  const dir = newDir();
   const store = createStore(dir, Buffer.alloc(32, 7), { backend: backend });
   const k = store.createKey({
     platform: 'deepseek', name: 'probe', key: 'sk-probe-0001',
@@ -60,7 +61,7 @@ function fresh(backend) {
   });
 
   test(backend + ' 后端：重新打开存储后扩展字段仍在（真落盘，不是内存对象）', () => {
-    const dir = tmp();
+    const dir = newDir();
     try {
       const a = createStore(dir, Buffer.alloc(32, 7), { backend: backend });
       const k = a.createKey({

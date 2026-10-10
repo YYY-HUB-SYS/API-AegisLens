@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey, enablePassphrase, vaultMode } = require('../src/crypto');
 const { createStore } = require('../src/storage');
@@ -12,7 +13,7 @@ const { createVaultSession, createThrottle } = require('../src/vault');
    现有安装必须继续「双击即用」，免密语义由 app.js 的 openLegacy 负责 */
 function harness(opts) {
   const o = opts || {};
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-vapi-'));
+  const dir = tmp.mk('akm-vapi');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const vault = createVaultSession({ idleLockMs: o.idleLockMs === undefined ? 60000 : o.idleLockMs });

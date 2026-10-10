@@ -12,6 +12,7 @@ const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
 const view = require('../public/credentials-view.js');
+const tmp = require('./tmp.js');
 
 const submit = view.__internals.submitPayload;
 
@@ -60,7 +61,7 @@ test('touched 整个不传也不能炸（默认按没碰过处理）', () => {
 /* ── 视图资产的可达性 ─────────────────────────────────────────── */
 
 async function start() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-view-'));
+  const dir = tmp.mk('akm-view');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const server = createApp({

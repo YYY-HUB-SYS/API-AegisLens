@@ -5,10 +5,11 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const daemon = require('../src/daemon');
+const tmp = require('./tmp.js');
 
 const SERVER = path.join(__dirname, '..', 'server.js');
 
-function tempDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'akm-dmn-')); }
+function tempDir() { return tmp.mk('akm-dmn'); }
 function freePort() { return 39500 + Math.floor(Math.random() * 400); }
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 

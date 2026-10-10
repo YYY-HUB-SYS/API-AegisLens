@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
@@ -10,7 +11,7 @@ const { createStore } = require('../src/storage');
 const publicDir = path.join(__dirname, '..', 'public');
 
 async function start() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-vendor-'));
+  const dir = tmp.mk('akm-vendor');
   const storage = createStore(dir, loadOrCreateMasterKey(dir), { backend: 'json' });
   const server = createApp({ storage, fetchImpl: async () => new Response('{}'), publicDir, version: 'test' });
   await new Promise(r => server.listen(0, '127.0.0.1', r));

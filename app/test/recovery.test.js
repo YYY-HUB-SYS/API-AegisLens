@@ -4,13 +4,14 @@ const nodeCrypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createRecoveryKey, formatRecoveryKey, parseRecoveryKey, wrapDekForRecovery,
   openRecoveryEnvelope, saveRecoveryEnvelope, readRecoveryEnvelope, rotateRecoveryEnvelope,
   createRecoveryEnvelope, RECOVERY_FILE, RECOVERY_AAD, KEY_BYTES, KEY_CHARS } = require('../src/recovery');
 const { wrapDek, unwrapDek } = require('../src/crypto');
 
 function tempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'akm-recovery-'));
+  return tmp.mk('akm-recovery');
 }
 
 test('恢复码：随机生成 32 字节，两次不一样', () => {

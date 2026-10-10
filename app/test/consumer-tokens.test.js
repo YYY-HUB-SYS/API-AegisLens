@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const crypto = require('node:crypto');
 const ct = require('../src/consumer-tokens');
+const tmp = require('./tmp.js');
 
 /* now 全模块按毫秒理解，payload 里存 Unix 秒——测试用一个「ms 时钟」同时喂两边，避免单位混用。 */
 const T0_MS = 1762000000000;
@@ -461,7 +462,7 @@ const PW_A = 'first-passphrase-24';
 const PW_B = 'second-passphrase-26';
 
 test('设口令 / 改口令 / 丢弃 master.key 都不换 DEK，已签发令牌照样验得过', () => {
-  const dir = fsx.mkdtempSync(ptx.join(osx.tmpdir(), 'aegis-tok-dek-'));
+  const dir = tmp.mk('aegis-tok-dek');
   try {
     const legacy = ac.unlockDek(dir);
     assert.strictEqual(legacy.mode, 'legacy');
@@ -489,7 +490,7 @@ test('设口令 / 改口令 / 丢弃 master.key 都不换 DEK，已签发令牌�
     assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: afterDiscard.dek }, want)).ok, true);
 
     /* 真正换根的那条路：换一个数据目录，就是另一把 DEK */
-    const other = fsx.mkdtempSync(ptx.join(osx.tmpdir(), 'aegis-tok-dek2-'));
+    const other = tmp.mk('aegis-tok-dek2');
     try {
       const freshDek = ac.unlockDek(other).dek;
       assert.strictEqual(ct.verifyToken(issued.token, Object.assign({ dek: freshDek }, want)).reason, 'bad-signature');

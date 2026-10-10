@@ -3,13 +3,14 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { spawn } = require('node:child_process');
 
 const SERVER = path.join(__dirname, '..', 'server.js');
 const PASS = 'boot-lock-pass-1';
 const SECRET = 'sk-bootlock-77q2';
 
-function tempDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'akm-boot-')); }
+function tempDir() { return tmp.mk('akm-boot'); }
 function freePort() { return 39000 + Math.floor(Math.random() * 900); }
 
 /* 起真服务、等它可访问、跑完再杀干净：这条测的是 server.js 的开机路径，

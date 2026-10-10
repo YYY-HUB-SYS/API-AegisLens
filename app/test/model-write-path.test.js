@@ -9,12 +9,13 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
 
 function fresh(backend) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-normalize-'));
+  const dir = tmp.mk('aegis-normalize');
   const store = createStore(dir, loadOrCreateMasterKey(dir), { backend: backend });
   const k = store.createKey({
     platform: 'deepseek', name: 'probe', key: 'sk-probe-0001',
@@ -85,7 +86,7 @@ test('sqlite 与 json 后端对同一批写入给出完全一致的行', () => {
 });
 
 async function startServer(fetchImpl) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-src-probe-'));
+  const dir = tmp.mk('aegis-src-probe');
   const server = createApp({
     storage: createStore(dir, loadOrCreateMasterKey(dir), { backend: 'json' }),
     fetchImpl: fetchImpl,

@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const {
   generate,
   evaluate,
@@ -664,7 +665,7 @@ test('随仓数据与许可证都不许被 HTTP 取走：它们不在静态根�
   const { loadOrCreateMasterKey } = require('../src/crypto');
   const { createStore } = require('../src/storage');
   // 用临时目录，绝不碰 ~/.api-aegislens 里的真实 keys.db / master.key
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-passgen-'));
+  const dir = tmp.mk('akm-passgen');
   const storage = createStore(dir, loadOrCreateMasterKey(dir), { backend: 'json' });
   const server = createApp({ storage, fetchImpl: async () => new Response('{}'), publicDir, version: 'test' });
   await new Promise(r => server.listen(0, '127.0.0.1', r));

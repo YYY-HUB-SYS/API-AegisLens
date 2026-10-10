@@ -69,6 +69,10 @@ function legacyEps(platform, base) {
   return base ? [{ url: base, style: inferStyle(platform) }] : [];
 }
 
+/* 工厂记一份活实例：--daemon 关停和测试收尾都需要「把还开着的库统一关掉」。
+   Windows 上没关的 sqlite 句柄会压着数据目录，删都删不掉。 */
+const LIVE_STORES = new Set();
+
 function createStore(dataDir, masterKey, opts) {
   fs.mkdirSync(dataDir, { recursive: true });
   const prefer = (opts && opts.backend) || 'auto';
@@ -83,7 +87,19 @@ function createStore(dataDir, masterKey, opts) {
   }
   if (!store) store = makeJsonStore(dataDir, masterKey);
   markShadowStore(dataDir, store);
+  LIVE_STORES.add(store);
+  const rawClose = store.close;
+  store.close = function () {
+    LIVE_STORES.delete(store);
+    return rawClose.call(store);
+  };
   return store;
+}
+
+function closeAllStores() {
+  for (const store of Array.from(LIVE_STORES)) {
+    try { store.close(); } catch (e) { /* 已经关掉的，不在这儿报错 */ }
+  }
 }
 
 /* 首选后端由 Node 版本决定（node:sqlite 自 22 起才有），而两份库互不迁移：
@@ -1424,4 +1440,4 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   };
 }
 
-module.exports = { createStore };
+module.exports = { createStore: createStore, closeAllStores: closeAllStores };

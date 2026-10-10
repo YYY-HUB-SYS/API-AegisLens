@@ -7,6 +7,7 @@ const { createApp } = require('../src/app');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
 const CATALOG = require('../src/platform-catalog.json');
+const tmp = require('./tmp.js');
 
 function mockFetch(url, opts) {
   const u = String(url);
@@ -34,7 +35,7 @@ function mockFetch401(url, opts) {
 }
 
 async function startServer(fetchImpl) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-api-'));
+  const dir = tmp.mk('akm-api');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const server = createApp({
@@ -495,7 +496,7 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
 });
 
 test('API 集成：余额刷新自愈——无匹配端点的遗留状态归位为不支持', async () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-heal-'));
+  const dir = tmp.mk('akm-heal');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   storage.createKey({

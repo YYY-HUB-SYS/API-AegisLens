@@ -8,17 +8,18 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createApp } = require('../src/app');
 const { createStore } = require('../src/storage');
 const { createScheduler } = require('../src/scheduler');
 
-function tmp(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-' + prefix + '-')); }
+function newDir(prefix) { return tmp.mk('aegis-' + prefix); }
 function sweep(dir) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { /* SQLite 句柄未释放，留给 OS */ }
 }
 
 function makeStore(backend) {
-  const dir = tmp('sched-' + backend);
+  const dir = newDir('sched-' + backend);
   return { dir: dir, storage: createStore(dir, Buffer.alloc(32, 7), { backend: backend }) };
 }
 

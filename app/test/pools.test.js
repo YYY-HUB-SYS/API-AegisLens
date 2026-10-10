@@ -3,6 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { loadOrCreateMasterKey } = require('../src/crypto');
 const { createStore } = require('../src/storage');
 const { createApp } = require('../src/app');
@@ -17,7 +18,7 @@ try {
 backends.push('json');
 
 function newStore(backend) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-pools-' + backend + '-'));
+  const dir = tmp.mk('akm-pools-' + backend);
   const mk = loadOrCreateMasterKey(dir);
   return { store: createStore(dir, mk, { backend: backend }), dir: dir };
 }
@@ -81,7 +82,7 @@ function runSuite(backend) {
 backends.forEach(runSuite);
 
 async function startServer() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'akm-pools-api-'));
+  const dir = tmp.mk('akm-pools-api');
   const mk = loadOrCreateMasterKey(dir);
   const storage = createStore(dir, mk, { backend: 'json' });
   const server = createApp({

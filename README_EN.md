@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-497%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-503%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/bind-127.0.0.1%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -163,7 +163,7 @@ Listed so that they never arrive as a surprise.
 cd app && npm test        # same as node --test test/*.test.js
 ```
 
-Measured on this version on 2026-10-09 with Node v24.14.0: `tests 497 / pass 497 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals — plus `docs.test.js`, which watches that the documentation and the code still agree.
+Measured on this version on 2026-10-10 with Node v24.14.0: `tests 503 / pass 503 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals, reclamation of the scratch directories tests create (`tmp-sweep.test.js`) — plus `docs.test.js`, which watches that the documentation and the code still agree.
 
 ## Reporting a vulnerability / backups
 

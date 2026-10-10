@@ -7,6 +7,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createStore } = require('../src/storage');
 
 const CAP = 1000;
@@ -17,7 +18,7 @@ try {
 } catch (e) { /* 当前 Node 没有 node:sqlite，只跑 JSON 后端 */ }
 BACKENDS.push('json');
 
-function tmp(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-' + prefix + '-')); }
+function newDir(prefix) { return tmp.mk('aegis-' + prefix); }
 
 /* store 没有 close()，SQLite 句柄要等进程退出才释放，Windows 上目录因此删不掉；清理尽力而为 */
 function sweep(dir) {
@@ -35,7 +36,7 @@ function addKey(s) {
 
 BACKENDS.forEach(function (backend) {
   test(backend + ' 后端：每次观测各留一行，pending / unsupported 不进表', () => {
-    const dir = tmp('hist-' + backend);
+    const dir = newDir('hist-' + backend);
     try {
       const s = store(dir, backend);
       const id = addKey(s);
@@ -65,7 +66,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：历史穿过持久层（重新打开存储读得回来）', () => {
-    const dir = tmp('hist-reopen-' + backend);
+    const dir = newDir('hist-reopen-' + backend);
     try {
       const a = store(dir, backend);
       const id = addKey(a);
@@ -84,7 +85,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：kind 过滤 + limit 取最近若干条，返回按时间升序', () => {
-    const dir = tmp('hist-query-' + backend);
+    const dir = newDir('hist-query-' + backend);
     try {
       const s = store(dir, backend);
       const id = addKey(s);
@@ -105,7 +106,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：删除密钥连带清理历史', () => {
-    const dir = tmp('hist-del-' + backend);
+    const dir = newDir('hist-del-' + backend);
     try {
       const s = store(dir, backend);
       const mine = addKey(s);
@@ -119,7 +120,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：每密钥封顶 ' + CAP + ' 条，定时器不会把库写爆', () => {
-    const dir = tmp('hist-cap-' + backend);
+    const dir = newDir('hist-cap-' + backend);
     try {
       const first = store(dir, backend);
       const id = addKey(first);
@@ -158,7 +159,7 @@ BACKENDS.forEach(function (backend) {
 });
 
 test('旧库没有历史结构时自动补上：JSON 缺 history 字段、SQLite 缺 history 表', () => {
-  const dir = tmp('hist-legacy-json');
+  const dir = newDir('hist-legacy-json');
   try {
     const a = store(dir, 'json');
     const id = addKey(a);
@@ -177,7 +178,7 @@ test('旧库没有历史结构时自动补上：JSON 缺 history 字段、SQLite
   } finally { sweep(dir); }
 
   if (BACKENDS.indexOf('sqlite') < 0) return;
-  const sdir = tmp('hist-legacy-sqlite');
+  const sdir = newDir('hist-legacy-sqlite');
   try {
     const a = store(sdir, 'sqlite');
     const id = addKey(a);

@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { createStore } = require('../src/storage');
 
 const BACKENDS = [];
@@ -31,7 +32,7 @@ const ENC = {
   noteEnc: 'enc:v1:5L2g5aW977yM6LWE5L6nJDk5OTk='
 };
 
-function tmp(prefix) { return fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-' + prefix + '-')); }
+function newDir(prefix) { return tmp.mk('aegis-' + prefix); }
 
 /* store 没有 close()，SQLite 句柄要等进程退出才释放，Windows 上目录因此删不掉；清理尽力而为 */
 function sweep(dir) {
@@ -93,7 +94,7 @@ const ids = function (list) { return list.map(function (r) { return r.id; }); };
 BACKENDS.forEach(function (backend) {
 
   test(backend + ' 后端：凭证 CRUD、更新、touch、lastUsed、删除各走一遍', () => {
-    const dir = tmp('cred-crud-' + backend);
+    const dir = newDir('cred-crud-' + backend);
     try {
       const s = store(dir, backend);
       assert.strictEqual(s.backend, backend, '指定了后端就得是那个后端');
@@ -142,7 +143,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：四个 *_enc 列原样存取，密文进密文出', () => {
-    const dir = tmp('cred-enc-' + backend);
+    const dir = newDir('cred-enc-' + backend);
     try {
       const s = store(dir, backend);
       const rec2 = s.createCredential(fullCredential());
@@ -188,7 +189,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：空表、超长字段、tags 带逗号/中文、title 留空', () => {
-    const dir = tmp('cred-edge-' + backend);
+    const dir = newDir('cred-edge-' + backend);
     try {
       const s = store(dir, backend);
       assert.deepStrictEqual(s.listCredentials(), [], '空表读到空数组不是报错');
@@ -250,7 +251,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：删除后 id 不复用、行不残留', () => {
-    const dir = tmp('cred-ids-' + backend);
+    const dir = newDir('cred-ids-' + backend);
     try {
       const s = store(dir, backend);
       const a = s.createCredential({ title: 'A', username: 'same' });
@@ -284,7 +285,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：credentialUsernameCounts 给出同一 username 出现在几条记录里', () => {
-    const dir = tmp('cred-counts-' + backend);
+    const dir = newDir('cred-counts-' + backend);
     try {
       const s = store(dir, backend);
       const three = [
@@ -330,7 +331,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：凭证与密钥互不干扰，重启后都在', () => {
-    const dir = tmp('cred-coexist-' + backend);
+    const dir = newDir('cred-coexist-' + backend);
     try {
       const s = store(dir, backend);
       const key = s.createKey({
@@ -354,7 +355,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：老库没有 credentials 这张表时补建', () => {
-    const dir = tmp('cred-legacy-' + backend);
+    const dir = newDir('cred-legacy-' + backend);
     try {
       const a = store(dir, backend);
       a.createCredential(fullCredential());
@@ -386,7 +387,7 @@ BACKENDS.forEach(function (backend) {
   });
 
   test(backend + ' 后端：只填了一半的行，两条后端读出同一套缺省', () => {
-    const dir = tmp('cred-partial-' + backend);
+    const dir = newDir('cred-partial-' + backend);
     try {
       store(dir, backend); /* 先把表建出来，再绕过存储层塞一条只有 title 的行 */
       if (backend === 'json') {
@@ -428,7 +429,7 @@ test('sqlite 与 json 两条后端：同一套操作的轨迹完全一致', () =
   if (BACKENDS.indexOf('sqlite') < 0) return; /* 这台 Node 没有 node:sqlite，无从对照 */
   const transcript = {};
   BACKENDS.forEach(function (backend) {
-    const dir = tmp('cred-parity-' + backend);
+    const dir = newDir('cred-parity-' + backend);
     try { transcript[backend] = exercise(store(dir, backend)); } finally { sweep(dir); }
   });
 

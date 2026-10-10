@@ -3,12 +3,13 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const tmp = require('./tmp.js');
 const { loadOrCreateMasterKey, encryptField, decryptField, wrapDek, unwrapDek, parseKekBlob,
   readVaultBlob, vaultMode, enablePassphrase, changePassphrase, unlockDek, discardRawDek,
   zeroSecret, VAULT_FILE, MIN_PASSPHRASE } = require('../src/crypto');
 
 function tempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'akm-crypto-'));
+  return tmp.mk('akm-crypto');
 }
 
 test('主密钥：首次生成 32 字节并落盘，二次读取复用', () => {
