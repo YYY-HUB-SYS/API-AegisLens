@@ -205,19 +205,26 @@ function call(base, method, p, body) {
   }).then(r2 => r2.json().then(data => ({ status: r2.status, data: data })));
 }
 
-test('API 集成：拉取自动联网补全 + enrich 端点 + 手动补充 + 断网降级', async () => {
+test('API 集成：拉取默认不联网、enrich:true 才联网 + enrich 端点 + 手动补充 + 断网降级', async () => {
   enrich.resetCache();
   const { server, base } = await startServer(makeMockFetch('online'));
   try {
     let r = await call(base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-enrich-0001' });
     const id = r.data.key.id;
 
+    /* 新契约（用户 10-10 指出）：点「拉模型」只打平台自己的 /models，
+       不许未经确认就往联网源发请求。补全要走 enrich:true 或「联网补全」按钮。 */
     r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
     assert.strictEqual(r.status, 200);
     const flash = r.data.models.find(m => m.id === 'deepseek-v4-flash');
-    assert.strictEqual(flash.ctx, 1048576, '未知模型应被联网补全');
-    assert.strictEqual(flash.out, 384000);
-    assert.strictEqual(flash.src, 'web');
+    assert.strictEqual(flash.ctx, null, '默认拉取不许顺手联网补全');
+    assert.strictEqual(flash.src, 'unknown');
+    assert.strictEqual(r.data.enrich.enriched, 0, '默认路径不该报补全数');
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch', { enrich: true });
+    const webbed = r.data.models.find(m => m.id === 'deepseek-v4-flash');
+    assert.strictEqual(webbed.ctx, 1048576, '显式 enrich:true 才联网补全');
+    assert.strictEqual(webbed.out, 384000);
+    assert.strictEqual(webbed.src, 'web');
     const chat = r.data.models.find(m => m.id === 'deepseek-chat');
     assert.strictEqual(chat.src, 'meta', '元数据库命中的保持 meta 来源');
     const unknown = r.data.models.find(m => m.id === 'totally-unknown');
@@ -240,7 +247,7 @@ test('API 集成：拉取自动联网补全 + enrich 端点 + 手动补充 + 断
     r = await call(base, 'PATCH', '/api/keys/' + id + '/models/' + encodeURIComponent('totally-unknown'), { ctx: 'abc' });
     assert.strictEqual(r.status, 400, '非法 tokens 数值应被拒绝');
 
-    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch');
+    r = await call(base, 'POST', '/api/keys/' + id + '/models/fetch', { enrich: true });
     const flash2 = r.data.models.find(m => m.id === 'deepseek-v4-flash');
     assert.strictEqual(flash2.ctx, 1048576, '重新拉取不清空已补全参数');
     const supp2 = r.data.models.find(m => m.id === 'totally-unknown');
@@ -255,7 +262,7 @@ test('API 集成：拉取自动联网补全 + enrich 端点 + 手动补充 + 断
   try {
     let r = await call(offline.base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-offline-0002' });
     const id = r.data.key.id;
-    r = await call(offline.base, 'POST', '/api/keys/' + id + '/models/fetch');
+    r = await call(offline.base, 'POST', '/api/keys/' + id + '/models/fetch', { enrich: true });
     assert.strictEqual(r.status, 200, '断网时拉取本身不应失败');
     const flash = r.data.models.find(m => m.id === 'deepseek-v4-flash');
     assert.strictEqual(flash.ctx, null, '断网时参数保持未知');

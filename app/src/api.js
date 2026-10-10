@@ -1,5 +1,6 @@
 const adapters = require('./adapters');
 const enrich = require('./enrich');
+const META_MODELS = require('./meta-models.json');
 const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek, hasRawMasterKey } = require('./crypto');
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
@@ -213,6 +214,7 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'GET' && path === '/api/meta') {
     return json(res, 200, {
       version: ctx.version,
+      metaModels: META_MODELS._updated || null,
       storage: storage.backend,
       dataDir: storage.dataDir,
       shadowStore: storage.shadowStore || null
@@ -518,7 +520,10 @@ async function routeApi(req, res, ctx) {
     const fetched = await adapters.fetchModels(k.platform, endpointAt(k, fb.endpointIndex).ep, k.key, { fetchImpl: fetchImpl });
     let merged = adapters.mergeModels(k.models, fetched);
     let enrichInfo = null;
-    if (merged.some(function (mm) { return mm.ctx == null; })) {
+    /* 「拉模型」默认只打平台自己的 /models。原先一见到 ctx 缺失就自动联网检索，
+       等于用户点一下按钮就未经确认往外发请求（用户 10-10 指出）。联网补全现在只走两条显式路径：
+       这里带 enrich:true，或界面上的「联网补全」按钮（/models/enrich）。 */
+    if (fb.enrich === true && merged.some(function (mm) { return mm.ctx == null; })) {
       enrichInfo = await enrichUnknowns(merged, fetchImpl);
       if (enrichInfo.models) merged = enrichInfo.models;
     }

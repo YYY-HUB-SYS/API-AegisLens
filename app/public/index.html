@@ -1621,6 +1621,13 @@
     node.replaceWith(holder.firstElementChild);
   }
 
+  /* 内置元数据库的整理日期由后端 /api/meta 带出来，界面只负责显示：
+     没有这个日期，「元数据库」三个字就是一句无法核对的承诺。 */
+  function metaModelsDate() {
+    var m = state.meta || {};
+    return m.metaModels || '';
+  }
+
   function renderCard(k) {
     var st = keyStatus(k);
     var revealed = revealTmp[k.id] || '';
@@ -1728,7 +1735,7 @@
       '<div class="drawer-inner">' +
         '<div class="drawer-toolbar">' +
           '<span class="drawer-title">模型清单</span>' +
-          '<span class="meta">来源：平台接口 / 元数据库 / 联网检索 / 手动补充</span>' +
+          '<span class="meta">清单来自平台 <code>/models</code> 探查；参数按「平台自报 → 内置元数据库' + (metaModelsDate() ? '（' + esc(metaModelsDate()) + ' 整理）' : '') +' → 联网检索 → 手动」依次补，缺的留空，不猜。联网只在你点「联网补全」时发生。</span>' +
           '<span style="flex:1"></span>' +
           enrichBtn +
           '<button class="btn ' + (k.modelsFetched ? 'small' : 'primary small') + '" data-act="fetch-models"' + (ui.modelsLoading[k.id] ? ' disabled' : '') + '>' + (k.modelsFetched ? '重新拉取' : '拉取模型') + '</button>' +
@@ -2042,10 +2049,8 @@
       ui.modelsLoading[k.id] = false;
       rerenderCard(k.id);
       var msg = '已拉取 ' + data.models.length + ' 个模型（地址 #' + ((idx || 0) + 1) + '）';
-      var e = data.enrich;
-      if (e && e.enriched > 0) msg += '，联网补全 ' + e.enriched + ' 个模型参数';
-      var nf = e && e.notFound ? e.notFound.length : 0;
-      if (nf > 0) msg += '；' + nf + ' 个未检索到，可点「联网补全」重试或手动补充';
+      var unknown = (data.models || []).filter(function (mm) { return mm.ctx == null; }).length;
+      if (unknown > 0) msg += '；' + unknown + ' 个参数未知，可点「联网补全」（要联网，会发模型名出去）或手动填';
       toast(msg, 'ok');
     }).catch(function (e) {
       ui.modelsLoading[k.id] = false;

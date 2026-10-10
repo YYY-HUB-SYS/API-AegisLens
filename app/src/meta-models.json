@@ -1,4 +1,5 @@
 {
+  "_updated": "2026-10-07",
   "deepseek": {
     "deepseek-chat": { "ctx": 131072, "out": 8192 },
     "deepseek-reasoner": { "ctx": 131072, "out": 8192 },
