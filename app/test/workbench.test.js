@@ -677,3 +677,75 @@ test('图标 sprite：每个 ic() 引用都要有对应 symbol，许可证随仓
   // 被当图标用的 Unicode/emoji 不能回来
   assert.ok(!/[\u2600\u263E\u25A4\u25A6]/.test(html), '☀☾▤ 已由 sprite 取代，不许退回 Unicode');
 });
+
+/* 批三：门要有开合的交代，看板只做微交互。
+   这几条盯的是同一类事故——动画名字打错、或者扫光那条 ::before 忘了 pointer-events:none，
+   两种都不会报错，只会「什么都没发生」或者「按钮点不动」。 */
+test('解锁门有入场动效，且扫光是装饰不是挡板', () => {
+  const html = readHomepage();
+  const gate = html.match(/\.gate \{([^}]*)\}/);
+  assert.ok(gate && /animation:\s*gateVeil/.test(gate[1]), '遮罩要淡入，不许「啪」一下糊上来');
+  const card = html.match(/\.gate-card \{([^}]*)\}/);
+  assert.ok(card && /animation:\s*gateRise/.test(card[1]), '门卡要升起');
+  assert.ok(card && /overflow:\s*hidden/.test(card[1]), '卡不夹住，扫光会一路穿出圆角');
+  const scan = html.match(/\.gate-card::before \{([^}]*)\}/);
+  assert.ok(scan, '没有扫光这条规则');
+  assert.match(scan[1], /pointer-events:\s*none/, '扫光盖在卡顶，不禁点击会把第一下点击吃掉');
+  assert.match(scan[1], /animation:\s*gateScan[^;]*\b1\b/, '扫光只能走一次；常驻循环在解锁这种一次性场景里是噪音');
+  assert.ok(!/animation:\s*gateScan[^;]*infinite/.test(scan[1]), '同上，不许 infinite');
+});
+
+test('每一个 animation 引用的关键帧都必须真存在（打错名字是不会报错的）', () => {
+  const sources = [
+    ['public/index.html', path.join(__dirname, '..', 'public', 'index.html')],
+    ['credentials-view.css', path.join(__dirname, '..', 'public', 'credentials-view.css')],
+    ['consumer-view.css', path.join(__dirname, '..', 'public', 'consumer-view.css')],
+  ];
+  const skip = new Set(['none', 'inherit', 'initial', 'unset']);
+  for (const [name, file] of sources) {
+    if (!fs.existsSync(file)) continue;
+    const css = fs.readFileSync(file, 'utf8');
+    const defined = new Set([...css.matchAll(/@keyframes\s+([A-Za-z0-9_-]+)/g)].map(m => m[1]));
+    const used = new Set();
+    for (const m of css.matchAll(/animation(?:-name)?\s*:\s*([^;]+?)(?:\s*!important)?\s*;/g)) {
+      for (const tok of m[1].split(/\s+/)) {
+        if (/^[0-9.]+$|^[0-9.]+m?s$|^(ease|ease-in|ease-in-out|ease-out|linear|step-start|step-end|infinite|both|forwards|backwards|none|alternate|alternate-reverse|normal|running|paused)$/.test(tok)) continue;
+        if (!skip.has(tok) && /^[A-Za-z][A-Za-z0-9_-]*$/.test(tok)) used.add(tok);
+      }
+    }
+    const missing = [...used].filter(n => !defined.has(n));
+    assert.deepStrictEqual(missing, [], name + ' 里这些 animation 名字没有对应的 @keyframes：' + missing.join(', '));
+  }
+});
+
+test('看板只做微交互：悬停抬 1px，但绝不用全量过渡', () => {
+  const html = readHomepage();
+  for (const rel of ['public/index.html', 'public/credentials-view.css', 'public/consumer-view.css']) {
+    const file = path.join(__dirname, '..', ...rel.split('/'));
+    if (!fs.existsSync(file)) continue;
+    assert.ok(!/transition:\s*all\b/.test(fs.readFileSync(file, 'utf8')),
+      rel + ' 里还有全量过渡：它会把 width/height 这类布局属性一起动画化，掉帧的来源');
+  }
+  const hover = html.match(/\.keycard:hover \{([\s\S]*?)\}/);
+  assert.ok(hover && /transform:\s*translateY\(-1px\)/.test(hover[1]), '卡片悬停要有一点抬起的反馈');
+  assert.ok(/box-shadow:\s*var\(--shadow-hover\)/.test(hover[1]), '悬停投影要用专用 token，不许借浮层的 --shadow-modal');
+  const light = (html.match(/--shadow-hover:/g) || []).length;
+  assert.strictEqual(light, 2, '--shadow-hover 要在浅色和深色各定义一次，缺一边就是一坨错色');
+  const kf = html.match(/@keyframes gateScan \{([^}]*)\}/);
+  assert.ok(kf, 'gateScan 关键帧没了，扫光那条规则就是空转');
+});
+
+/* 数字滚一下这件事只在「真的变了」的时候发生。整排每刷一次就集体跳一遍，
+   等于把「有事发生」这个信号变成了背景噪音，比不做还差。 */
+test('统计数字的动效只给变了的那一格：先取旧值、后比对、420ms 摘掉类', () => {
+  const html = readHomepage();
+  const fn = html.slice(html.indexOf('function renderStats()'), html.indexOf('function renderFilterTabs()'));
+  assert.ok(fn.length > 40 && fn.length < 4000, '没截到 renderStats 这一段');
+  assert.match(fn, /var prev = \[\]/, '要先把旧值存下来');
+  assert.ok(fn.indexOf('querySelectorAll(\'.num\')') < fn.indexOf('statsEl.innerHTML = html'),
+    '取旧值必须发生在覆盖 innerHTML 之前，否则存下来的就是新值，永远比不出差异');
+  assert.match(fn, /prev\[i\] !== el\.textContent/, '只有和上一次不一样才加类');
+  assert.match(fn, /setTimeout\(function \(\) \{[^}]*classList\.remove\('is-ticked'\)/, '类要自己摘掉，不然一次跳完就常驻');
+  assert.match(html, /\.stat\.is-ticked \.num \{[^}]*animation:\s*statTick/, '类得真有对应动画');
+  assert.match(html, /@keyframes statTick \{/, 'statTick 关键帧要在');
+});

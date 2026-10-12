@@ -73,6 +73,7 @@
     --overlay-ink: rgba(20, 22, 35, 0.5);
     --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.26);
     --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.28);
+    --shadow-hover: 0 6px 16px rgba(20, 22, 35, 0.11);
     /* 代码面跟随主题。浅色四色对 code-bg 实测 14.41 / 5.69 / 5.15 / 5.16；
        code-bg 与弹窗白底只差 1.15，靠 .config-pre 的 1px 描边分界。 */
     --code-bg: #EDEFF5; --code-ink: #1B1E2B;
@@ -100,6 +101,7 @@
     --overlay-ink: rgba(6, 7, 10, 0.66);
     --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
     --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
+    --shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.42);
     /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
     --code-bg: #232833; --toast-bg: #2A3040;
     --toast-ink: #E8EAF4;
@@ -169,6 +171,10 @@
      同时 .stat.zero 原先把数字从 24px 降到 18px，基线对齐下相邻两档高度不同也会错位，
      现在弱化只走颜色和透明度，字号不动。 */
   .stats { display: flex; gap: 26px; padding: 14px 0 13px; flex-wrap: wrap; border-bottom: 1px solid var(--rule-soft); }
+  /* 数字变了才滚一下：这是「刚刚有事发生」的反馈，常驻动画就成装饰噪音了 */
+  .stat .num { display: inline-block; }
+  .stat.is-ticked .num { animation: statTick 380ms var(--ease); }
+  @keyframes statTick { 0% { transform: translateY(5px); opacity: 0.35; } 60% { transform: translateY(-1px); } }
   .stat { display: flex; align-items: baseline; gap: 7px; }
   .stat .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
   .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); }
@@ -214,12 +220,16 @@
     :root[data-cols="2"] .board { columns: 1; }
   }
 
-  /* 卡片：单层发丝边框，悬停只改边框与底色，不加投影 */
+  /* 卡片：单层发丝边框。悬停抬 1px 并给一枚专用浅投影——不借 --shadow-modal（那是浮层的），
+     也不写全量过渡，逐条列名才不会把宽高这类布局属性一起拖进动画。 */
   .keycard {
     background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-card);
-    padding: 15px 18px; transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+    padding: 15px 18px;
+    transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
+      box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
   }
-  .keycard:hover { border-color: var(--card-hover-border); background: var(--card-hover-bg); }
+  .keycard:hover { border-color: var(--card-hover-border); background: var(--card-hover-bg);
+    box-shadow: var(--shadow-hover); transform: translateY(-1px); }
   .keycard:focus-within { border-color: var(--accent-line); }
   .board.rise-in .keycard { animation: rise 340ms var(--ease) backwards; }
   .board.rise-in .keycard:nth-child(2) { animation-delay: 45ms; }
@@ -417,7 +427,7 @@
     padding: 13px 0 4px; font-size: var(--fs-sm); color: var(--ink-2);
     display: flex; gap: 8px 24px; flex-wrap: wrap;
   }
-  .empty { text-align: center; padding: 72px 20px; color: var(--ink-2); }
+  .empty { text-align: center; padding: 72px 20px; color: var(--ink-2); animation: rise 320ms var(--ease) backwards; }
   .empty h3 { color: var(--ink); font-size: var(--fs-lg); margin-bottom: 6px; }
   .empty p { margin-bottom: 16px; }
 
@@ -428,6 +438,7 @@
     -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
     display: flex; align-items: center; justify-content: center; padding: 20px;
     overflow-y: auto;
+    animation: gateVeil 180ms var(--ease) backwards;
   }
   /* display:flex 会盖掉 hidden 属性：这两条不写死，门要么关不上、要么开不了 */
   .gate[hidden], .gate [hidden] { display: none !important; }
@@ -437,6 +448,8 @@
   .gate-card {
     background: var(--surface); border-radius: var(--r-card);
     box-shadow: var(--shadow-modal); width: min(460px, 94vw); padding: 24px 26px 18px;
+    position: relative; overflow: hidden;
+    animation: gateRise 280ms var(--ease) backwards;
   }
   .gate-card h3 { font-size: var(--fs-lg); margin-bottom: 4px; text-wrap: balance; }
   .gate-card h4 { font-size: var(--fs-base); margin-bottom: 6px; }
@@ -465,6 +478,17 @@
   }
   .gate-status:empty { display: none; }
   .gate-card .btn-row { margin-top: 14px; }
+  /* 扫光：一条 2px 的渐变沿卡顶走过的::before，走过一次就停（iteration 写死 1）。
+     不常驻循环——解锁是一次性场景，常驻动效在这里是噪音。 */
+  .gate-card::before {
+    content: ''; position: absolute; left: 0; top: 0; width: 60%; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-line) 45%, var(--accent) 50%, var(--accent-line) 55%, transparent);
+    transform: translateX(-110%); pointer-events: none;
+    animation: gateScan 820ms var(--ease) 140ms 1 both;
+  }
+  @keyframes gateVeil { from { opacity: 0; } }
+  @keyframes gateRise { from { opacity: 0; transform: translateY(12px) scale(0.99); } }
+  @keyframes gateScan { to { transform: translateX(200%); } }
   @media (max-width: 560px) {
     .gate { padding: 12px; align-items: flex-start; }
     .gate-card { width: 100%; padding: 18px 16px 14px; }
@@ -1476,6 +1500,9 @@
            '</span><span class="lbl">' + label + '</span></div>';
   }
   function renderStats() {
+    var statsEl = document.getElementById('stats');
+    var prev = [];
+    Array.prototype.forEach.call(statsEl.querySelectorAll('.num'), function (el) { prev.push(el.textContent); });
     var total = state.keys.length;
     var platforms = {};
     var ok = 0, warn = 0, exp = 0;
@@ -1493,7 +1520,14 @@
       statCell(warn, '临期', 'var(--warn)') +
       statCell(exp, '过期/停用', 'var(--danger)') +
       statCell(total - ok - warn - exp, '未测试', 'var(--ink)');
-    document.getElementById('stats').innerHTML = html;
+    statsEl.innerHTML = html;
+    /* 只对「和上一次不一样」的那格上动画，全量刷新时不该满排都在跳 */
+    Array.prototype.forEach.call(statsEl.querySelectorAll('.num'), function (el, i) {
+      if (prev[i] !== undefined && prev[i] !== el.textContent) {
+        el.parentNode.classList.add('is-ticked');
+        setTimeout(function () { el.parentNode.classList.remove('is-ticked'); }, 420);
+      }
+    });
   }
 
   function renderFilterTabs() {
