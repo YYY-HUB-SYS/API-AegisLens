@@ -105,6 +105,13 @@
     -webkit-mask-image: radial-gradient(ellipse 85% 80% at 65% 0%, #000 0%, transparent 72%);
     mask-image: radial-gradient(ellipse 85% 80% at 65% 0%, #000 0%, transparent 72%);
   }
+  /* 粒子场压在内容下面：pointer-events:none，不参与滚动与命中 */
+  .hero-field { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+  .hero .wrap { position: relative; z-index: 1; }
+  @keyframes heroRise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  .hero-grid > * { animation: heroRise 620ms cubic-bezier(.22,.61,.36,1) both; }
+  .hero-grid > *:nth-child(2) { animation-delay: 90ms; }
+  @media (prefers-reduced-motion: reduce) { .hero-grid > * { animation: none; } }
   .hero-grid {
     position: relative;
     display: grid; grid-template-columns: 1.06fr .94fr; gap: 56px;
@@ -413,6 +420,7 @@
 
 <!-- ==================== Hero ==================== -->
 <section class="hero">
+  <canvas class="hero-field" aria-hidden="true"></canvas>
   <div class="wrap hero-grid">
     <div>
       <p class="eyebrow">API-AegisLens · 本地优先 · 开源 MIT</p>
@@ -972,6 +980,60 @@
     });
   });
 })();
+</script>
+<script>
+  /* 主页 hero 的粒子星座：纯原生 canvas，零依赖、无外部资源。
+     三条硬规矩：数量按面积算（小屏不堆）、页面不可见就停帧、prefers-reduced-motion 下只画一帧静止图。 */
+  (function () {
+    var cv = document.querySelector('.hero-field');
+    if (!cv || !cv.getContext) return;
+    var ctx = cv.getContext('2d');
+    var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#1d4fd7').trim();
+    var dots = [], w = 0, h = 0, dpr = 1, raf = 0;
+    function seed() {
+      var n = Math.max(18, Math.min(70, Math.round(w * h / 26000)));
+      dots = [];
+      for (var i = 0; i < n; i++) {
+        dots.push({ x: Math.random() * w, y: Math.random() * h,
+          vx: (Math.random() - 0.5) * 0.16, vy: (Math.random() - 0.5) * 0.16, r: Math.random() * 1.6 + 0.7 });
+      }
+    }
+    function size() {
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      w = cv.clientWidth; h = cv.clientHeight;
+      cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      seed();
+    }
+    function frame() {
+      ctx.clearRect(0, 0, w, h);
+      for (var i = 0; i < dots.length; i++) {
+        var d = dots[i];
+        if (!reduce) {
+          d.x += d.vx; d.y += d.vy;
+          if (d.x < -10) d.x = w + 10; if (d.x > w + 10) d.x = -10;
+          if (d.y < -10) d.y = h + 10; if (d.y > h + 10) d.y = -10;
+        }
+        for (var j = i + 1; j < dots.length; j++) {
+          var o = dots[j], dx = d.x - o.x, dy = d.y - o.y, dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 118) {
+            ctx.strokeStyle = accent; ctx.globalAlpha = (1 - dist / 118) * 0.16;
+            ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(d.x, d.y); ctx.lineTo(o.x, o.y); ctx.stroke();
+          }
+        }
+        ctx.globalAlpha = 0.5; ctx.fillStyle = accent;
+        ctx.beginPath(); ctx.arc(d.x, d.y, d.r, 0, 6.2832); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      if (!reduce) raf = requestAnimationFrame(frame);
+    }
+    function start() { if (!raf) raf = requestAnimationFrame(frame); }
+    function stop() { if (raf) { cancelAnimationFrame(raf); raf = 0; } }
+    size(); frame();
+    addEventListener('resize', function () { size(); if (reduce) frame(); });
+    document.addEventListener('visibilitychange', function () { if (document.hidden) stop(); else if (!reduce) start(); });
+  })();
 </script>
 </body>
 </html>

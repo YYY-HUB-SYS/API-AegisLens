@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const homepagePath = path.join(__dirname, '..', '..', 'index.html');
 
@@ -99,3 +100,43 @@ test('窄屏：网格项要允许收缩，否则页面整体横向溢出', () =>
   }
   assert.ok(html.includes('.table-wrap { overflow-x: auto'), '表要能被夹住并自己滚');
 });
+
+/* 2026-10-12 翻过车：给 hero 加粒子时，补丁锚点撞上了页面里已有的 document.execCommand 那一行，
+   整段 <script> 被注进了 fallbackCopy 的函数体中间。页面外壳看着正常，实际两块脚本都语法残废，
+   粒子一个像素都没画——而当时所有静态断言（包含字符串、包含 class）全绿。
+   所以这里不再只看「有没有这段文字」，而是把每个内联块真解析一遍。 */
+test('每个内联 script 块要能独立解析，且标签配对', () => {
+  const html = readHomepage();
+  const opens = (html.match(/<script\b[^>]*>/gi) || []).filter(t => !/\bsrc\s*=/i.test(t));
+  const closes = (html.match(/<\/script>/gi) || []).length;
+  assert.strictEqual(closes, opens.length, `<script> 开 ${opens.length} 个、</script> 关 ${closes} 个，说明有一块被嵌进了另一块里面`);
+  const blocks = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]
+    .map(m => m[1])
+    .filter(body => body.trim().length > 0);
+  assert.ok(blocks.length >= 2, `应至少解析出两段内联脚本，实际 ${blocks.length} 段`);
+  blocks.forEach((body, i) => {
+    assert.ok(!/<\/?script/i.test(body), `第 ${i} 段脚本正文里还嵌着 script 标签——就是那次翻车的形状`);
+    try {
+      new vm.Script(body, { filename: `homepage-inline-${i}.js` });
+    } catch (e) {
+      assert.fail(`第 ${i} 段内联脚本语法错误：${e.message}`);
+    }
+  });
+});
+
+test('hero 粒子画布：存在、在文字后面、不吃点击、且尊重 reduced-motion', () => {
+  const html = readHomepage();
+  assert.match(html, /<canvas class="hero-field"[^>]+aria-hidden="true"/, '要有一块 aria-hidden 的装饰画布');
+  const css = html.match(/\.hero-field\s*\{[^}]*\}/);
+  assert.ok(css, '缺 .hero-field 的定位规则');
+  assert.match(css[0], /pointer-events:\s*none/, '画布盖满 hero，不禁点击会把标题和按钮的点击全吃掉');
+  assert.match(css[0], /z-index:\s*0/, '画布要在正文之下');
+  assert.match(html, /\.hero \.wrap[^{]*\{[^}]*z-index:\s*1/, '正文要抬到画布之上，否则文字被粒子糊住');
+
+  const body = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]).join('\n');
+  assert.match(body, /prefers-reduced-motion/, '动效必须听系统的减少动效偏好');
+  assert.match(body, /if \(!reduce\) raf = requestAnimationFrame/, '减少动效下不能续帧，只画一张静止图');
+  assert.match(body, /document\.hidden/, '页面切到后台要停帧，不然空转耗电');
+  assert.match(body, /cv\.width = Math\.round\(w \* dpr\)/, '位图尺寸要跟着 CSS 尺寸走，否则画出来是糊的（默认 300x150）');
+});
+
