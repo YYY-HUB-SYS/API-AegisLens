@@ -595,6 +595,12 @@
   .export-count { font-size: var(--fs-sm); color: var(--ink-2); font-weight: 400; margin-left: auto; }
   .export-list { max-height: 50vh; overflow-y: auto; }
   .import-grid { max-height: 50vh; overflow-y: auto; }
+  .import-opts { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--rule-soft); }
+  .io-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: var(--fs-sm); }
+  .io-row input[type="date"] { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-ctl); padding: 4px 8px; }
+  .io-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); }
+  .io-k { font-weight: 600; }
+  .io-hint { color: var(--ink-3); font-size: var(--fs-xs); }
   .import-item {
     display: flex; align-items: center; gap: 10px;
     padding: 9px 12px; border: 1px solid var(--rule-soft); border-radius: var(--r-ctl); margin-bottom: 6px;
@@ -2953,7 +2959,15 @@
               '<span class="kname">' + esc(p.name) + ' · ' + esc(shortName(k)) + '</span>' +
               '<span class="meta">' + esc(keyMaskText(k)) + '</span>' +
             '</div>';
-          }).join('') + '</div>';
+          }).join('') + '</div>' +
+          '<div class="import-opts">' +
+            '<label class="io-row"><span class="io-k">有效期至</span>' +
+              '<input type="date" id="import-exp" aria-label="导入时统一设置有效期">' +
+              '<span class="io-hint">留空＝沿用文件里的值；填了覆盖这一批。有些平台的 Key 本身就带有效期</span></label>' +
+            '<label class="io-row"><input type="checkbox" id="import-balance">' +
+              '<span class="io-k">导入后立即查询余额</span>' +
+              '<span class="io-hint">会向厂商接口发请求；只有 DeepSeek / Moonshot·Kimi / 智谱三家支持</span></label>' +
+          '</div>';
         document.getElementById('btn-import-exec').textContent = '确认导入';
         document.getElementById('btn-import-exec').dataset.phase = 'confirm';
         document.getElementById('btn-import-exec').dataset.importData = JSON.stringify(data);
@@ -2969,9 +2983,21 @@
     var data = JSON.parse(btn.dataset.importData || '{}');
     var keys = data.keys || [];
     if (!keys.length) { toast('没有可导入的密钥', 'warn'); return; }
+    /* 有效期是导入时最常要补的一刀：从别的机器导过来往往没填，或者整批同一个到期日 */
+    var expEl = document.getElementById('import-exp');
+    var expVal = expEl && expEl.value ? expEl.value : '';
+    if (expVal) keys.forEach(function (k) { k.exp = expVal; });
+    var balEl = document.getElementById('import-balance');
+    var wantBalance = !!(balEl && balEl.checked);
     btn.disabled = true;
     btn.textContent = '导入中…';
     api('POST', '/import', { keys: keys }).then(function (result) {
+      if (wantBalance) {
+        api('POST', '/refresh-balances').then(function () {
+          toast('已提交余额查询，回到看板看结果', 'ok');
+          loadBoard();
+        }).catch(function (e) { toast('余额查询失败：' + e.message, 'warn'); });
+      }
       var html = '<div class="import-result">' +
         '<div class="ir-item"><div class="num">' + result.imported + '</div><div class="lbl">已导入</div></div>' +
         (result.skipped > 0 ? '<div class="ir-item skipped"><div class="num">' + result.skipped + '</div><div class="lbl">已跳过</div></div>' : '') +

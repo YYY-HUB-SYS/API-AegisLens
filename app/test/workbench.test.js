@@ -319,6 +319,21 @@ test('单卡操作只重绘那一张卡，不许整板重建（用户 10-10：�
     '抽屉开合这一条就是用户报的那一下，别退回 render()');
 });
 
+test('导入这一步给得出「统一有效期」和「要不要查余额」两个选择', () => {
+  const html = readHomepage();
+  /* 有效期：从别的机器导过来常常整批同一个到期日，或者干脆没填 */
+  assert.ok(html.includes('id="import-exp"'), '确认导入那一步要有「有效期至」输入');
+  assert.ok(/getElementById\('import-exp'\)[\s\S]{0,200}?k\.exp = expVal/.test(html),
+    '填了就要覆盖这一批的 exp，别只做样子');
+  /* 余额：默认不查。查余额是往厂商接口发请求，得由用户点头 */
+  assert.ok(html.includes('id="import-balance"'), '确认导入那一步要有「导入后立即查询余额」勾选');
+  assert.ok(/var wantBalance = !!\(balEl && balEl\.checked\)/.test(html), '勾选状态要真被读出来');
+  assert.ok(/if \(wantBalance\)[\s\S]{0,120}api\('POST', '\/refresh-balances'\)/.test(html),
+    '勾了才打 /refresh-balances；没勾就不该有任何联网动作');
+  assert.ok(!/api\('POST', '\/refresh-balances'\)[\s\S]{0,80}doImport/.test(html),
+    '导入流程不能无条件刷余额');
+});
+
 test('卡片脚注合并成一行，端点命名统一且按钮不再单字', () => {
   const html = readHomepage();
   assert.ok(!html.includes('class="kc-l2"'), 'kc-l2 那行只放两个右对齐按钮，是空洞的来源');
