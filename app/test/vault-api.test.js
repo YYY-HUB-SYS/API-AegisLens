@@ -276,7 +276,7 @@ test('凭证端到端：建→列(无密文)→reveal→TOTP→复用检测→�
   const base = await serve(h);
   try {
     const made = await call(base, 'POST', '/api/credentials', {
-      title: '内网门户', username: 'ops', url: 'https://intra.corp',
+      title: '内网门户', site: 'intra.corp', username: 'ops', url: 'https://intra.corp',
       password: 'p@ss-12345', totpSecret: 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', tags: '公司,内网'
     });
     assert.strictEqual(made.status, 201, JSON.stringify(made.data));
@@ -301,7 +301,7 @@ test('凭证端到端：建→列(无密文)→reveal→TOTP→复用检测→�
     assert.ok(totp.data.secondsRemaining >= 1 && totp.data.secondsRemaining <= 30);
     assert.strictEqual(JSON.stringify(totp.data).indexOf('GEZDGNBVGY'), -1, 'TOTP 接口回显了 secret');
 
-    await call(base, 'POST', '/api/credentials', { title: '另一个号', username: 'ops', password: 'weak' });
+    await call(base, 'POST', '/api/credentials', { title: '另一个号', site: 'other.corp', username: 'ops', password: 'weak' });
     const health = await call(base, 'GET', '/api/credentials/health');
     assert.strictEqual(health.status, 200);
     assert.ok(JSON.stringify(health.data).indexOf('p@ss-12345') === -1, '健康页回显了口令');
@@ -320,7 +320,7 @@ test('凭证链路在锁定态一律 423，且列表响应里没有半个密文'
   h.vault.openLegacy(h.mk);
   const made = await call(await new Promise(function (r) {
     h.server.listen(0, '127.0.0.1', function () { r('http://127.0.0.1:' + h.server.address().port); });
-  }), 'POST', '/api/credentials', { title: 'T', username: 'u', password: 'pw-value-1' });
+  }), 'POST', '/api/credentials', { title: 'T', site: 'locked.example', username: 'u', password: 'pw-value-1' });
   const id = made.data.credential.id;
   try {
     h.vault.lock();

@@ -13,6 +13,7 @@ const CREDENTIAL_PREFIX = '/api/credentials';
 /* 长度上限是这一层定的（存储层原样存，不替上层判断），改这里就等于改协议，
    所以每个数都必须在测试里有对应断言。 */
 const MAX_TITLE_LEN = 200;
+const MAX_SITE_LEN = 200;
 const MAX_PLAIN_LEN = 500;
 const MAX_PASSWORD_LEN = 512;
 const MAX_SECRET_LEN = 512;
@@ -30,14 +31,19 @@ const ENC_FIELDS = [
   { in: 'totpSecret', column: 'totpEnc', max: MAX_TOTP_SECRET_LEN, checkTotp: true },
   { in: 'note', column: 'noteEnc', max: MAX_NOTE_LEN }
 ];
+/* site 是一等公民（必填）：这个库存的是「哪些网站 + 怎么登录」，
+   title 降级为可选的别名。loginMethod 走枚举归一，不进 PLAIN_FIELDS
+   的通用文本路径。 */
 const PLAIN_FIELDS = [
-  { in: 'title', column: 'title', max: MAX_TITLE_LEN, required: true },
+  { in: 'site', column: 'site', max: MAX_SITE_LEN, required: true },
+  { in: 'title', column: 'title', max: MAX_TITLE_LEN },
   { in: 'username', column: 'username', max: MAX_PLAIN_LEN },
   { in: 'url', column: 'url', max: MAX_PLAIN_LEN },
   { in: 'folder', column: 'folder', max: MAX_PLAIN_LEN }
 ];
+const LOGIN_METHODS = ['password', 'oauth', 'sms', 'scan', 'other'];
 const KNOWN_BODY_KEYS = PLAIN_FIELDS.concat(ENC_FIELDS).map(function (f) { return f.in; })
-  .concat(['tags']);
+  .concat(['tags', 'loginMethod']);
 
 function httpError(message, status, extra) {
   const e = new Error(message);
@@ -105,6 +111,17 @@ function normalizeTags(raw) {
   return tags.join(',');
 }
 
+/* 登录方式只认五个值。空与缺省一律归 password：存下来的永远是
+   合法枚举值，前端不用再猜「没填是什么」。 */
+function normalizeLoginMethod(raw) {
+  const v = String(raw == null ? '' : raw).trim().toLowerCase();
+  if (v === '') return 'password';
+  if (LOGIN_METHODS.indexOf(v) === -1) {
+    badRequest('loginMethod 只支持：' + LOGIN_METHODS.join('、'));
+  }
+  return v;
+}
+
 /* 存的时候就验，而不是取的时候才发现解不出码：
    base32 字符表没有 0/1/8/9，手抄错的 secret 存进去会永远得到一个「看起来正常却全错」的验证码。 */
 function assertTotpShape(value) {
@@ -147,6 +164,9 @@ function buildPatch(key, body, opts) {
   if (body.tags !== undefined) {
     const t = normalizeTags(body.tags);
     patch.tags = t === undefined ? '' : t;
+  }
+  if (body.loginMethod !== undefined) {
+    patch.loginMethod = normalizeLoginMethod(body.loginMethod);
   }
   for (const field of ENC_FIELDS) {
     if (body[field.in] === undefined) continue;
@@ -216,7 +236,7 @@ function createOne(req, res, ctx) {
   return readJsonBody(ctx, req).then(function (body) {
     const key = ctx.vault.key();
     const patch = buildPatch(key, body, {});
-    if (patch.title === undefined || patch.title === '') badRequest('title 不能为空');
+    if (patch.site === undefined || patch.site === '') badRequest('site 不能为空');
     const created = ctx.storage.createCredential(patch);
     if (!created) throw httpError('写入失败', 500);
     audit(ctx, {
@@ -310,6 +330,8 @@ function revealOne(req, res, ctx, id) {
 
   const out = {
     id: rec.id,
+    site: rec.site,
+    loginMethod: rec.loginMethod,
     title: rec.title,
     username: rec.username,
     url: rec.url,
@@ -398,7 +420,7 @@ function healthReport(req, res, ctx) {
   const reused = (counts || []).filter(function (c) { return c && Number(c.count) > 1; });
   const usernameReuse = reused.map(function (c) {
     const items = records.filter(function (r) { return String(r.username || '') === String(c.username); })
-      .map(function (r) { return { id: r.id, title: r.title }; });
+      .map(function (r) { return { id: r.id, title: r.title, site: r.site, username: r.username }; });
     return { username: c.username, count: Number(c.count), items: items };
   });
 
@@ -411,7 +433,7 @@ function healthReport(req, res, ctx) {
     try {
       pw = decryptField(key, r.passwordEnc);
     } catch (e) {
-      unreadable.push({ id: r.id, title: r.title, reason: '密文无法解开' });
+      unreadable.push({ id: r.id, title: r.title, site: r.site, username: r.username, reason: '密文无法解开' });
       continue;
     }
     const text = pw === null || pw === undefined ? '' : String(pw);
@@ -420,7 +442,8 @@ function healthReport(req, res, ctx) {
     const ev = passgen.evaluate(text);
     if (ev.score <= WEAK_SCORE_MAX) {
       weakPasswords.push({
-        id: r.id, title: r.title, score: ev.score, label: ev.label,
+        id: r.id, title: r.title, site: r.site, username: r.username,
+        score: ev.score, label: ev.label,
         bits: ev.bits, length: ev.length, reasons: ev.reasons
       });
     }

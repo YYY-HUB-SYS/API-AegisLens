@@ -18,7 +18,7 @@ const submit = view.__internals.submitPayload;
 
 /* 后端 buildPatch 的语义（credentials-api.js:149/154）：键缺失＝不改，空串＝清空。
    这两条一起决定了前端绝不能把没碰过的字段照直发出去。 */
-const DRAFT = { id: 7, title: '内网', username: 'ops', url: 'https://intra', folder: '', tags: '', password: '', note: '', totpSecret: '' };
+const DRAFT = { id: 7, site: 'intra.example', loginMethod: 'oauth', title: '内网', username: 'ops', url: 'https://intra', folder: '', tags: '', password: '', note: '', totpSecret: '' };
 
 function keysOf(p) { return Object.keys(p).sort().join(','); }
 
@@ -26,7 +26,7 @@ test('编辑时没碰过口令与备注 → 请求体里根本不出现这两个
   const p = submit(Object.assign({}, DRAFT), 'update', { pw: false, note: false });
   assert.ok(!('password' in p), '带上 password:"" 就等于把用户存了的口令删掉');
   assert.ok(!('note' in p), '同理，备注也会被清空');
-  assert.strictEqual(keysOf(p), 'folder,tags,title,url,username');
+  assert.strictEqual(keysOf(p), 'folder,loginMethod,site,tags,title,url,username');
 });
 
 test('用户主动清空（碰过且留空）→ 必须把空串发出去，让后端清空', () => {
@@ -45,6 +45,12 @@ test('新建态两个字段照直发（此时空串是「就是没有」，不�
   const p = submit(Object.assign({}, DRAFT), 'create', { pw: false, note: false });
   assert.strictEqual(p.password, '');
   assert.strictEqual(p.note, '');
+});
+
+test('提交体带着网站与登录方式：site 是一等公民，不靠标题认人', () => {
+  const p = submit(Object.assign({}, DRAFT), 'update', { pw: false, note: false });
+  assert.strictEqual(p.site, 'intra.example');
+  assert.strictEqual(p.loginMethod, 'oauth');
 });
 
 test('TOTP 种子仍按老规矩：非空才发', () => {
@@ -177,7 +183,7 @@ test('私钥类凭证走完 reveal → revealState → secretRowInner，明文�
   try {
     const made = await fetch(h.base + '/api/credentials', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '仅私钥那条', username: 'svc', secret: 'sk-chain-123456', note: '备注也在' })
+      body: JSON.stringify({ site: 'keys.example', title: '仅私钥那条', username: 'svc', secret: 'sk-chain-123456', note: '备注也在' })
     }).then(r => r.json());
     const id = made.credential.id;
     assert.strictEqual(made.credential.hasPassword, false, '前提：这条只有 secret');
@@ -196,7 +202,7 @@ test('私钥类凭证走完 reveal → revealState → secretRowInner，明文�
     assert.match(row, /aria-label="复制密钥"/);
 
     /* 契约闸：后端 reveal 出去的键，除了纯元信息，视图一个都不许漏接 */
-    const META = ['id', 'title', 'username', 'url', 'lastUsedAt'];
+    const META = ['id', 'site', 'loginMethod', 'title', 'username', 'url', 'lastUsedAt'];
     const keys = Object.keys(body);
     const notCarried = keys.filter(k => META.indexOf(k) === -1 && internals.REVEAL_FIELDS.indexOf(k) === -1);
     assert.deepStrictEqual(notCarried, [], '后端 reveal 里有字段是视图没接的：' + notCarried.join(', '));
@@ -206,6 +212,42 @@ test('私钥类凭证走完 reveal → revealState → secretRowInner，明文�
     await new Promise(r => h.server.close(r));
     try { fs.rmSync(h.dir, { recursive: true, force: true }); } catch (e) { /* Windows 句柄 */ }
   }
+});
+
+/* ── 网站中心化：列表映射 / 分组 / 登录方式枚举 ── */
+test('parseList：site 与 loginMethod 会进视图项', () => {
+  const items = view.__internals.parseList({ credentials: [
+    { id: 1, site: 'a.com', loginMethod: 'oauth', title: 'T', username: 'u' },
+    { id: 2, title: '没填网站' }
+  ] });
+  assert.strictEqual(items[0].site, 'a.com');
+  assert.strictEqual(items[0].loginMethod, 'oauth');
+  assert.strictEqual(items[1].site, '');
+  assert.strictEqual(items[1].loginMethod, '');
+});
+
+test('groupBySite：同站多账号归一组，空网站单独成组不丢', () => {
+  const groups = view.__internals.groupBySite([
+    { id: '1', site: 'github.com', username: 'a' },
+    { id: '2', site: 'github.com', username: 'b' },
+    { id: '3', site: '', username: 'c' },
+    { id: '4', site: 'a.com', username: 'd' }
+  ]);
+  assert.strictEqual(groups.length, 3, 'github 一组 + 空网站一组 + a.com 一组');
+  assert.strictEqual(groups[0].site, 'github.com');
+  assert.strictEqual(groups[0].items.length, 2);
+  assert.strictEqual(groups[1].site, '（未填写网站）');
+  assert.strictEqual(groups[1].items.length, 1);
+  assert.strictEqual(groups[2].site, 'a.com');
+});
+
+test('loginMethod：五值枚举，认不出的一律按口令登录', () => {
+  const I = view.__internals;
+  assert.strictEqual(I.loginMethodValue('OAuth'), 'oauth');
+  assert.strictEqual(I.loginMethodValue(''), 'password');
+  assert.strictEqual(I.loginMethodValue('face'), 'password');
+  assert.strictEqual(I.loginMethodLabel('scan'), '扫码登录');
+  assert.strictEqual(I.loginMethodLabel('nope'), '口令登录');
 });
 
 test('destroy() 把 rootEl 的委托监听全部摘掉：重挂载不会双份触发', () => {

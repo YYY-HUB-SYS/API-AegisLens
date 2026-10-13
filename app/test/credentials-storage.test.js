@@ -20,7 +20,7 @@ BACKENDS.push('json');
 
 const MASTER = Buffer.alloc(32, 7);
 const TIME_FIELDS = ['createdAt', 'updatedAt', 'lastUsedAt'];
-const RECORD_FIELDS = ['id', 'title', 'username', 'url', 'folder', 'tags',
+const RECORD_FIELDS = ['id', 'title', 'username', 'url', 'site', 'loginMethod', 'folder', 'tags',
   'passwordEnc', 'secretEnc', 'totpEnc', 'noteEnc', 'createdAt', 'updatedAt', 'lastUsedAt'];
 
 /* 四段假密文：形状照 crypto.encryptField 的输出，内容随意。存储层要是敢动它们，
@@ -53,7 +53,7 @@ function maskTimes(rec) {
 /* 期望值照 credRecord() 的字段顺序搭，这样 JSON.stringify 出来的轨迹串才可逐字比 */
 function rec(over) {
   const base = {
-    id: 1, title: '', username: '', url: '', folder: '', tags: '',
+    id: 1, title: '', username: '', url: '', site: '', loginMethod: '', folder: '', tags: '',
     passwordEnc: null, secretEnc: null, totpEnc: null, noteEnc: null,
     createdAt: '<time>', updatedAt: '<time>', lastUsedAt: null
   };
@@ -84,6 +84,8 @@ function fullCredential(over) {
     title: 'GitHub 工作号',
     username: 'dev@example.com',
     url: 'https://github.com/login',
+    site: 'github.com',
+    loginMethod: 'password',
     folder: '工作',
     tags: '代码,托管'
   }, ENC, over || {});
@@ -116,8 +118,10 @@ BACKENDS.forEach(function (backend) {
       assert.deepStrictEqual(ids(s.listCredentials()), [created.id, second.id], '全量取按 id 排序');
 
       bumpClock();
-      const upd = s.updateCredential(created.id, { title: '改名了', username: 'moe@example.com' });
+      const upd = s.updateCredential(created.id, { title: '改名了', username: 'moe@example.com', site: 'github.io', loginMethod: 'oauth' });
       assert.strictEqual(upd.title, '改名了');
+      assert.strictEqual(upd.site, 'github.io', 'site 可改');
+      assert.strictEqual(upd.loginMethod, 'oauth', 'loginMethod 可改');
       assert.strictEqual(upd.username, 'moe@example.com');
       assert.strictEqual(upd.url, created.url, '补丁没带的字段不该被动');
       assert.strictEqual(upd.folder, created.folder);
@@ -407,7 +411,7 @@ BACKENDS.forEach(function (backend) {
 
       const s = store(dir, backend);
       assert.deepStrictEqual(s.getCredential(1), {
-        id: 1, title: '只填了标题', username: '', url: '', folder: '', tags: '',
+        id: 1, title: '只填了标题', username: '', url: '', site: '', loginMethod: '', folder: '', tags: '',
         passwordEnc: null, secretEnc: null, totpEnc: null, noteEnc: null,
         createdAt: null, updatedAt: null, lastUsedAt: null
       }, '缺的列：明文补空串、密文与时间戳补 null，两条后端一个字都不差');

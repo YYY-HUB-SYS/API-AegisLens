@@ -22,11 +22,12 @@
     }
 
   ---- 后端契约（严格按此，不自创密文字段）----
-    GET  /api/credentials              -> {credentials:[…]}，每项 id,title,username,url,folder,tags,
-        createdAt,updatedAt,lastUsedAt,hasPassword,hasSecret,hasTotp,hasNote
+    GET  /api/credentials              -> {credentials:[…]}，每项 id,site,loginMethod,title,username,
+        url,folder,tags,createdAt,updatedAt,lastUsedAt,hasPassword,hasSecret,hasTotp,hasNote
+        （site 是这个库存的主键语义：清单按网站分组；loginMethod 是五值枚举，后端缺省归 password）
         （不是裸数组——按裸数组解析就是一条都不剩，而且不报错）
         未解锁 -> 423 {error:'保险库未解锁'}
-    POST /api/credentials/:id/reveal   -> {password,secret,note,totpSecret,id,title,username,url,lastUsedAt}
+    POST /api/credentials/:id/reveal   -> {id,site,loginMethod,title,username,url,password,secret,note,totpSecret,lastUsedAt}
         （唯一明文出口，可 423/429；secret 是 API 私钥类凭证，那一类没有 password，
           行标签写的是「密钥」——渲染层漏掉它，点显示就真的没反应。）
     GET  /api/credentials/:id/totp     -> {code,secondsRemaining,digits,step,algorithm}
@@ -88,7 +89,10 @@
     vaultUnlock: '/api/vault/unlock',
     vaultInit: '/api/vault/init',
     vaultLock: '/api/vault/lock',
-    vaultDiscard: '/api/vault/discard-master-key'
+    vaultDiscard: '/api/vault/discard-master-key',
+    // 主应用侧端点（平台打通用，best-effort：拿不到只是没有候选，不影响凭证 CRUD）
+    platforms: '/api/platforms',
+    keys: '/api/keys'
   };
 
   var CONFOUNDABLES = 'Il1O0oB8S5Z2tvwy'; // 排除的易混字符
@@ -147,6 +151,8 @@
       it = it || {};
       return {
         id: it.id != null ? String(it.id) : (it._id != null ? String(it._id) : ''),
+        site: str(it.site),
+        loginMethod: str(it.loginMethod),
         title: str(it.title),
         username: str(it.username),
         url: str(it.url),
@@ -163,6 +169,26 @@
     }).filter(function (x) { return x.id; });
   }
   function str(v) { return v === null || v === undefined ? '' : String(v); }
+
+  /* 登录方式五值枚举，与后端 LOGIN_METHODS 一致；空与缺省一律归 password。
+     前端只负责把枚举值翻成中文标签，不自创第六种。 */
+  var LOGIN_METHODS = ['password', 'oauth', 'sms', 'scan', 'other'];
+  var LOGIN_METHOD_LABELS = { password: '口令登录', oauth: 'OAuth 授权', sms: '短信验证码', scan: '扫码登录', other: '其他' };
+  function loginMethodLabel(v) { return LOGIN_METHOD_LABELS[loginMethodValue(v)] || LOGIN_METHOD_LABELS.password; }
+  function loginMethodValue(v) { var s = str(v).trim().toLowerCase(); return LOGIN_METHODS.indexOf(s) === -1 ? 'password' : s; }
+
+  /* 网站中心化：同一网站的多账号收在一个分组里。分组头本身就是
+     「我有哪些 API 网站」那张清单；卡片退居为账号行。
+     空网站归入「未填写网站」，不丢。 */
+  function groupBySite(items) {
+    var groups = []; var idx = {};
+    (items || []).forEach(function (c) {
+      var s = c.site || '（未填写网站）';
+      if (idx[s] == null) { idx[s] = groups.length; groups.push({ site: s, items: [] }); }
+      groups[idx[s]].items.push(c);
+    });
+    return groups;
+  }
 
   // 口令强度熵位（无外部库）
   function strengthBits(pw) {
@@ -359,6 +385,7 @@
   function submitPayload(draft, mode, touched) {
     var t = touched || {};
     var payload = {
+      site: draft.site, loginMethod: draft.loginMethod,
       title: draft.title, username: draft.username, url: draft.url,
       folder: draft.folder, tags: draft.tags
     };
@@ -423,7 +450,8 @@
       totp: {},                   // id -> {code,secondsRemaining,digits,period,error,loading}
       activeTab: 'list',
       health: { status: 'idle', data: null, norm: null, err: null, overdue: [] },
-      filters: { q: '', folder: '', tag: '' },
+      filters: { q: '', folder: '', tag: '', site: '' },
+      platforms: null,        // 主应用平台候选 [{id,name,url}]，解锁后 best-effort 拉取
       modal: null,                // {mode,id,draft,gen,policy,policyState,genErr,saveErr,saving}
       lastFocus: null,
       recoveryCode: null          // 仅恢复屏内存持有
@@ -483,6 +511,7 @@
 
     function afterUnlock() {
       loadList();
+      loadPlatforms();
       startTotpLoop();
     }
 
@@ -529,6 +558,52 @@
         state.health.status = 'ready';
         render();
       });
+    }
+
+    /* 平台打通：主应用的平台目录（/api/platforms）与已登记 Key（/api/keys）都是
+       本机明文元数据端点、不需要保险库解锁。best-effort 拉一份进来做新增弹层的
+       候选；失败静默——候选只是预填辅助，任何凭证读写都不依赖它。 */
+    function loadPlatforms() {
+      state.platforms = null;
+      var urls = [endpoints.platforms, endpoints.keys].filter(Boolean);
+      if (!urls.length) return;
+      Promise.all(urls.map(function (u) {
+        return api.get(u).then(function (r) { return r.ok ? (r.data || {}) : null; }, function () { return null; });
+      })).then(function (rs) {
+        var cands = [];
+        var seen = {};
+        function push(id, name, url) {
+          var n = str(name).trim();
+          if (!n) return;
+          var k = n.toLowerCase();
+          if (seen[k]) { if (url && !seen[k].url) seen[k].url = str(url); return; }
+          var c = { id: str(id), name: n, url: str(url) };
+          seen[k] = c; cands.push(c);
+        }
+        rs.forEach(function (d) {
+          if (!d) return;
+          (d.platforms || []).forEach(function (pl) { push(pl.id, pl.name, pl.defaultBase); });
+          (d.keys || []).forEach(function (k) {
+            var name = str(k.customName).trim() || str(k.platform);
+            var url = '';
+            if (Array.isArray(k.endpoints) && k.endpoints.length) url = str(k.endpoints[0].url);
+            push(k.platform, name, url);
+          });
+        });
+        state.platforms = cands;
+      });
+    }
+
+    /* 候选 = 主应用平台 + 已登记 Key + 库里现有网站，按名字去重。
+       弹层每次打开都现算，列表增删后不用额外刷新。 */
+    function siteCandidates() {
+      var out = [];
+      var seen = {};
+      (state.platforms || []).forEach(function (c) { seen[c.name.toLowerCase()] = 1; out.push(c); });
+      state.list.forEach(function (c) {
+        if (c.site && !seen[c.site.toLowerCase()]) { seen[c.site.toLowerCase()] = 1; out.push({ id: '', name: c.site, url: c.url }); }
+      });
+      return out;
     }
 
     function primeTotp() {
@@ -710,12 +785,13 @@
     }
 
     // ---------- 弹层 ----------
-    function openModal(mode, id) {
+    function openModal(mode, id, preset) {
       state.lastFocus = document.activeElement;
       var src = mode === 'edit' ? byId(id) : null;
+      var pre = preset || {};
       var draft = src
-        ? { id: src.id, title: src.title, username: src.username, url: src.url, folder: src.folder, tags: src.tags.join(', '), password: '', note: '', totpSecret: '' }
-        : { id: '', title: '', username: '', url: '', folder: '', tags: '', password: '', note: '', totpSecret: '' };
+        ? { id: src.id, site: src.site, loginMethod: loginMethodValue(src.loginMethod), title: src.title, username: src.username, url: src.url, folder: src.folder, tags: src.tags.join(', '), password: '', note: '', totpSecret: '' }
+        : { id: '', site: str(pre.site), loginMethod: loginMethodValue(pre.loginMethod), title: str(pre.title), username: str(pre.username), url: str(pre.url), folder: str(pre.folder), tags: '', password: '', note: '', totpSecret: '' };
       var gen = { length: 20, upper: true, lower: true, digit: true, symbol: true, noConfusable: true, min: 8, max: 64, output: '' };
       gen.output = generatePassword(gen);
       state.modal = { mode: mode, id: id || '', draft: draft, gen: gen, policy: null, policyState: 'idle', saveErr: '', saving: false, touchedPw: false, touchedNote: false };
@@ -781,6 +857,15 @@
         case 'reveal': reveal(id); break;
         case 'copy-user': copyText(byId(id) ? byId(id).username : ''); break;
         case 'copy-totp': copyText(state.totp[id] ? state.totp[id].code : ''); break;
+        case 'pick-platform': {
+          if (state.modal && state.modal.mode === 'create') {
+            var pf = mountPoint.querySelector('#cv-f-site'); var uf = mountPoint.querySelector('#cv-f-url');
+            if (pf) pf.value = t.getAttribute('data-name') || '';
+            if (uf && !uf.value) uf.value = t.getAttribute('data-url') || '';
+          }
+          break;
+        }
+        case 'add-site': openModal('create', null, { site: id === '（未填写网站）' ? '' : id }); break;
         case 'modal-cancel': closeModal(); break;
         case 'modal-save': ev.preventDefault(); commitModal(); break;
         case 'gen-regen': regenerate(); break;
@@ -799,6 +884,8 @@
       var form = mountPoint.querySelector('.cv-modal'); if (!form) return;
       var g = function (sel) { var e = form.querySelector(sel); return e ? e.value.trim() : ''; };
       var draft = m.draft;
+      draft.site = g('#cv-f-site');
+      draft.loginMethod = g('#cv-f-method');
       draft.title = g('#cv-f-title');
       draft.username = g('#cv-f-user');
       draft.url = g('#cv-f-url');
@@ -807,7 +894,7 @@
       var pwEl = form.querySelector('#cv-f-pw'); draft.password = pwEl ? pwEl.value : '';
       var noteEl = form.querySelector('#cv-f-note'); draft.note = noteEl ? noteEl.value : '';
       var totpEl = form.querySelector('#cv-f-totp'); draft.totpSecret = totpEl ? totpEl.value.trim() : '';
-      if (!draft.title) { m.saveErr = '标题不能为空'; render(); var te = form.querySelector('#cv-f-title'); if (te) te.focus(); return; }
+      if (!draft.site) { m.saveErr = '网站不能为空'; render(); var sf = form.querySelector('#cv-f-site'); if (sf) sf.focus(); return; }
       // tags: 逗号/空格分隔 -> 数组
       var payloadDraft = Object.assign({}, draft, { tags: String(draft.tags).split(/[,\s]+/).filter(Boolean) });
       saveCredential(payloadDraft, m.mode);
@@ -823,6 +910,7 @@
     }
     function onChange(ev) {
       var t = ev.target;
+      if (t.id === 'cv-f-site-filter') { state.filters.site = t.value; renderListOnly(); return; }
       if (t.id === 'cv-f-folder-filter') { state.filters.folder = t.value; renderListOnly(); return; }
       if (t.id === 'cv-f-tag-filter') { state.filters.tag = t.value; renderListOnly(); return; }
       if (t.getAttribute && t.getAttribute('data-recovery-ack') === '1') { var btn = mountPoint.querySelector('[data-act="recovery-continue"]'); if (btn) btn.disabled = !t.checked; return; }
@@ -966,7 +1054,8 @@
       var form = mountPoint.querySelector('.cv-modal');
       if (!form || !state.modal) return;
       var d = state.modal.draft;
-      var pairs = [['#cv-f-title', 'title'], ['#cv-f-user', 'username'], ['#cv-f-url', 'url'],
+      var pairs = [['#cv-f-site', 'site'], ['#cv-f-method', 'loginMethod'], ['#cv-f-title', 'title'],
+        ['#cv-f-user', 'username'], ['#cv-f-url', 'url'],
         ['#cv-f-folder', 'folder'], ['#cv-f-tags', 'tags'], ['#cv-f-pw', 'password'], ['#cv-f-note', 'note'],
         ['#cv-f-totp', 'totpSecret']];
       for (var i = 0; i < pairs.length; i++) {
@@ -1159,6 +1248,7 @@
 
     function tabsBar() {
       var folders = uniqueFolders();
+      var sites = uniqueSites();
       var tags = uniqueTags();
       return '<div class="cv-toolbar">' +
         '<div class="cv-tabs" role="tablist" aria-label="视图切换">' +
@@ -1166,7 +1256,8 @@
           '<button class="cv-tab" role="tab" data-act="tab" data-tab="health" aria-selected="' + (state.activeTab === 'health') + '">' + IC.shield + '健康</button>' +
         '</div>' +
         (state.activeTab === 'list'
-          ? '<div class="cv-search"><span class="cv-search-ico">' + IC.search + '</span><input class="cv-input" id="cv-search" type="search" placeholder="搜索标题 / 用户名 / 网址" aria-label="搜索凭证" value="' + escapeHtml(state.filters.q) + '"></div>' +
+          ? '<div class="cv-search"><span class="cv-search-ico">' + IC.search + '</span><input class="cv-input" id="cv-search" type="search" placeholder="搜索网站 / 账号 / 网址" aria-label="搜索凭证" value="' + escapeHtml(state.filters.q) + '"></div>' +
+            filterSelect('cv-f-site-filter', '全部网站', sites, state.filters.site) +
             filterSelect('cv-f-folder-filter', '全部文件夹', folders, state.filters.folder) +
             filterSelect('cv-f-tag-filter', '全部标签', tags, state.filters.tag) +
             '<span class="cv-count"><b>' + filteredList().length + '</b> / ' + state.list.length + '</span>' +
@@ -1188,11 +1279,29 @@
       if (!items.length) {
         var filtered = state.filters.q || state.filters.folder || state.filters.tag;
         return emptyState(filtered ? '没有匹配的凭证' : '还没有任何凭证',
-          filtered ? '换个关键词或清除筛选试试。' : '新增第一条凭证：网站账号密码、两步验证密钥、API 密钥与备注，都只加密存在本机。',
+          filtered ? '换个关键词或清除筛选试试。' : '新增第一条：先填网站，再录这个网站的登录方式、账号、口令、动态码与备注，都只加密存在本机。',
           filtered ? null : { act: 'add', label: '新增凭证', icon: IC.plus });
       }
-      var cards = items.map(function (c, i) { return cardHtml(c, i); }).join('');
-      return '<div class="cv-grid" role="list">' + cards + '</div>';
+      return groupHtml(items);
+    }
+
+    function groupHtml(items) {
+      var i = 0;
+      return groupBySite(items).map(function (g) {
+        var methods = {};
+        g.items.forEach(function (c) { methods[loginMethodValue(c.loginMethod)] = 1; });
+        var methodBadges = Object.keys(methods).map(function (m) {
+          return '<span class="cv-badge method">' + loginMethodLabel(m) + '</span>';
+        }).join('');
+        var head = '<div class="cv-site-head">' +
+          '<h3 class="cv-site-name">' + escapeHtml(g.site) + '</h3>' +
+          '<span class="cv-site-badges">' + methodBadges +
+          '<span class="cv-site-count"><b>' + g.items.length + '</b> 账号</span></span>' +
+          '<button class="cv-btn ghost small" type="button" data-act="add-site" data-id="' + escapeHtml(g.site) + '" title="给这个网站再添一个账号">' + IC.plus + '<span>账号</span></button>' +
+          '</div>';
+        var cards = g.items.map(function (c) { var n = i++; return cardHtml(c, n); }).join('');
+        return '<section class="cv-site-group">' + head + '<div class="cv-grid" role="list">' + cards + '</div></section>';
+      }).join('');
     }
 
     function cardHtml(c, i) {
@@ -1200,6 +1309,7 @@
         capDot(c.hasPassword, IC.key, '口令') + capDot(c.hasSecret, IC.vault, '密钥') +
         capDot(c.hasTotp, IC.clock, '动态码') + capDot(c.hasNote, IC.note, '备注') + '</span>';
       var badges = '<div class="cv-badges">' +
+        '<span class="cv-badge method">' + loginMethodLabel(c.loginMethod) + '</span>' +
         (c.folder ? '<span class="cv-badge folder">' + IC.folder + escapeHtml(c.folder) + '</span>' : '') +
         c.tags.map(function (t) { return '<span class="cv-badge tag">' + escapeHtml(t) + '</span>'; }).join('') +
         caps + '</div>';
@@ -1222,10 +1332,10 @@
         '<span>' + IC.bolt + '用过 <b>' + escapeHtml(fmtDate(c.lastUsedAt)) + '</b></span></div>';
 
       return '<article class="cv-card" role="listitem" data-id="' + escapeHtml(c.id) + '" style="--cv-i:' + i + '">' +
-        '<div class="cv-card-head"><h3 class="cv-card-title">' + escapeHtml(c.title || '（未命名）') + '</h3>' +
+        '<div class="cv-card-head"><h3 class="cv-card-title">' + escapeHtml(c.title || c.username || '（未命名）') + '</h3>' +
         '<div class="cv-card-acts">' +
           '<button class="cv-btn ghost small" type="button" data-act="edit" data-id="' + escapeHtml(c.id) + '" title="编辑">' + IC.edit + '<span>编辑</span></button>' +
-          '<button class="cv-btn danger small" type="button" data-act="del" data-id="' + escapeHtml(c.id) + '" title="删除" aria-label="删除 ' + escapeHtml(c.title) + '">' + IC.trash + '<span>删除</span></button>' +
+          '<button class="cv-btn danger small" type="button" data-act="del" data-id="' + escapeHtml(c.id) + '" title="删除" aria-label="删除 ' + escapeHtml(c.title || c.username || c.site || '凭证') + '">' + IC.trash + '<span>删除</span></button>' +
         '</div></div>' + badges + rows + meta + '</article>';
     }
 
@@ -1339,13 +1449,17 @@
         '<div class="cv-modal-head"><span class="cv-modal-ico">' + (isEdit ? IC.edit : IC.plus) + '</span><h2 id="cv-modal-h">' + (isEdit ? '编辑凭证' : '新增凭证') + '</h2>' +
         '<div class="cv-spacer" style="flex:1"></div><button class="cv-ghost-ico" type="button" data-act="modal-cancel" aria-label="关闭弹层">' + IC.x + '</button></div>' +
         '<div class="cv-modal-body">' + errHtml +
+          platformPickHtml() +
           '<div class="cv-form-grid">' +
-            field('cv-f-title', '标题 *', 'text', d.title, '如 OpenAI 生产 Key', true) +
+            field('cv-f-site', '网站 *', 'text', d.site, '如 platform.openai.com', true, false, false, 'span2', 'cv-site-list') +
+            methodField(d) +
+            field('cv-f-title', '标题（可选别名）', 'text', d.title, '如 工作账号 / 生产环境', false, false, false) +
             field('cv-f-user', '用户名 / 账号', 'text', d.username, '邮箱或账号', false, true) +
             field('cv-f-url', '网址', 'text', d.url, 'https://…', false, false, true) +
             field('cv-f-folder', '文件夹', 'text', d.folder, '如 工作 / 个人', false) +
             field('cv-f-tags', '标签', 'text', Array.isArray(d.tags) ? d.tags.join(', ') : d.tags, '逗号分隔，如 ai,paid', false, false, false, 'span2') +
           '</div>' +
+          siteDatalist() +
           pwField(d) +
           totpField(d) +
           '<div class="cv-field"><label class="cv-label" for="cv-f-note">备注</label><textarea class="cv-textarea" id="cv-f-note" placeholder="用途、绑定设备等（揭示口令时一并显示）">' + escapeHtml(d.note) + '</textarea></div>' +
@@ -1356,11 +1470,12 @@
         '</div></div>';
     }
 
-    function field(id, label, type, val, ph, autofocus, mono, url, span) {
+    function field(id, label, type, val, ph, autofocus, mono, url, span, list) {
       return '<div class="cv-field ' + (span || '') + '"' + (span === 'span2' ? ' style="grid-column:1/-1"' : '') + '>' +
         '<label class="cv-label" for="' + id + '">' + escapeHtml(label) + '</label>' +
         '<input class="cv-input' + (mono ? ' mono' : '') + '" id="' + id + '" type="' + (url ? 'url' : type) + '" value="' + escapeHtml(val) + '"' +
         (ph ? ' placeholder="' + escapeHtml(ph) + '"' : '') + (autofocus ? ' data-autofocus' : '') +
+        (list ? ' list="' + list + '"' : '') +
         (url ? ' spellcheck="false" autocomplete="off"' : '') + '></div>';
     }
     function pwField(d) {
@@ -1369,6 +1484,34 @@
         '<div class="cv-pw-tools"><button class="cv-ghost-ico" type="button" data-act="toggle-pw-vis" aria-pressed="false" aria-label="显示口令">' + IC.eye + '</button></div></div>' +
         '<div class="cv-meter" id="cv-f-pw-meter"><i></i></div><div class="cv-meter-label" id="cv-f-pw-meter-label">' + (d.id ? '留空表示保持不变' : '尚未输入') + '</div></div>';
     }
+    function methodField(d) {
+      var opts = LOGIN_METHODS.map(function (m) {
+        return '<option value="' + m + '"' + (d.loginMethod === m ? ' selected' : '') + '>' + loginMethodLabel(m) + '</option>';
+      }).join('');
+      return '<div class="cv-field"><label class="cv-label" for="cv-f-method">登录方式</label>' +
+        '<select class="cv-select" id="cv-f-method">' + opts + '</select>' +
+        '<div class="cv-hint">这个网站用什么方式登录；后端把空值一律按「口令登录」存</div></div>';
+    }
+
+    /* 平台候选只服务「新增」：点一下把网站和网址填进表单。
+       来源是主应用平台目录 + 已登记 Key + 库里现有网站（见 siteCandidates）。 */
+    function platformPickHtml() {
+      if (!state.modal || state.modal.mode !== 'create') return '';
+      var cands = siteCandidates().slice(0, 12);
+      if (!cands.length) return '';
+      var chips = cands.map(function (c) {
+        return '<button class="cv-plat-chip" type="button" data-act="pick-platform" data-name="' + escapeHtml(c.name) + '" data-url="' + escapeHtml(c.url) + '" title="' + escapeHtml(c.url || c.name) + '">' + escapeHtml(c.name) + '</button>';
+      }).join('');
+      return '<div class="cv-platform-pick"><span class="cv-platform-pick-lbl">主应用已登记：</span>' + chips + '</div>';
+    }
+
+    function siteDatalist() {
+      var opts = siteCandidates().map(function (c) {
+        return '<option value="' + escapeHtml(c.name) + '">' + (c.url ? escapeHtml(c.url) : '') + '</option>';
+      }).join('');
+      return '<datalist id="cv-site-list">' + opts + '</datalist>';
+    }
+
     function totpField(d) {
       return '<div class="cv-field"><label class="cv-label" for="cv-f-totp">动态码密钥（TOTP secret，可选）</label>' +
         '<input class="cv-input mono" id="cv-f-totp" type="text" autocomplete="off" spellcheck="false" placeholder="粘贴 TOTP Base32 密钥（留空保持不变）"></div>';
@@ -1411,15 +1554,17 @@
     // =========================================================================
     function byId(id) { for (var i = 0; i < state.list.length; i++) if (state.list[i].id === id) return state.list[i]; return null; }
     function filteredList() {
-      var q = state.filters.q.toLowerCase(); var fo = state.filters.folder; var tg = state.filters.tag;
+      var q = state.filters.q.toLowerCase(); var fo = state.filters.folder; var tg = state.filters.tag; var si = state.filters.site;
       return state.list.filter(function (c) {
+        if (si && c.site !== si) return false;
         if (fo && c.folder !== fo) return false;
         if (tg && c.tags.indexOf(tg) === -1) return false;
-        if (q) { var hay = (c.title + ' ' + c.username + ' ' + c.url).toLowerCase(); if (hay.indexOf(q) === -1) return false; }
+        if (q) { var hay = (c.site + ' ' + c.title + ' ' + c.username + ' ' + c.url + ' ' + loginMethodLabel(c.loginMethod)).toLowerCase(); if (hay.indexOf(q) === -1) return false; }
         return true;
       });
     }
     function uniqueFolders() { var s = []; state.list.forEach(function (c) { if (c.folder && s.indexOf(c.folder) === -1) s.push(c.folder); }); return s; }
+    function uniqueSites() { var s = []; state.list.forEach(function (c) { if (c.site && s.indexOf(c.site) === -1) s.push(c.site); }); return s; }
     function uniqueTags() { var s = []; state.list.forEach(function (c) { c.tags.forEach(function (t) { if (s.indexOf(t) === -1) s.push(t); }); }); return s; }
     function filterSelect(id, placeholder, options, cur) {
       var os = options.map(function (o) { return '<option value="' + escapeHtml(o) + '"' + (o === cur ? ' selected' : '') + '>' + escapeHtml(o) + '</option>'; }).join('');
@@ -1453,10 +1598,10 @@
     var now = Date.now();
     function ago(days) { return new Date(now - days * 86400000).toISOString(); }
     var creds = [
-      { id: 'c1', title: 'OpenAI 生产', username: 'sk-prod@corp', url: 'https://platform.openai.com', folder: '工作', tags: ['ai', 'paid'], createdAt: ago(200), updatedAt: ago(210), lastUsedAt: ago(1), hasPassword: true, hasSecret: true, hasTotp: false, hasNote: true },
-      { id: 'c2', title: 'AWS 控制台', username: 'ops@corp', url: 'https://console.aws.amazon.com', folder: '工作', tags: ['cloud'], createdAt: ago(400), updatedAt: ago(300), lastUsedAt: ago(20), hasPassword: true, hasSecret: false, hasTotp: true, hasNote: false },
-      { id: 'c3', title: 'GitHub PAT', username: 'yqq-bot', url: 'https://github.com/settings/tokens', folder: '开发', tags: ['git', 'ci'], createdAt: ago(60), updatedAt: ago(5), lastUsedAt: ago(0), hasPassword: true, hasSecret: true, hasTotp: false, hasNote: false },
-      { id: 'c4', title: '旧共享口令账号', username: 'test@corp', url: 'https://example.com', folder: '个人', tags: ['demo'], createdAt: ago(120), updatedAt: ago(190), lastUsedAt: ago(80), hasPassword: true, hasSecret: false, hasTotp: true, hasNote: true }
+      { id: 'c1', site: 'platform.openai.com', loginMethod: 'password', title: 'OpenAI 生产', username: 'sk-prod@corp', url: 'https://platform.openai.com', folder: '工作', tags: ['ai', 'paid'], createdAt: ago(200), updatedAt: ago(210), lastUsedAt: ago(1), hasPassword: true, hasSecret: true, hasTotp: false, hasNote: true },
+      { id: 'c2', site: 'aws.amazon.com', loginMethod: 'sms', title: 'AWS 控制台', username: 'ops@corp', url: 'https://console.aws.amazon.com', folder: '工作', tags: ['cloud'], createdAt: ago(400), updatedAt: ago(300), lastUsedAt: ago(20), hasPassword: true, hasSecret: false, hasTotp: true, hasNote: false },
+      { id: 'c3', site: 'github.com', loginMethod: 'oauth', title: 'GitHub PAT', username: 'yqq-bot', url: 'https://github.com/settings/tokens', folder: '开发', tags: ['git', 'ci'], createdAt: ago(60), updatedAt: ago(5), lastUsedAt: ago(0), hasPassword: true, hasSecret: true, hasTotp: false, hasNote: false },
+      { id: 'c4', site: 'example.com', loginMethod: 'password', title: '旧共享口令账号', username: 'test@corp', url: 'https://example.com', folder: '个人', tags: ['demo'], createdAt: ago(120), updatedAt: ago(190), lastUsedAt: ago(80), hasPassword: true, hasSecret: false, hasTotp: true, hasNote: true }
     ];
     function res(status, body) { return Promise.resolve({ ok: status >= 200 && status < 300, status: status, json: function () { return Promise.resolve(body); } }); }
     function guardLocked() { if (locked && mode !== 'normal' || (locked && mode === 'locked')) { } }
@@ -1472,6 +1617,16 @@
       if (u.indexOf('/api/vault/init') !== -1) { setupDone = true; locked = false; pw = (init.body ? JSON.parse(init.body).password : pw); return res(200, { ok: true, recoveryCode: RECOVERY }); }
       if (u.indexOf('/api/vault/unlock') !== -1) { if (!setupDone) return res(423, { error: '保险库未解锁' }); locked = false; return res(200, { ok: true }); }
       if (u.indexOf('/api/vault/lock') !== -1) { locked = true; return res(200, { ok: true }); }
+      // 主应用侧：平台目录 + 已登记 Key（平台打通的候选来源）
+      if (u.indexOf('/api/platforms') !== -1) return res(200, { platforms: [
+        { id: 'openai', name: 'OpenAI', defaultBase: 'https://platform.openai.com' },
+        { id: 'aws', name: 'AWS', defaultBase: 'https://console.aws.amazon.com' },
+        { id: 'github', name: 'GitHub', defaultBase: 'https://github.com' }
+      ] });
+      if (u.indexOf('/api/keys') !== -1) return res(200, { keys: [
+        { id: 1, platform: 'openai', customName: '', endpoints: [{ url: 'https://platform.openai.com/v1', style: 'openai' }] },
+        { id: 2, platform: 'custom', customName: '内网网关', endpoints: [{ url: 'https://gw.intra.example/v1', style: 'openai' }] }
+      ] });
       // 列表
       if (/\/api\/credentials(\?|$)/.test(u) && method === 'GET') {
         if (locked) return res(423, { error: '保险库未解锁' });
@@ -1519,6 +1674,8 @@
     CV_MOCK: MOCK,
     __internals: {
       escapeHtml: escapeHtml, classifyStatus: classifyStatus, parseList: parseList,
+      loginMethodLabel: loginMethodLabel, loginMethodValue: loginMethodValue, LOGIN_METHODS: LOGIN_METHODS,
+      groupBySite: groupBySite,
       rateMessage: rateMessage, retryText: retryText, secretRowInner: secretRowInner,
       revealState: revealState, REVEAL_FIELDS: REVEAL_FIELDS,
       generatePassword: generatePassword, applyPolicy: applyPolicy, strengthBits: strengthBits,

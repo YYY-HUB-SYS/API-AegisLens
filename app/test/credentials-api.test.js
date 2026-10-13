@@ -31,6 +31,8 @@ function fakeStorage(c) {
       title: b.title === undefined ? '' : b.title,
       username: b.username === undefined ? '' : b.username,
       url: b.url === undefined ? '' : b.url,
+      site: b.site === undefined ? '' : b.site,
+      loginMethod: b.loginMethod === undefined ? '' : b.loginMethod,
       folder: b.folder === undefined ? '' : b.folder,
       tags: b.tags === undefined ? '' : b.tags,
       passwordEnc: b.passwordEnc === undefined ? null : b.passwordEnc,
@@ -197,7 +199,7 @@ test('未解锁：所有凭证路由 423，且响应里一个 enc:v1 字节都�
     assert.strictEqual(JSON.stringify(r.data).indexOf('hunter2'), -1);
   }
 
-  const post = await h.call('POST', '/api/credentials', { title: '新条目', password: 'hunter2' });
+  const post = await h.call('POST', '/api/credentials', { site: 'a.com', title: '新条目', password: 'hunter2' });
   assert.strictEqual(post.status, 423);
   assert.strictEqual(JSON.stringify(post.data).indexOf('enc:v1'), -1);
 
@@ -220,7 +222,7 @@ test('未解锁：所有凭证路由 423，且响应里一个 enc:v1 字节都�
 test('GET 列表：解锁后只给掩码视图，密文列换成 has* 布尔', async () => {
   const h = harness();
   h.unlock();
-  const rec = h.seedEncrypted({ password: 'hunter2', totpSecret: RAW_TOTP }, { title: '内网门户', tags: 'a,b' });
+  const rec = h.seedEncrypted({ password: 'hunter2', totpSecret: RAW_TOTP }, { title: '内网门户', site: 'intra.example', loginMethod: 'sms', tags: 'a,b' });
   h.seed({ title: '空条目' });
 
   const r = await h.call('GET', '/api/credentials');
@@ -233,6 +235,8 @@ test('GET 列表：解锁后只给掩码视图，密文列换成 has* 布尔', a
   });
   assert.deepStrictEqual([first.hasPassword, first.hasSecret, first.hasTotp, first.hasNote], [true, false, true, false]);
   assert.strictEqual(first.title, '内网门户');
+  assert.strictEqual(first.site, 'intra.example', '掩码视图的明文列原样可见');
+  assert.strictEqual(first.loginMethod, 'sms');
   assert.strictEqual(first.tags, 'a,b');
   assert.strictEqual(JSON.stringify(r.data).indexOf('enc:v1'), -1);
   assert.strictEqual(JSON.stringify(r.data).indexOf('hunter2'), -1);
@@ -250,43 +254,49 @@ test('GET 列表：解锁后只给掩码视图，密文列换成 has* 布尔', a
 
 /* ── 创建：字段校验与上限 ─────────────────────────────────────────── */
 
-test('POST：必填 title、可选字段加密入库、长度与数量上限', async () => {
+test('POST：必填 site、可选字段加密入库、长度与数量上限', async () => {
   const h = harness();
   h.unlock();
 
-  const noTitle = await h.call('POST', '/api/credentials', { username: 'u' });
-  assert.strictEqual(noTitle.status, 400);
-  assert.match(noTitle.data.error, /title/);
+  const noSite = await h.call('POST', '/api/credentials', { username: 'u' });
+  assert.strictEqual(noSite.status, 400);
+  assert.match(noSite.data.error, /site/);
 
-  const blank = await h.call('POST', '/api/credentials', { title: '   ' });
+  const blank = await h.call('POST', '/api/credentials', { site: '   ' });
   assert.strictEqual(blank.status, 400);
 
-  const tooLongPw = await h.call('POST', '/api/credentials', { title: 'x', password: 'a'.repeat(api.MAX_PASSWORD_LEN + 1) });
+  const badMethod = await h.call('POST', '/api/credentials', { site: 'x.com', loginMethod: 'face' });
+  assert.strictEqual(badMethod.status, 400, 'loginMethod 只认枚举');
+  assert.match(badMethod.data.error, /loginMethod/);
+
+  const tooLongPw = await h.call('POST', '/api/credentials', { site: 'x.com', password: 'a'.repeat(api.MAX_PASSWORD_LEN + 1) });
   assert.strictEqual(tooLongPw.status, 400);
   assert.match(tooLongPw.data.error, new RegExp(String(api.MAX_PASSWORD_LEN)));
 
-  const tooLongNote = await h.call('POST', '/api/credentials', { title: 'x', note: 'n'.repeat(api.MAX_NOTE_LEN + 1) });
+  const tooLongNote = await h.call('POST', '/api/credentials', { site: 'x.com', note: 'n'.repeat(api.MAX_NOTE_LEN + 1) });
   assert.strictEqual(tooLongNote.status, 400);
 
   const tooManyTags = await h.call('POST', '/api/credentials', {
-    title: 'x', tags: Array.from({ length: api.MAX_TAGS + 1 }, function (_, i) { return 't' + i; })
+    site: 'x.com', tags: Array.from({ length: api.MAX_TAGS + 1 }, function (_, i) { return 't' + i; })
   });
   assert.strictEqual(tooManyTags.status, 400);
   assert.match(tooManyTags.data.error, new RegExp('最多 ' + api.MAX_TAGS));
 
-  const longTag = await h.call('POST', '/api/credentials', { title: 'x', tags: ['标签'.repeat(api.MAX_TAG_LEN + 1)] });
+  const longTag = await h.call('POST', '/api/credentials', { site: 'x.com', tags: ['标签'.repeat(api.MAX_TAG_LEN + 1)] });
   assert.strictEqual(longTag.status, 400);
 
-  const badTotp = await h.call('POST', '/api/credentials', { title: 'x', totpSecret: 'JBSW0189' });
+  const badTotp = await h.call('POST', '/api/credentials', { site: 'x.com', totpSecret: 'JBSW0189' });
   assert.strictEqual(badTotp.status, 400, 'base32 字符表没有 0/1/8/9，必须在写入库之前就拒掉');
   assert.strictEqual(h.storage.rows.size, 0, '校验失败的 POST 不该留下任何行');
 
   const ok = await h.call('POST', '/api/credentials', {
-    title: 'GitHub', username: 'moe@example.com', url: 'https://github.com',
+    site: 'github.com', loginMethod: 'OAuth', title: 'GitHub', username: 'moe@example.com', url: 'https://github.com',
     folder: '公司', tags: ['朋友', '家人', '朋友'], password: 'hunter2',
     note: '备用邮箱', totpSecret: RAW_TOTP, secret: 'whsec_1'
   });
   assert.strictEqual(ok.status, 201, JSON.stringify(ok.data));
+  assert.strictEqual(ok.data.credential.site, 'github.com', 'site 是一等公民，原样存');
+  assert.strictEqual(ok.data.credential.loginMethod, 'oauth', 'loginMethod 大小写归一后入库');
   assert.strictEqual(ok.data.credential.passwordEnc, undefined);
   assert.strictEqual(ok.data.credential.hasPassword, true);
   assert.strictEqual(ok.data.credential.hasTotp, true);
@@ -309,8 +319,9 @@ test('POST：必填 title、可选字段加密入库、长度与数量上限', a
   assert.strictEqual(createAudit[0].detail, '口令+私钥+TOTP+备注');
   assert.strictEqual(JSON.stringify(h.auditRows()).indexOf('hunter2'), -1, '审计里不许有明文');
 
-  const bare = await h.call('POST', '/api/credentials', { title: '只有标题' });
+  const bare = await h.call('POST', '/api/credentials', { site: '只有网站' });
   assert.strictEqual(bare.status, 201);
+  assert.strictEqual(bare.data.credential.title, '', 'title 降级为可选');
   const bareRow = h.storage.rows.get(bare.data.credential.id);
   assert.deepStrictEqual([bareRow.passwordEnc, bareRow.noteEnc, bareRow.totpEnc, bareRow.secretEnc],
     [null, null, null, null], '没录的密文列存 null，不是空串');
@@ -319,7 +330,7 @@ test('POST：必填 title、可选字段加密入库、长度与数量上限', a
 test('POST：不认识的字段与非法 JSON 一律 400，不透传进存储', async () => {
   const h = harness();
   h.unlock();
-  const r = await h.call('POST', '/api/credentials', { title: 'x', admin: true });
+  const r = await h.call('POST', '/api/credentials', { site: 'x.com', admin: true });
   assert.strictEqual(r.status, 400);
   assert.match(r.data.error, /不认识的字段/);
   assert.strictEqual(h.storage.rows.size, 0);
@@ -401,10 +412,12 @@ test('reveal 成功：返回明文、走 lastUsed、记一条 ok 审计、限流
   const h = harness();
   const dek = h.unlock();
   const rec = h.seedEncrypted({ password: 'hunter2', note: '备用邮箱', totpSecret: RAW_TOTP },
-    { title: '内网门户', username: 'ops', url: 'https://intra' });
+    { title: '内网门户', username: 'ops', url: 'https://intra', site: 'intra.example', loginMethod: 'oauth' });
 
   const r = await h.call('POST', '/api/credentials/' + rec.id + '/reveal', {});
   assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+  assert.strictEqual(r.data.site, 'intra.example', 'reveal 出参带网站');
+  assert.strictEqual(r.data.loginMethod, 'oauth', 'reveal 出参带登录方式');
   assert.strictEqual(r.data.password, 'hunter2');
   assert.strictEqual(r.data.note, '备用邮箱');
   assert.strictEqual(r.data.totpSecret, RAW_TOTP);
@@ -570,7 +583,7 @@ test('health：账号复用清单 + 弱口令计数，输出里没有半个口�
   assert.deepStrictEqual(r.data.usernameReuse, [
     {
       username: 'shared', count: 3,
-      items: [{ id: a.id, title: '复用A' }, { id: b.id, title: '复用B' }, { id: d.id, title: '复用C' }]
+      items: [{ id: a.id, title: '复用A', site: '', username: 'shared' }, { id: b.id, title: '复用B', site: '', username: 'shared' }, { id: d.id, title: '复用C', site: '', username: 'shared' }]
     }
   ]);
   assert.strictEqual(r.data.reusedUsernameCount, 1, 'count=1 的不算复用');
@@ -578,7 +591,7 @@ test('health：账号复用清单 + 弱口令计数，输出里没有半个口�
   assert.deepStrictEqual(r.data.weakPasswords.map(function (w) { return w.id; }), [a.id, d.id], '按分数再按 id 排');
   assert.strictEqual(r.data.weakPasswords[0].label, 'very-weak');
   assert.ok(Array.isArray(r.data.weakPasswords[0].reasons));
-  assert.deepStrictEqual(r.data.unreadable, [{ id: broken.id, title: '坏密文', reason: '密文无法解开' }]);
+  assert.deepStrictEqual(r.data.unreadable, [{ id: broken.id, title: '坏密文', site: '', username: 'broken', reason: '密文无法解开' }]);
 
   const dump = JSON.stringify(r.data);
   [weakPw, strongPw, 'abc12345'].forEach(function (pw) {

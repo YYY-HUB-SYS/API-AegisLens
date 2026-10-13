@@ -60,14 +60,14 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` / `POST` | `/api/credentials` | 列表 / 新建 |
+| `GET` / `POST` | `/api/credentials` | 列表 / 新建（`site` 必填：清单按网站分组） |
 | `GET` | `/api/credentials/health` | 用户名复用、弱口令、超期统计。**不含任何口令内容** |
 | `GET` / `PUT` / `DELETE` | `/api/credentials/{id}` | 读(掩码)/ 改 / 删 |
 | `POST` | `/api/credentials/{id}/reveal` | 唯一明文出口:`password` `secret` `note` `totpSecret` |
 | `GET` | `/api/credentials/{id}/totp` | 实时验证码 + `step` / `digits` / `algorithm` / `secondsRemaining` |
 | `GET` | `/api/credentials/{id}/password-policy` | 该站点的口令规则(数据来自 Apple 公开规则表) |
 
-字段上限:标题 200、用户名/网址/文件夹各 500、标签最多 12 个 × 40 字、口令 512、私钥 512、TOTP 种子 1024、备注 4000。
+字段上限:网站/标题各 200、用户名/网址/文件夹各 500、标签最多 12 个 × 40 字、口令 512、私钥 512、TOTP 种子 1024、备注 4000；登录方式为五值枚举（password / oauth / sms / scan / other）。
 TOTP 种子可以是裸 Base32,也可以是整条 `otpauth://` URI(此时 `period` / `digits` / `algorithm` 以 URI 为准)。
 
 ## 保险库会话
@@ -124,7 +124,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 | 项 | 值 | 出处 |
 |---|---|---|
 | 路由总数 | 47(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 67 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 界面动作 | 69 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令最短 | 8 位 | `crypto.js` |

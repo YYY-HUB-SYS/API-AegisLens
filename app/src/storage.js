@@ -186,7 +186,11 @@ function historyRow(seq, keyId, at, entry) {
    跟 keys 表「除 key_enc 外全明文」的做法一致。
    两个后端共用下面这套归一/成行函数，SQLite 侧只多一层 snake_case 列名映射 ——
    models.extra 那次只改一边导致两条后端行为不一致，这里从结构上堵掉。 */
-const CRED_PLAIN = ['title', 'username', 'url', 'folder', 'tags'];
+const CRED_PLAIN = ['title', 'username', 'url', 'site', 'loginMethod', 'folder', 'tags'];
+/* sqlite 行的属性名是列名（snake_case）。单词字段两种写法相同，
+   骆驼式字段必须显式映射，否则 row.loginMethod 读到 undefined
+   —— 存得进去、取回来变空串。 */
+const CRED_PLAIN_COLUMN = { loginMethod: 'login_method' };
 const CRED_ENC = ['passwordEnc', 'secretEnc', 'totpEnc', 'noteEnc'];
 /* 入参两种拼法都认（表列名是 snake_case，记录形状跟 keys 一样是 camelCase），出参一律 camelCase */
 const CRED_ENC_COLUMN = { passwordEnc: 'password_enc', secretEnc: 'secret_enc', totpEnc: 'totp_enc', noteEnc: 'note_enc' };
@@ -235,6 +239,8 @@ function credRecord(c) {
     title: credText(c.title),
     username: credText(c.username),
     url: credText(c.url),
+    site: credText(c.site),
+    loginMethod: credText(c.loginMethod),
     folder: credText(c.folder),
     tags: credText(c.tags),
     passwordEnc: credCipher(c.passwordEnc),
@@ -906,6 +912,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  title TEXT DEFAULT \'\',',
     '  username TEXT DEFAULT \'\',',
     '  url TEXT DEFAULT \'\',',
+    '  site TEXT DEFAULT \'\',',
+    '  login_method TEXT DEFAULT \'\',',
     '  folder TEXT DEFAULT \'\',',
     '  tags TEXT DEFAULT \'\',',
     '  password_enc TEXT,',
@@ -953,6 +961,10 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   try {
     db.exec('ALTER TABLE models ADD COLUMN extra TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
+  /* 凭证表后加的网站/登录方式列：老库逐列补，抛错即列已存在 */
+  ['site TEXT DEFAULT \'\'', 'login_method TEXT DEFAULT \'\''].forEach(function (col) {
+    try { db.exec('ALTER TABLE credentials ADD COLUMN ' + col); } catch (e) { /* 已有 */ }
+  });
   /* assigned 的主键从 (key_id, tool) 扩成 (key_id, tool, host)：同一工具可以登记在
      多台电脑上。SQLite 改不了主键，旧库整表重建一次；host 列已在新库上，幂等 */
   if (!db.prepare('PRAGMA table_info(assigned)').all().some(function (c) { return c.name === 'host'; })) {
@@ -991,10 +1003,10 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selHistoryKind: db.prepare('SELECT * FROM history WHERE key_id = ? AND kind = ? ORDER BY id DESC LIMIT ?'),
     trimHistory: db.prepare('DELETE FROM history WHERE key_id = ? AND id NOT IN (SELECT id FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?)'),
     delHistory: db.prepare('DELETE FROM history WHERE key_id = ?'),
-    insCredential: db.prepare('INSERT INTO credentials (title, username, url, folder, tags, password_enc, secret_enc, totp_enc, note_enc, created_at, updated_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
+    insCredential: db.prepare('INSERT INTO credentials (title, username, url, site, login_method, folder, tags, password_enc, secret_enc, totp_enc, note_enc, created_at, updated_at, last_used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     selCredential: db.prepare('SELECT * FROM credentials WHERE id = ?'),
     selAllCredentials: db.prepare('SELECT * FROM credentials ORDER BY id'),
-    updCredential: db.prepare('UPDATE credentials SET title = ?, username = ?, url = ?, folder = ?, tags = ?, password_enc = ?, secret_enc = ?, totp_enc = ?, note_enc = ?, updated_at = ? WHERE id = ?'),
+    updCredential: db.prepare('UPDATE credentials SET title = ?, username = ?, url = ?, site = ?, login_method = ?, folder = ?, tags = ?, password_enc = ?, secret_enc = ?, totp_enc = ?, note_enc = ?, updated_at = ? WHERE id = ?'),
     setCredentialLastUsed: db.prepare('UPDATE credentials SET last_used_at = ? WHERE id = ?'),
     delCredential: db.prepare('DELETE FROM credentials WHERE id = ?'),
     selCredentialUsernames: db.prepare('SELECT username, COUNT(*) AS count FROM credentials GROUP BY username'),
@@ -1132,7 +1144,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       updatedAt: row.updated_at,
       lastUsedAt: row.last_used_at
     };
-    CRED_PLAIN.forEach(function (f) { c[f] = row[f]; });
+    CRED_PLAIN.forEach(function (f) { c[f] = row[CRED_PLAIN_COLUMN[f] || f]; });
     CRED_ENC.forEach(function (f) { c[f] = row[CRED_ENC_COLUMN[f]]; });
     return c;
   }
@@ -1412,7 +1424,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       const now = nowIso();
       const doc = credNew(input);
       const r = stmt.insCredential.run(
-        doc.title, doc.username, doc.url, doc.folder, doc.tags,
+        doc.title, doc.username, doc.url, doc.site, doc.loginMethod, doc.folder, doc.tags,
         doc.passwordEnc, doc.secretEnc, doc.totpEnc, doc.noteEnc,
         now, now, null
       );
@@ -1429,7 +1441,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       const merged = Object.assign(credentialFromRow(cur), credPatch(patch));
       /* 四个密文列再走一次 credCipher：对字符串是恒等，只是挡住 undefined 绑进 SQL（node:sqlite 会抛） */
       stmt.updCredential.run(
-        credText(merged.title), credText(merged.username), credText(merged.url),
+        credText(merged.title), credText(merged.username), credText(merged.url), credText(merged.site), credText(merged.loginMethod),
         credText(merged.folder), credText(merged.tags),
         credCipher(merged.passwordEnc), credCipher(merged.secretEnc),
         credCipher(merged.totpEnc), credCipher(merged.noteEnc),

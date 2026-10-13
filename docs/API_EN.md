@@ -64,7 +64,7 @@ normalizes to `host: ""` (unknown computer) on read.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` / `POST` | `/api/credentials` | List / create |
+| `GET` / `POST` | `/api/credentials` | List / create (`site` required: the list groups by site) |
 | `GET` | `/api/credentials/health` | Reused usernames, weak passwords, age stats. **Contains no secret content** |
 | `GET` / `PUT` / `DELETE` | `/api/credentials/{id}` | Read (masked) / update / delete |
 | `POST` | `/api/credentials/{id}/reveal` | The only plaintext exit: `password` `secret` `note` `totpSecret` |
@@ -131,7 +131,7 @@ explicit checkbox, which then reveals items one by one.
 | Item | Value | Source |
 |---|---|---|
 | Total routes | 47 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 67 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| UI actions | 69 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Minimum passphrase length | 8 characters | `crypto.js` |
