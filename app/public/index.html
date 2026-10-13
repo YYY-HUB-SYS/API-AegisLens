@@ -13,7 +13,8 @@
     var t = null;
     try { t = localStorage.getItem('aegis-theme'); } catch (e) {}
     if (t !== 'dark' && t !== 'light') {
-      t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      /* 默认暗色：科幻终端是这套界面的主语言，亮色仍可一键切换 */
+      t = 'dark';
     }
     document.documentElement.setAttribute('data-theme', t);
     var c = null;
@@ -34,19 +35,19 @@
   :root {
     color-scheme: light;
     /* 表面与墨色：冷中性 + 高对比，正文 7:1 起 */
-    --bg: #F2F3F8;
+    --bg: #E9EDF5;
     --surface: #FFFFFF;
-    --surface-2: #FAFBFE;
-    --ink: #141623;
-    --ink-2: #4A5065;
-    --ink-3: #5A6178;
-    --rule: #DFE2EC;
-    --rule-soft: #EDEFF5;
+    --surface-2: #F1F4F9;
+    --ink: #0E1420;
+    --ink-2: #44506A;
+    --ink-3: #5C6779;
+    --rule: #D5DCE8;
+    --rule-soft: #E4E9F2;
     /* 主色只服务动作与焦点，占比克制 */
     --accent: #3E3BC8;
     --accent-ink: #2E2B9B;
     --accent-soft: rgba(62, 59, 200, 0.08);
-    --accent-line: rgba(62, 59, 200, 0.30);
+    --accent-line: rgba(62, 59, 200, 0.32);
     /* 语义色：模型参数来源与状态各有其色，不靠灰度表达差异 */
     --api: #0B7A52;
     --api-soft: rgba(11, 122, 82, 0.10);
@@ -57,23 +58,25 @@
     --danger: #B3261E;
     --danger-soft: rgba(179, 38, 30, 0.09);
     --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-    /* 11 / 12.5 / 14 是"读"的那一层，密度优先，靠字重和颜色区分，不靠字号拉开。
-       层级阶梯是 14 → 18 → 24，比值 1.286 与 1.333，都在 1.25 以上。
+    /* 11 / 12 / 13 是"读"的那一层，密度优先，靠字重和颜色区分，不靠字号拉开。
+       层级阶梯是 13 → 17 → 22，比值 1.308 与 1.294，都在 1.25 以上。
        原先这条注释声称相邻档差不小于 1.18，实测只有 1.136 / 1.120 / 1.143 / 1.250，
        四档里三档不达标：注释在替代码撒谎。 */
-    --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 14px; --fs-lg: 18px; --fs-xl: 24px;
-    --r-card: 12px; --r-ctl: 8px; --r-chip: 6px; --r-pill: 999px;
+    --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-lg: 17px; --fs-xl: 22px;
+    --r-card: 6px; --r-ctl: 5px; --r-chip: 4px; --r-pill: 999px;
     --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
     --z-modal: 60; --z-toast: 70;
     /* 实心色块上的文字：浅色主题用白，深色主题反过来用墨 */
     --on-accent: #FFFFFF; --on-danger: #FFFFFF;
-    --card-hover-border: #C6CBDD; --card-hover-bg: #FDFDFF;
+    --card-hover-border: #B4BFD4; --card-hover-bg: #FBFCFF;
     --warn-line: rgba(180, 116, 9, 0.28); --warn-line-strong: rgba(180, 116, 9, 0.5);
     --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(62, 59, 200, 0.16);
-    --overlay-ink: rgba(20, 22, 35, 0.5);
-    --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.26);
-    --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.28);
-    --shadow-hover: 0 6px 16px rgba(20, 22, 35, 0.11);
+    --overlay-ink: rgba(14, 20, 32, 0.5);
+    /* 底色上的 HUD 网格：极淡，只服务氛围，不承载信息 */
+    --grid-line: rgba(62, 59, 200, 0.05);
+    --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.22);
+    --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.24);
+    --shadow-hover: 0 4px 14px rgba(20, 22, 35, 0.12);
     /* 代码面跟随主题。浅色四色对 code-bg 实测 14.41 / 5.69 / 5.15 / 5.16；
        code-bg 与弹窗白底只差 1.15，靠 .config-pre 的 1px 描边分界。 */
     --code-bg: #EDEFF5; --code-ink: #1B1E2B;
@@ -85,25 +88,27 @@
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #0E1015; --surface: #171A21; --surface-2: #1D212A;
-    --ink: #E9ECF4; --ink-2: #A9B1C4; --ink-3: #8D96AB;
-    --rule: #2A2F3A; --rule-soft: #232833;
+    --bg: #080B11; --surface: #0E131C; --surface-2: #141B26;
+    --ink: #E6ECF6; --ink-2: #9AA6BA; --ink-3: #78839A;
+    --rule: #1C2532; --rule-soft: #151D29;
     --accent: #8B85EE; --accent-ink: #B4ABFF;
     --accent-soft: rgba(139, 133, 238, 0.16); --accent-line: rgba(139, 133, 238, 0.42);
-    --api: #3FD9A0; --api-soft: rgba(63, 217, 160, 0.14);
-    --web: #7FB2FF; --web-soft: rgba(127, 178, 255, 0.14);
-    --warn: #F0B65E; --warn-soft: rgba(240, 182, 94, 0.14);
-    --danger: #FF7A6E; --danger-soft: rgba(255, 122, 110, 0.13);
-    --on-accent: #0B0D12; --on-danger: #1A0A08;
-    --card-hover-border: #3A4150; --card-hover-bg: #1B1F28;
-    --warn-line: rgba(240, 182, 94, 0.34); --warn-line-strong: rgba(240, 182, 94, 0.6);
-    --warn-line-hover: rgba(240, 182, 94, 0.22); --accent-line-soft: rgba(139, 133, 238, 0.28);
-    --overlay-ink: rgba(6, 7, 10, 0.66);
+    --api: #2DD4BF; --api-soft: rgba(45, 212, 191, 0.13);
+    --web: #5B9BFF; --web-soft: rgba(91, 155, 255, 0.13);
+    --warn: #F5A524; --warn-soft: rgba(245, 165, 36, 0.13);
+    --danger: #FF5C5C; --danger-soft: rgba(255, 92, 92, 0.12);
+    --on-accent: #0B0D13; --on-danger: #1A0B0B;
+    --card-hover-border: #33405A; --card-hover-bg: #121826;
+    --warn-line: rgba(245, 165, 36, 0.34); --warn-line-strong: rgba(245, 165, 36, 0.6);
+    --warn-line-hover: rgba(245, 165, 36, 0.22); --accent-line-soft: rgba(139, 133, 238, 0.28);
+    --overlay-ink: rgba(4, 6, 10, 0.66);
+    /* 底色上的 HUD 网格：深紫微光，与浅色同一角色 */
+    --grid-line: rgba(139, 133, 238, 0.055);
     --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
     --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
-    --shadow-hover: 0 6px 16px rgba(0, 0, 0, 0.42);
+    --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 14px rgba(139, 133, 238, 0.20);
     /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
-    --code-bg: #232833; --toast-bg: #2A3040;
+    --code-bg: #232833; --toast-bg: #242C3C;
     --toast-ink: #E8EAF4;
     --code-ink: #E8EAF4; --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
   }
@@ -113,7 +118,11 @@
   html { scrollbar-gutter: stable; }
   body {
     font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-    background: var(--bg); color: var(--ink);
+    background-color: var(--bg);
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 26px 26px;
+    color: var(--ink);
     font-size: var(--fs-base); line-height: 1.55;
     transition: background-color var(--t) var(--ease), color var(--t) var(--ease);
     -webkit-font-smoothing: antialiased;
@@ -177,14 +186,14 @@
   @keyframes statTick { 0% { transform: translateY(5px); opacity: 0.35; } 60% { transform: translateY(-1px); } }
   .stat { display: flex; align-items: baseline; gap: 7px; }
   .stat .num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xl); font-weight: 700; letter-spacing: -0.02em; }
-  .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); }
+  .stat .lbl { font-size: var(--fs-sm); color: var(--ink-2); letter-spacing: 0.04em; }
   .stat.zero { opacity: 0.66; }
   .stat.zero .num, .stat.zero .lbl { color: var(--ink-3); }
 
-  .board { display: flex; flex-direction: column; gap: 16px; padding-bottom: 8px; }
+  .board { display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
   .group-title {
     font-size: var(--fs-sm); font-weight: 700; color: var(--ink-2);
-    display: flex; align-items: center; gap: 10px; margin: 6px 0 10px;
+    display: flex; align-items: center; gap: 10px; margin: 4px 0 8px;
   }
   .group-title::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
   button.group-title { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
@@ -228,7 +237,7 @@
      也不写全量过渡，逐条列名才不会把宽高这类布局属性一起拖进动画。 */
   .keycard {
     background: var(--surface); border: 1px solid var(--rule); border-radius: var(--r-card);
-    padding: 15px 18px;
+    padding: 13px 15px;
     transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
       box-shadow var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
   }
@@ -244,7 +253,7 @@
 
   .kc-main { display: flex; flex-direction: column; gap: 10px; }
   .kc-l1 { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .plat { font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+  .plat { font-family: var(--mono); font-size: var(--fs-lg); font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
   .plat-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .st { font-size: var(--fs-sm); font-weight: 700; border-radius: var(--r-chip); padding: 2px 9px; }
   .st.ok { color: var(--api); background: var(--api-soft); }
@@ -707,7 +716,7 @@
      走墨色——两级导航靠色阶分清，不靠字重或大小硬喊。 */
   .viewnav {
     display: inline-flex; gap: 3px; flex-wrap: wrap;
-    padding: 4px; margin: 15px 0 17px; max-width: 100%;
+    padding: 4px; margin: 10px 0 12px; max-width: 100%;
     background: var(--surface-2); border: 1px solid var(--rule);
     border-radius: var(--r-pill);
   }
@@ -719,7 +728,7 @@
     transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
   .viewnav button:hover { color: var(--accent-ink); }
-  .viewnav button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+  .viewnav button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 14px var(--accent-line); }
   .viewnav button[aria-selected="true"]:hover { color: var(--on-accent); }
   .viewnav button:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
   /* 面板切换是即时的：给翻页编舞会让三块域的内容互相闪，
@@ -728,18 +737,18 @@
 
   /* 顶栏：收一寸呼吸，品牌标识放大半号；动作区分主次
      （导出 / 导入 / 账号池已退成 ghost）后整条更像一条工具栏。 */
-  .topbar { padding: 17px 0 11px; }
+  .topbar { padding: 13px 0 9px; }
   .brand .logo { width: 32px; height: 36px; }
 
   /* 统计条：只留一根发丝底线，数字是这条页面的节拍器，
      间距放宽到 30px 让每格有自己的呼吸位。 */
-  .stats { display: flex; gap: 30px; padding: 11px 0 12px; flex-wrap: wrap; border-bottom: 1px solid var(--rule-soft); }
+  .stats { display: flex; gap: 24px; padding: 8px 0 10px; flex-wrap: wrap; border-bottom: 1px solid var(--rule-soft); }
 
   /* 筛选标签：与视图导航同一套分段控件语言，但选中态走墨色
      （墨底 + 底色字）——工作区级主色、看板级墨色，两级靠色阶分开。
      容器吃 surface-2，标签本体透明，悬停只改字色。 */
   .filter-bar {
-    display: flex; gap: 3px; padding: 4px; margin-bottom: 16px; flex-wrap: wrap;
+    display: flex; gap: 3px; padding: 4px; margin-bottom: 12px; flex-wrap: wrap;
     background: var(--surface-2); border: 1px solid var(--rule);
     border-radius: var(--r-pill); max-width: 100%;
   }
