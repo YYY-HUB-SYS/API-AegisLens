@@ -169,6 +169,10 @@ function runSuite(backend) {
     /* 空串 host 是合法目标：精确移除「不知道哪台」那条 */
     store.removeAssigned(rec.id, 'n8n', '');
     assert.deepStrictEqual(store.getKey(rec.id).assigned, []);
+    /* add 会 trim，remove 也得 trim：带空格的删法照样删得掉（审查 A-2） */
+    store.addAssigned(rec.id, '带空格的工具', '某台电脑');
+    store.removeAssigned(rec.id, ' 带空格的工具 ', ' 某台电脑 ');
+    assert.deepStrictEqual(store.getKey(rec.id).assigned, [], 'remove 与 add 一样要 trim');
   });
 
   test('存储后端 json：rename 瞬态 EPERM 要重试，不该让保存挂掉', () => {
@@ -230,6 +234,63 @@ function runSuite(backend) {
       { tool: 'Dify', host: '' },
       { tool: 'n8n', host: '' }
     ], '老字符串数组应归一为 {tool, host:""}');
+    /* 迁移只跑一次：再开一次库，幂等不重复不丢（审查 A-3） */
+    const again = createStore(dir, loadOrCreateMasterKey(dir), { backend: backend });
+    assert.deepStrictEqual(again.getKey(rec.id).assigned, k.assigned, '重开后去向不变');
+  });
+
+  test('存储后端 ' + backend + '：脏的去向数据（null / 数字 / 空工具）归一时不复活', () => {
+    if (backend !== 'json') return;
+    const { store, dir } = newStore(backend);
+    const rec = store.createKey({
+      name: '脏数据', platform: 'deepseek', customName: '', key: KEY_VALUE,
+      base: 'https://api.deepseek.com', model: '', reg: '', exp: ''
+    });
+    closeAllStores();
+    /* 手改 store.json 塞合法 JSON 但语义脏的条目：JSON 后端直接读文件，
+       这种数据真能进来；SQLite 列约束挡住了，不在此列 */
+    const file = path.join(dir, 'store.json');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    (Array.isArray(data.keys) ? data.keys : []).forEach(function (d) {
+      if (d) d.assigned = ['Dify', null, 42, { tool: '', host: '白填的' }, { tool: 'n8n', host: '办公室' }];
+    });
+    fs.writeFileSync(file, JSON.stringify(data));
+    const reopened = createStore(dir, loadOrCreateMasterKey(dir), { backend: backend });
+    assert.deepStrictEqual(reopened.getKey(rec.id).assigned, [
+      { tool: 'Dify', host: '' },
+      { tool: 'n8n', host: '办公室' }
+    ], 'null / 数字 / 空工具要丢掉，有效条目原样保留');
+  });
+
+  test('存储后端 json：rename 重试耗尽要抛出，非重试错误码第一次就抛', () => {
+    if (backend !== 'json') return;
+    const { store } = newStore(backend);
+    const rec = store.createKey({
+      name: '重试边界', platform: 'deepseek', customName: '', key: KEY_VALUE,
+      base: 'https://api.deepseek.com', model: '', reg: '', exp: ''
+    });
+    const realRename = fs.renameSync;
+    let calls = 0;
+    fs.renameSync = function () {
+      calls++; const e = new Error('EPERM'); e.code = 'EPERM'; throw e;
+    };
+    try {
+      assert.throws(function () { store.addAssigned(rec.id, 'Dify', '办公室'); }, /EPERM/,
+        '5 次重试耗尽后必须抛，不该静默丢数据');
+    } finally {
+      fs.renameSync = realRename;
+    }
+    assert.strictEqual(calls, 5, '恰好 5 次尝试（首试 + 4 次重试）');
+    calls = 0;
+    fs.renameSync = function () {
+      calls++; const e = new Error('ENOSPC'); e.code = 'ENOSPC'; throw e;
+    };
+    try {
+      assert.throws(function () { store.addAssigned(rec.id, 'n8n', ''); }, /ENOSPC/);
+    } finally {
+      fs.renameSync = realRename;
+    }
+    assert.strictEqual(calls, 1, '非重试错误码第一次就抛，不浪费重试额度');
   });
 
   test('存储后端 ' + backend + '：余额与测试结果持久化', () => {

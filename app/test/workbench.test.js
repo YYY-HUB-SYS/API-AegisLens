@@ -319,6 +319,23 @@ test('单卡操作只重绘那一张卡，不许整板重建（用户 10-10：�
     '抽屉开合这一条就是用户报的那一下，别退回 render()');
 });
 
+test('去向快选的三种状态要有各自的视觉出口（审查 A-1：第三态不悬停看不出）', () => {
+  const html = readHomepage();
+  /* 三态：onThis→on（实色）、elsewhere→away（虚线）、都没有→无类 */
+  assert.ok(html.includes("(onThis ? ' on' : elsewhere ? ' away' : '')"),
+    '快选按钮要按「这台电脑已登记 / 其他电脑已登记 / 未登记」分三态渲染');
+  assert.ok(/elsewhere \? '已登记在其他电脑，点一下登记到这台'/.test(html),
+    '第三态的 title 要说清「在其他电脑，点一下登记到这台」');
+  /* away 态必须与未登记在视觉上分开：虚线边 + 主色字 */
+  assert.ok(/\.tool-pick\.away \{[^}]*border-style: dashed/.test(html),
+    '.tool-pick.away 要用虚线边，否则第三态和未登记长得一样');
+  assert.ok(/\.tool-pick\.away[^{]*\{[^}]*color: var\(--accent-ink\)/.test(html),
+    'away 态文字要走主色，不是默认灰色');
+  /* 点了「其他电脑已登记」的工具是登记到这台，不是取消 */
+  assert.ok(/if \(onThis\) \{ removeAssigned\(k, pick, SELF_HOST\); return; \}/.test(html),
+    '只有「这台已登记」点了才取消；其他电脑已登记点了是新增');
+});
+
 test('导入这一步给得出「统一有效期」和「要不要查余额」两个选择', () => {
   const html = readHomepage();
   /* 有效期：从别的机器导过来常常整批同一个到期日，或者干脆没填 */

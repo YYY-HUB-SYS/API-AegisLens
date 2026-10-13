@@ -105,6 +105,11 @@ test('API 集成：完整业务流程', async () => {
     assert.strictEqual(r.data.key.balance.status, 'unsupported', 'OpenAI 不支持余额查询');
     const openaiId = r.data.key.id;
 
+    /* /api/meta 带出本机名：界面据此知道「这台电脑」叫什么（审查 A-3） */
+    r = await call(base, 'GET', '/api/meta');
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.host, os.hostname(), 'meta.host 应是本机名');
+
     r = await call(base, 'POST', '/api/keys/' + k.id + '/test');
     assert.strictEqual(r.status, 200);
     assert.strictEqual(r.data.test.status, 'pass');
@@ -595,7 +600,8 @@ test('API 集成：批量导入密钥', async () => {
           name: '新密钥B',
           platform: 'openai',
           key: 'sk-import-new-b-3333',
-          endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }]
+          endpoints: [{ url: 'https://api.openai.com/v1', style: 'openai' }],
+          assigned: [{ tool: 'Cherry Studio', host: '办公室' }]
         },
         {
           name: '无效密钥',
@@ -624,6 +630,11 @@ test('API 集成：批量导入密钥', async () => {
     assert.ok(newA.assigned.some(function (a) { return a.tool === 'n8n'; }), '配置去向应被导入');
     assert.ok(newA.assigned.every(function (a) { return a.host === ''; }),
       '旧格式导出的字符串去向应归一为「不知道哪台电脑」');
+    /* 新格式 {tool, host} 对象原样导入，不掉 host（审查 A-3） */
+    const newB = r.data.keys.find(k => k.name === '新密钥B');
+    assert.ok(newB, '新密钥B 应在返回列表中');
+    assert.deepStrictEqual(newB.assigned, [{ tool: 'Cherry Studio', host: '办公室' }],
+      '新格式对象去向应原样导入');
 
     /* 验证跳过详情 */
     const skippedNames = r.data.skippedDetails.map(s => s.name);

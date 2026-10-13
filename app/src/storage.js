@@ -650,14 +650,17 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
-    /* host 传 undefined = 这个工具在所有电脑上的登记一起取消；传字符串（含空串）只取消那一台 */
+    /* host 传 undefined = 这个工具在所有电脑上的登记一起取消；传字符串（含空串）只取消那一台。
+       tool/host 与 add 一样先 trim：DELETE 带空格的工具名要能删掉（审查 A-2） */
     removeAssigned(id, tool, host) {
       const d = find(id);
       if (!d) return null;
+      const wantTool = String(tool == null ? '' : tool).trim();
+      const wantHost = host === undefined ? undefined : String(host == null ? '' : host).trim();
       d.assigned = normAssigned(d.assigned).filter(function (e) {
-        if (e.tool !== tool) return true;
-        if (host === undefined) return false;
-        return e.host !== host;
+        if (e.tool !== wantTool) return true;
+        if (wantHost === undefined) return false;
+        return e.host !== wantHost;
       });
       d.updatedAt = nowIso();
       persist();
@@ -1326,8 +1329,10 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     removeAssigned(id, tool, host) {
       const cur = getRow(id);
       if (!cur) return null;
-      if (host === undefined) stmt.delAssignedAllTool.run(id, tool);
-      else stmt.delAssigned.run(id, tool, host);
+      /* 与 add 一样先 trim，DELETE 带空格的工具名要能删掉（审查 A-2） */
+      const wantTool = String(tool == null ? '' : tool).trim();
+      if (host === undefined) stmt.delAssignedAllTool.run(id, wantTool);
+      else stmt.delAssigned.run(id, wantTool, String(host == null ? '' : host).trim());
       stmt.touch.run(nowIso(), id);
       return toRec(getRow(id));
     },
