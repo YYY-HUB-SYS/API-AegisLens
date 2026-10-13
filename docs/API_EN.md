@@ -22,7 +22,7 @@
 | `GET` | `/api/keys/{id}/history?kind=test\|balance` | Observation history: last 1000 rows per key, 200 returned by default. **No UI entry point** |
 | `POST` | `/api/refresh-balances` | Batch balance refresh |
 | `GET` | `/api/platforms` | Built-in platform catalogue (13 + custom) |
-| `GET` | `/api/meta` | Version, storage backend, data directory, shadow store |
+| `GET` | `/api/meta` | Version, meta-models date, storage backend, data directory, hostname, shadow store |
 
 ### Endpoints (models)
 
@@ -133,7 +133,7 @@ explicit checkbox, which then reveals items one by one.
 | Total routes | 47 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
 | UI actions | 67 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
-| Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS`, `normEps` in `adapters.js` |
+| Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Minimum passphrase length | 8 characters | `crypto.js` |
 | KDF | scrypt `N=32768, r=8, p=1` | `crypto.js` |
 | Recovery code | 52 characters (base32, 256 bits) | `recovery.js` |

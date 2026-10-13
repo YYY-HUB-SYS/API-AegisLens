@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20后端-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
-![Tests](https://img.shields.io/badge/测试-513%20全绿-4B3FE3)
+![Tests](https://img.shields.io/badge/测试-524%20全绿-4B3FE3)
 ![Loopback](https://img.shields.io/badge/监听-默认%20127.0.0.1-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -75,7 +75,7 @@ npm start
 - **凭证保险库** // 网站口令 / API 私钥 / 动态码出码，明文只驻内存 30 秒，切走标签页立即收回
 - **账号池** // 多把 Key 归成一组看成员健康，成员走的还是同一套掩码视图，锁着照样 `423`
 - **作用域令牌** // 4 个 scope + 资源清单 + 有效期 + 单独吊销；库里只留 HMAC 指纹前 8 位
-- **零依赖** // 纯标准库、前端单文件、不引 CDN；唯一随仓的二进制是本地 vendor 的等宽字体子集（OFL）
+- **零依赖** // 纯标准库、前端无构建（5 个静态文件）、不引 CDN；唯一随仓的二进制是本地 vendor 的等宽字体子集（OFL）
 
 逐项能力、对应接口、字段上限和所有限制数字，在[接口与限制一览](./docs/API.md)。那里每条路径和每个数字都是从代码里数出来的，并由 `app/test/docs.test.js` 对着源码复核 —— 写了代码里不存在的接口，它就红。
 
@@ -162,7 +162,7 @@ flowchart LR
 cd app && npm test        # 等价于 node --test test/*.test.js
 ```
 
-2026-10-12 在 Node v24.14.0 实跑：`tests 513 / pass 513 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、TOTP 与口令生成、API 集成与校验、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
+2026-10-13 在 Node v24.14.0 实跑：`tests 524 / pass 524 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、TOTP 与口令生成、API 集成与校验、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
 
 ## 报告安全问题 / 备份
 

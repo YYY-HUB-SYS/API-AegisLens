@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-513%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-524%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/bind-127.0.0.1%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -76,7 +76,7 @@ Ten lines, and every one of them has a button in the UI:
 - **Credential vault** // website passwords, API secrets and live TOTP codes; plaintext stays in memory for 30 seconds and is dropped immediately when the tab loses focus
 - **Account pools** // group several keys and watch member health, through the same masked view — a locked vault answers `423` here too
 - **Scoped consumer tokens** // 4 scopes + explicit resource lists + expiry + individual revocation; only the first 8 hex of an HMAC fingerprint is stored
-- **Zero dependencies** // standard library only, single-file frontend, no CDN; the only binary in the repo is a vendored monospace font subset (OFL)
+- **Zero dependencies** // standard library only, build-free frontend (5 static files), no CDN; the only binary in the repo is a vendored monospace font subset (OFL)
 
 Every capability, endpoint, field limit and number lives in [API & limits](./docs/API_EN.md) — each path and each figure there is counted out of the source and re-checked against it by `app/test/docs.test.js`, so documenting an endpoint that does not exist turns the suite red.
 
@@ -163,7 +163,7 @@ Listed so that they never arrive as a surprise.
 cd app && npm test        # same as node --test test/*.test.js
 ```
 
-Measured on this version on 2026-10-12 with Node v24.14.0: `tests 513 / pass 513 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals, reclamation of the scratch directories tests create (`tmp-sweep.test.js`) — plus `docs.test.js`, which watches that the documentation and the code still agree.
+Measured on this version on 2026-10-13 with Node v24.14.0: `tests 524 / pass 524 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals, reclamation of the scratch directories tests create (`tmp-sweep.test.js`) — plus `docs.test.js`, which watches that the documentation and the code still agree.
 
 ## Reporting a vulnerability / backups
 

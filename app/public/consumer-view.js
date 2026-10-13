@@ -17,10 +17,10 @@
 
   后端契约（严格按此，不自创字段）：
     GET  /api/consumer/tokens       -> { tokens:[ tid,fingerprint,label,scopes,keyIds,credIds,
-                                       resourceCount,issuedAt,expiresAt,expired,revoked,revokedAt,lastUsedAt ] }
+                                       resourceCount,iat,exp,issuedAt,expiresAt,expired,revoked,revokedAt,lastUsedAt ] }
     POST /api/consumer/tokens       { label,scopes,keyIds,credIds,ttlSeconds }
-       201 -> { token,tid,fingerprint,label,scopes,keyIds,credIds,resourceCount,
-                issuedAt,expiresAt,ttlSeconds }
+       201 -> { token,ttlSeconds,tid,fingerprint,label,scopes,keyIds,credIds,resourceCount,
+                iat,exp,issuedAt,expiresAt,expired,revoked,revokedAt,lastUsedAt }
     POST /api/consumer/tokens/:tid/revoke -> { ok,tid,revokedAt,tokens:[…同 GET 的数组…] }
     400 {error}（consumer-tokens.js 的中文校验文案）· 423 {error} · 429 {error,retryAfterMs}
     资源选项来自 GET /api/keys -> {keys:[…masked…]} 与 GET /api/credentials -> {credentials:[…masked…]}

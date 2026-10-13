@@ -195,6 +195,13 @@ test('签发 201 带 token，而列表响应里那把串一个字节都不出现
   assert.strictEqual(made.data.resourceCount, 2);
   assert.match(made.data.fingerprint, /^[0-9a-f]{8}$/, 'fingerprint 是 8 位 hex');
   assert.ok(made.data.expiresAt > made.data.issuedAt);
+  /* 字段集合钉死：头部契约注释（consumer-view.js）承诺的每个字段都在，
+     多一个少一个都是漂移——只挑几个字段断言抓不到这种漂移 */
+  assert.deepStrictEqual(Object.keys(made.data).sort(), [
+    'credIds', 'exp', 'expired', 'expiresAt', 'fingerprint', 'iat',
+    'issuedAt', 'keyIds', 'label', 'lastUsedAt', 'resourceCount',
+    'revoked', 'revokedAt', 'scopes', 'tid', 'token', 'ttlSeconds'
+  ], '签发 201 的字段集合要与契约注释逐字一致');
 
   const list = await h.call('GET', '/api/consumer/tokens');
   assert.strictEqual(list.status, 200);

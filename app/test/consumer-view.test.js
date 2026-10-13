@@ -3,6 +3,8 @@
    后端也全对，只有把视图自己的裁剪逻辑单独拎出来才拦得住。 */
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const view = require('../public/consumer-view.js');
 const tokens = require('../src/consumer-tokens.js');
 
@@ -42,4 +44,19 @@ test('draft 残缺时不能炸：scopes 缺失就是两类都不给', () => {
   assert.deepStrictEqual(eff({}), { keyIds: [], credIds: [] });
   assert.deepStrictEqual(eff(null), { keyIds: [], credIds: [] });
   assert.deepStrictEqual(eff({ scopes: ['key:read'] }), { keyIds: [], credIds: [] });
+});
+
+/* 头部契约注释是界面唯一的后端契约说明：GET 与 201 两行的字段清单
+   必须彼此对得上——POST 只能比 GET 多 token 与 ttlSeconds。
+   改了一行忘改另一行就是漂移，接口测试看不见，只有机械比对注释拦得住。 */
+test('头部契约注释：POST 201 的字段 = GET 列表 + token/ttlSeconds', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'public', 'consumer-view.js'), 'utf8');
+  const get = src.match(/tokens:\[([^\]]*)\]/);
+  const post = src.match(/201 -> \{([^}]*)\}/);
+  assert.ok(get, '契约注释的 GET 行要在');
+  assert.ok(post, '契约注释的 201 行要在');
+  const fields = s => s.split(',').map(x => x.trim()).filter(Boolean);
+  assert.deepStrictEqual([...fields(post[1])].sort(),
+    [...new Set([...fields(get[1]), 'token', 'ttlSeconds'])].sort(),
+    'POST 201 比 GET 只能多 token 与 ttlSeconds');
 });

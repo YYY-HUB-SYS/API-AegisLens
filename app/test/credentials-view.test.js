@@ -226,3 +226,19 @@ test('destroy() 把 rootEl 的委托监听全部摘掉：重挂载不会双份�
       '重挂载后监听集合变了：' + root.listeners.join(', '));
   });
 });
+
+/* 样式表里的每个类名都要真被视图代码用到：类名在 JS 里以字符串出现
+   （模板里的 class=、querySelector、classList 增删），修饰类（.w40）
+   同样以字符串拼出来。只在样式表内部自引用的类就是死规则——
+   今天删掉的 .cv-banner-act / .w70 / .cv-span2 / .cv-pw-hold 就是这么长出来的。 */
+test('凭证样式表不许长死规则：每个类名都要被视图代码用到', () => {
+  /* 注释里也会提到 .keycard 这类别名，不是真选择器，先剥掉再数 */
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'credentials-view.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'credentials-view.js'), 'utf8');
+  const classes = new Set();
+  for (const m of css.matchAll(/\.([a-zA-Z][\w-]*)/g)) classes.add(m[1]);
+  const dead = [...classes].filter(c => !new RegExp('\\b' + c + '\\b').test(js));
+  assert.deepStrictEqual(dead, [],
+    '这些类只在样式表里定义、视图代码一次都没用：' + dead.join(', '));
+});

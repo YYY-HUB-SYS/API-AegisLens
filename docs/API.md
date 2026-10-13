@@ -19,7 +19,7 @@
 | `GET` | `/api/keys/{id}/history?kind=test\|balance` | 观测历史。每把 Key 保留最近 1000 条,默认读回 200 条。**界面上暂无入口** |
 | `POST` | `/api/refresh-balances` | 批量刷余额 |
 | `GET` | `/api/platforms` | 内置平台目录(13 家 + custom) |
-| `GET` | `/api/meta` | 版本、存储后端、数据目录、影子库 |
+| `GET` | `/api/meta` | 版本、元数据库日期、存储后端、数据目录、本机名、影子库 |
 
 ### 端点(models)
 
@@ -67,7 +67,7 @@
 | `GET` | `/api/credentials/{id}/totp` | 实时验证码 + `step` / `digits` / `algorithm` / `secondsRemaining` |
 | `GET` | `/api/credentials/{id}/password-policy` | 该站点的口令规则(数据来自 Apple 公开规则表) |
 
-字段上限:标题 200、用户名/网址/文件夹/标签各 200、口令 256、私钥 512、备注 2000。
+字段上限:标题 200、用户名/网址/文件夹各 500、标签最多 12 个 × 40 字、口令 512、私钥 512、TOTP 种子 1024、备注 4000。
 TOTP 种子可以是裸 Base32,也可以是整条 `otpauth://` URI(此时 `period` / `digits` / `algorithm` 以 URI 为准)。
 
 ## 保险库会话
@@ -126,7 +126,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 | 路由总数 | 47(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
 | 界面动作 | 67 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
-| 每把 Key 端点上限 | 6(前后端各一道) | `MAX_EPS`、`adapters.js` 的 `normEps` |
+| 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令最短 | 8 位 | `crypto.js` |
 | KDF | scrypt `N=32768, r=8, p=1` | `crypto.js` |
 | 恢复码 | 52 字符(base32,256 位) | `recovery.js` |
