@@ -139,9 +139,20 @@ test('API 集成：完整业务流程', async () => {
 
     r = await call(base, 'POST', '/api/keys/' + k.id + '/assigned', { tool: 'Dify' });
     assert.strictEqual(r.status, 201);
-    assert.deepStrictEqual(r.data.assigned, ['Dify']);
+    /* 不带 host = 记到本机（/api/meta 的 host 同源） */
+    assert.deepStrictEqual(r.data.assigned, [{ tool: 'Dify', host: os.hostname() }]);
     r = await call(base, 'POST', '/api/keys/' + k.id + '/assigned', { tool: 'Dify' });
-    assert.strictEqual(r.status, 409, '重复添加去向应被拒绝');
+    assert.strictEqual(r.status, 409, '同一电脑重复添加去向应被拒绝');
+    /* 同一工具换一台电脑是另一条登记 */
+    r = await call(base, 'POST', '/api/keys/' + k.id + '/assigned', { tool: 'Dify', host: '另一台电脑' });
+    assert.strictEqual(r.status, 201);
+    assert.deepStrictEqual(r.data.assigned, [
+      { tool: 'Dify', host: os.hostname() },
+      { tool: 'Dify', host: '另一台电脑' }
+    ]);
+    r = await call(base, 'DELETE', '/api/keys/' + k.id + '/assigned/' + encodeURIComponent('Dify') + '?host=' + encodeURIComponent(os.hostname()));
+    assert.deepStrictEqual(r.data.assigned, [{ tool: 'Dify', host: '另一台电脑' }]);
+    /* ?host= 缺省 = 该工具在所有电脑上的登记一并取消 */
     r = await call(base, 'DELETE', '/api/keys/' + k.id + '/assigned/' + encodeURIComponent('Dify'));
     assert.deepStrictEqual(r.data.assigned, []);
 
@@ -609,8 +620,10 @@ test('API 集成：批量导入密钥', async () => {
     assert.strictEqual(newA.exp, '2027-01-01');
     assert.strictEqual(newA.authNote, '测试导入');
     assert.strictEqual(newA.models.length, 1, '模型应被导入');
-    assert.ok(newA.assigned.includes('Dify'), '配置去向应被导入');
-    assert.ok(newA.assigned.includes('n8n'), '配置去向应被导入');
+    assert.ok(newA.assigned.some(function (a) { return a.tool === 'Dify'; }), '配置去向应被导入');
+    assert.ok(newA.assigned.some(function (a) { return a.tool === 'n8n'; }), '配置去向应被导入');
+    assert.ok(newA.assigned.every(function (a) { return a.host === ''; }),
+      '旧格式导出的字符串去向应归一为「不知道哪台电脑」');
 
     /* 验证跳过详情 */
     const skippedNames = r.data.skippedDetails.map(s => s.name);

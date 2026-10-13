@@ -1157,6 +1157,8 @@
   /* ================= 状态（服务端数据 + 界面瞬态） ================= */
 
   var state = { keys: [], platforms: {}, meta: null, filter: 'all', pools: [], view: 'keys' };
+  /* 「这台电脑」叫什么：/api/meta 带出来，配置去向默认记到这台 */
+  var SELF_HOST = '';
   var ui = {
     drawerOpen: {}, editingNote: {}, editingSupp: {}, collapsedGroup: {},
     manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {}
@@ -1730,8 +1732,8 @@
     render();
   }
 
-  /* 去向快选。形态（GUI / CLI / IDE）写进字符串本身而不是新开字段：assigned 现在是纯字符串数组，
-     双后端、导出格式、消费者令牌的资源清单都吃这个形状，为它开 schema 要连迁移一起谈。 */
+  /* 去向快选。形态（GUI / CLI / IDE）写进字符串本身；host 是「哪台电脑」那一维：
+     一条去向 = {tool, host}，同一工具可以登记在多台电脑上（用户 10-10 第 5 条）。 */
   var TOOL_PRESETS = [
     { name: 'Dify', form: 'GUI' }, { name: 'n8n', form: 'GUI' },
     { name: 'Cherry Studio', form: 'GUI' }, { name: 'WorkBuddy', form: 'GUI' },
@@ -1754,10 +1756,11 @@
     return '<div class="tool-picks" role="group" aria-label="常用工具快速选择">' +
       TOOL_PRESETS.map(function (t) {
         var label = toolPresetLabel(t);
-        var on = taken.indexOf(label) > -1;
-        return '<button class="tool-pick' + (on ? ' on' : '') + '" type="button" data-act="pick-assigned" data-tool="' +
-          esc(label) + '" aria-pressed="' + (on ? 'true' : 'false') + '" title="' +
-          (on ? '已登记，再点一次取消' : '按 ' + t.form + ' 形态登记') + '">' + esc(t.name) +
+        var onThis = taken.some(function (a) { return a.tool === label && a.host === SELF_HOST; });
+        var elsewhere = !onThis && taken.some(function (a) { return a.tool === label; });
+        return '<button class="tool-pick' + (onThis ? ' on' : '') + '" type="button" data-act="pick-assigned" data-tool="' +
+          esc(label) + '" aria-pressed="' + (onThis ? 'true' : 'false') + '" title="' +
+          (onThis ? '已登记在这台电脑，再点一次取消' : elsewhere ? '已登记在其他电脑，点一下登记到这台' : '按 ' + t.form + ' 形态登记到这台电脑') + '">' + esc(t.name) +
           (label === t.name ? '' : '<span class="tp-form">' + t.form + '</span>') + '</button>';
       }).join('') + '</div>';
   }
@@ -1780,16 +1783,18 @@
     var assignedChips =
       '<span class="kc-assigned">' +
         (assigned.length ? '<span class="meta">已配置到</span>' : '') +
-        assigned.map(function (t) {
-          return '<span class="tool-chip">' + esc(t) +
-            '<button class="rm" data-act="rm-assigned" data-tool="' + esc(t) + '" title="移除「' + esc(t) + '」" aria-label="移除 ' + esc(t) + '">' + ic('x') + '</button></span>';
+        assigned.map(function (a) {
+          var label = a.tool + (a.host ? ' · ' + a.host : '');
+          return '<span class="tool-chip">' + esc(label) +
+            '<button class="rm" data-act="rm-assigned" data-tool="' + esc(a.tool) + '" data-host="' + esc(a.host) + '" title="移除「' + esc(label) + '」" aria-label="移除 ' + esc(label) + '">' + ic('x') + '</button></span>';
         }).join('') +
-        '<button class="btn ghost small" data-act="toggle-assigned" title="登记这个密钥被配到了哪个工具">' +
+        '<button class="btn ghost small" data-act="toggle-assigned" title="登记这个密钥被配到了哪个工具、哪台电脑">' +
           (assigned.length ? '+ 添加去向' : '+ 记录配置去向') + '</button>' +
       '</span>';
     var toolAddBar = ui.assignedOpen[k.id] ?
       '<div class="tool-add-bar">' +
           '<input data-tool-input maxlength="40" placeholder="工具名，如 Dify、n8n、Cherry Studio" aria-label="配置到的工具名" autocomplete="off">' +
+          '<input data-host-input maxlength="40" placeholder="' + (SELF_HOST ? '哪台电脑，留空 = ' + esc(SELF_HOST) : '哪台电脑（留空 = 这台）') + '" aria-label="哪台电脑，留空就是这台" autocomplete="off">' +
           '<button class="btn primary small" data-act="add-assigned">添加</button>' +
           '<button class="btn small" data-act="cancel-assigned">取消</button>' +
         '</div>' + renderToolPicks(k) : '';
@@ -2016,12 +2021,14 @@
     }
     if (act === 'pick-assigned') {
       var pick = btn.dataset.tool || '';
-      if ((k.assigned || []).indexOf(pick) > -1) { removeAssigned(k, pick); return; }
-      addAssignedTool(k, pick, true);
+      var onThis = (k.assigned || []).some(function (a) { return a.tool === pick && a.host === SELF_HOST; });
+      if (onThis) { removeAssigned(k, pick, SELF_HOST); return; }
+      addAssignedTool(k, pick, true, SELF_HOST);
       return;
     }
     if (act === 'add-assigned') {
-      addAssignedTool(k, card.querySelector('[data-tool-input]').value.trim());
+      var hostInp = card.querySelector('[data-host-input]');
+      addAssignedTool(k, card.querySelector('[data-tool-input]').value.trim(), false, hostInp ? hostInp.value.trim() : '');
       return;
     }
     if (act === 'cancel-assigned') {
@@ -2029,7 +2036,7 @@
       rerenderCard(k.id);
       return;
     }
-    if (act === 'rm-assigned') { removeAssigned(k, btn.dataset.tool); return; }
+    if (act === 'rm-assigned') { removeAssigned(k, btn.dataset.tool, btn.dataset.host); return; }
     if (act === 'edit') { openForm(k); return; }
     if (act === 'del') {
       if (btn.dataset.armed === '1') {
@@ -2152,7 +2159,8 @@
       commitSupp(k, card);
     } else if (ev.target.matches('[data-tool-input]')) {
       ev.preventDefault();
-      addAssignedTool(k, ev.target.value.trim());
+      var cardHost = card.querySelector('[data-host-input]');
+      addAssignedTool(k, ev.target.value.trim(), false, cardHost ? cardHost.value.trim() : '');
     }
   });
 
@@ -2249,24 +2257,27 @@
     }).catch(function (e) { toast(e.message, 'warn'); });
   }
 
-  function removeAssigned(k, tool) {
+  function removeAssigned(k, tool, host) {
     if (!tool) return;
-    api('DELETE', '/keys/' + k.id + '/assigned/' + encodeURIComponent(tool)).then(function (data) {
+    /* ?host= 空串也是有效目标：老数据「不知道哪台电脑」的归属就是 host='' */
+    api('DELETE', '/keys/' + k.id + '/assigned/' + encodeURIComponent(tool) + '?host=' + encodeURIComponent(host || '')).then(function (data) {
       k.assigned = data.assigned;
       render();
       focusToolPick(tool);
-      toast('已从配置清单移除「' + tool + '」', 'warn');
+      toast('已从配置清单移除「' + tool + '」' + (host ? '（' + host + '）' : ''), 'warn');
     }).catch(function (e) { toast(e.message, 'warn'); });
   }
-  function addAssignedTool(k, name, keepOpen) {
+  function addAssignedTool(k, name, keepOpen, host) {
     if (!name) { toast('请填写工具名', 'warn'); return; }
-    api('POST', '/keys/' + k.id + '/assigned', { tool: name }).then(function (data) {
+    /* host 留空后端会盖成本机名；toast 里用 SELF_HOST 说清记到了哪台 */
+    api('POST', '/keys/' + k.id + '/assigned', { tool: name, host: host || '' }).then(function (data) {
       k.assigned = data.assigned;
       /* 从快选进来的保持输入行展开：一次配三四个工具很常见，点一下就收走等于逼人反复开 */
       if (!keepOpen) ui.assignedOpen[k.id] = false;
       rerenderCard(k.id);
       if (keepOpen) focusToolPick(name);
-      toast('已记录「' + k.name + '」配置到 ' + name, 'ok');
+      var where = host || SELF_HOST;
+      toast('已记录「' + k.name + '」配置到 ' + name + (where ? '（' + where + '）' : ''), 'ok');
     }).catch(function (e) {
       if (e.status === 409) { ui.assignedOpen[k.id] = false; rerenderCard(k.id); }
       toast(e.message, 'warn');
@@ -2636,7 +2647,7 @@
       markBtn.style.display = 'none';
     } else {
       markBtn.style.display = '';
-      if ((k.assigned || []).indexOf(toolLabel) >= 0) {
+      if ((k.assigned || []).some(function (a) { return a.tool === toolLabel; })) {
         markBtn.textContent = '已配置到 ' + toolLabel + ' ✓';
         markBtn.disabled = true;
       } else {
@@ -3128,6 +3139,7 @@
       buildPlatformSelect();
       loadCollapsed();
       var m = state.meta || {};
+      SELF_HOST = m.host || '';
       document.getElementById('foot-meta').textContent =
         'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
       render();

@@ -36,10 +36,13 @@
 
 ### 去向记录
 
+一条去向 = `{tool, host}`：工具名 + 哪台电脑。同一工具可以登记在多台电脑上；
+老数据（纯字符串数组）读入时自动归一为 `host: ""`（不知道哪台电脑）。
+
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `POST` | `/api/keys/{id}/assigned` | 记一把 Key 配进了哪个工具 |
-| `DELETE` | `/api/keys/{id}/assigned/{tool}` | 取消 |
+| `POST` | `/api/keys/{id}/assigned` | 记一把 Key 配进了哪个工具；体 `{tool, host}`，`host` 留空 = 这台电脑 |
+| `DELETE` | `/api/keys/{id}/assigned/{tool}?host=` | 取消；带 `host` 只取消那一台，缺省 = 所有电脑一并取消 |
 
 ## 账号池
 

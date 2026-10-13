@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const tmp = require('./tmp.js');
 const { loadOrCreateMasterKey } = require('../src/crypto');
-const { createStore } = require('../src/storage');
+const { createStore, closeAllStores } = require('../src/storage');
 
 const KEY_VALUE = 'sk-secret-1234567890abcd';
 
@@ -139,18 +139,72 @@ function runSuite(backend) {
     assert.strictEqual(k.modelsFetched, true);
   });
 
-  test('存储后端 ' + backend + '：配置去向增删与去重', () => {
+  test('存储后端 ' + backend + '：配置去向按「工具 · 电脑」增删与去重', () => {
     const { store } = newStore(backend);
     const rec = store.createKey({
       name: '去向测试', platform: 'moonshot', customName: '', key: KEY_VALUE,
       base: 'https://api.moonshot.cn/v1', model: '', reg: '', exp: ''
     });
-    const r1 = store.addAssigned(rec.id, 'Dify');
-    assert.deepStrictEqual(r1.assigned, ['Dify']);
-    assert.strictEqual(store.addAssigned(rec.id, 'Dify'), null, '重复添加返回 null');
+    const r1 = store.addAssigned(rec.id, 'Dify', '办公室工作站');
+    assert.deepStrictEqual(r1.assigned, [{ tool: 'Dify', host: '办公室工作站' }]);
+    assert.strictEqual(store.addAssigned(rec.id, 'Dify', '办公室工作站'), null, '同一工具同一电脑重复添加返回 null');
+    /* 同一工具可以登记在多台电脑上 */
+    store.addAssigned(rec.id, 'Dify', '家里的笔记本');
+    /* host 缺省 = 老格式归属（不知道哪台电脑） */
     store.addAssigned(rec.id, 'n8n');
-    const r2 = store.removeAssigned(rec.id, 'Dify');
-    assert.deepStrictEqual(r2.assigned, ['n8n']);
+    assert.deepStrictEqual(store.getKey(rec.id).assigned, [
+      { tool: 'Dify', host: '办公室工作站' },
+      { tool: 'Dify', host: '家里的笔记本' },
+      { tool: 'n8n', host: '' }
+    ]);
+    /* 指定电脑：只移除那一台 */
+    const r2 = store.removeAssigned(rec.id, 'Dify', '办公室工作站');
+    assert.deepStrictEqual(r2.assigned, [
+      { tool: 'Dify', host: '家里的笔记本' },
+      { tool: 'n8n', host: '' }
+    ]);
+    /* host 缺省（undefined）：取消该工具在所有电脑上的登记（旧调用方语义） */
+    const r3 = store.removeAssigned(rec.id, 'Dify');
+    assert.deepStrictEqual(r3.assigned, [{ tool: 'n8n', host: '' }]);
+    /* 空串 host 是合法目标：精确移除「不知道哪台」那条 */
+    store.removeAssigned(rec.id, 'n8n', '');
+    assert.deepStrictEqual(store.getKey(rec.id).assigned, []);
+  });
+
+  test('存储后端 ' + backend + '：旧格式去向（纯字符串）读进来自动归一', () => {
+    const { store, dir } = newStore(backend);
+    const rec = store.createKey({
+      name: '旧库升级', platform: 'deepseek', customName: '', key: KEY_VALUE,
+      base: 'https://api.deepseek.com', model: '', reg: '', exp: ''
+    });
+    store.addAssigned(rec.id, 'Dify', '办公室工作站');
+    closeAllStores();
+
+    /* 把存储回退到「纯字符串数组」的老格式，模拟升级前的库 */
+    if (backend === 'json') {
+      const file = path.join(dir, 'store.json');
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      (Array.isArray(data.keys) ? data.keys : []).forEach(function (d) {
+        if (d) d.assigned = ['Dify', 'n8n'];
+      });
+      fs.writeFileSync(file, JSON.stringify(data));
+    } else {
+      const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(path.join(dir, 'keys.db'));
+      db.exec([
+        'DROP TABLE assigned;',
+        'CREATE TABLE assigned (key_id INTEGER NOT NULL, tool TEXT NOT NULL, PRIMARY KEY (key_id, tool));',
+        'INSERT INTO assigned (key_id, tool) VALUES (' + rec.id + ", 'Dify'), (" + rec.id + ", 'n8n');"
+      ].join('\n'));
+      db.close();
+    }
+
+    const reopened = createStore(dir, loadOrCreateMasterKey(dir), { backend: backend });
+    const k = reopened.getKey(rec.id);
+    assert.deepStrictEqual(k.assigned, [
+      { tool: 'Dify', host: '' },
+      { tool: 'n8n', host: '' }
+    ], '老字符串数组应归一为 {tool, host:""}');
   });
 
   test('存储后端 ' + backend + '：余额与测试结果持久化', () => {

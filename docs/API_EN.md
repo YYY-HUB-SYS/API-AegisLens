@@ -39,10 +39,14 @@ Capability flags: `reasoning`, `modalitiesIn`, `rpm`, plus the `outGtCtx` and `c
 
 ### Assignment trail
 
+One assignment = `{tool, host}`: the tool plus which computer it runs on. The same
+tool can be registered on several computers; legacy data (plain string arrays)
+normalizes to `host: ""` (unknown computer) on read.
+
 | Method | Path | Notes |
 |---|---|---|
-| `POST` | `/api/keys/{id}/assigned` | Record which tool a key was configured into |
-| `DELETE` | `/api/keys/{id}/assigned/{tool}` | Remove the record |
+| `POST` | `/api/keys/{id}/assigned` | Record which tool a key was configured into; body `{tool, host}`, empty `host` = this computer |
+| `DELETE` | `/api/keys/{id}/assigned/{tool}?host=` | Remove the record; with `host` only that computer is removed, without it all computers at once |
 
 ## Account pools
 

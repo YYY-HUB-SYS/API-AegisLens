@@ -355,6 +355,21 @@ function parseTokJson(v) {
   }
 }
 
+/* 配置去向：一条 = {tool, host}。host 是「哪台电脑」这一维（用户 10-10 第 5 条）；
+   旧库存的是纯字符串数组，读进来归一成对象，写出去一律对象；
+   host 为空串 = 不知道哪台电脑（老数据与旧格式导入）。 */
+function assignedEntry(tool, host) {
+  return { tool: String(tool == null ? '' : tool).trim(), host: String(host == null ? '' : host).trim() };
+}
+function normAssigned(v) {
+  if (!Array.isArray(v)) return [];
+  return v.map(function (e) {
+    if (typeof e === 'string') return assignedEntry(e, '');
+    if (e && typeof e === 'object') return assignedEntry(e.tool, e.host);
+    return null;
+  }).filter(function (e) { return e && e.tool; });
+}
+
 /* ================= JSON 文件后端 ================= */
 
 function makeJsonStore(dataDir, masterKey) {
@@ -365,6 +380,10 @@ function makeJsonStore(dataDir, masterKey) {
   } else {
     data = { nextId: 1, keys: [] };
   }
+  /* 旧库「配置去向」是纯字符串数组：读进来就归一，下次 persist() 文件自然升级成对象 */
+  (Array.isArray(data.keys) ? data.keys : []).forEach(function (d) {
+    if (d) d.assigned = normAssigned(d.assigned);
+  });
   /* 老库没有 history 字段：按现有文件里已用过的最大 id 续上，避免重启后新行撞号 */
   if (!Array.isArray(data.history)) data.history = [];
   if (typeof data.nextHistoryId !== 'number') {
@@ -443,7 +462,7 @@ function makeJsonStore(dataDir, masterKey) {
       test: doc.test || null,
       modelsFetched: !!doc.modelsFetched,
       models: (doc.models || []).map(deriveFlags),
-      assigned: doc.assigned || [],
+      assigned: normAssigned(doc.assigned),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -608,21 +627,28 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
-    addAssigned(id, tool) {
+    addAssigned(id, tool, host) {
       const d = find(id);
       if (!d) return null;
-      d.assigned = d.assigned || [];
-      if (d.assigned.indexOf(tool) >= 0) return null;
-      d.assigned.push(tool);
+      const entry = assignedEntry(tool, host);
+      if (!entry.tool) return null;
+      d.assigned = normAssigned(d.assigned);
+      if (d.assigned.some(function (e) { return e.tool === entry.tool && e.host === entry.host; })) return null;
+      d.assigned.push(entry);
       d.updatedAt = nowIso();
       persist();
       return toRec(d);
     },
 
-    removeAssigned(id, tool) {
+    /* host 传 undefined = 这个工具在所有电脑上的登记一起取消；传字符串（含空串）只取消那一台 */
+    removeAssigned(id, tool, host) {
       const d = find(id);
       if (!d) return null;
-      d.assigned = d.assigned.filter(function (t) { return t !== tool; });
+      d.assigned = normAssigned(d.assigned).filter(function (e) {
+        if (e.tool !== tool) return true;
+        if (host === undefined) return false;
+        return e.host !== host;
+      });
       d.updatedAt = nowIso();
       persist();
       return toRec(d);
@@ -846,7 +872,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     'CREATE TABLE IF NOT EXISTS assigned (',
     '  key_id INTEGER NOT NULL,',
     '  tool TEXT NOT NULL,',
-    '  PRIMARY KEY (key_id, tool)',
+    "  host TEXT NOT NULL DEFAULT '',",
+    '  PRIMARY KEY (key_id, tool, host)',
     ');',
     'CREATE TABLE IF NOT EXISTS history (',
     '  id INTEGER PRIMARY KEY AUTOINCREMENT,',
@@ -913,6 +940,18 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   try {
     db.exec('ALTER TABLE models ADD COLUMN extra TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
+  /* assigned 的主键从 (key_id, tool) 扩成 (key_id, tool, host)：同一工具可以登记在
+     多台电脑上。SQLite 改不了主键，旧库整表重建一次；host 列已在新库上，幂等 */
+  if (!db.prepare('PRAGMA table_info(assigned)').all().some(function (c) { return c.name === 'host'; })) {
+    db.exec([
+      'BEGIN IMMEDIATE;',
+      "CREATE TABLE assigned_v2 (key_id INTEGER NOT NULL, tool TEXT NOT NULL, host TEXT NOT NULL DEFAULT '', PRIMARY KEY (key_id, tool, host));",
+      "INSERT OR IGNORE INTO assigned_v2 (key_id, tool, host) SELECT key_id, tool, '' FROM assigned;",
+      'DROP TABLE assigned;',
+      'ALTER TABLE assigned_v2 RENAME TO assigned;',
+      'COMMIT;'
+    ].join('\n'));
+  }
 
   const stmt = {
     selectAll: db.prepare('SELECT * FROM keys ORDER BY id'),
@@ -929,9 +968,10 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     insModel: db.prepare('INSERT INTO models (key_id, id, ctx, out, src, note, extra) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     selModel: db.prepare('SELECT id, ctx, out, src, note, extra FROM models WHERE key_id = ? AND id = ?'),
     updModel: db.prepare('UPDATE models SET ctx = ?, out = ?, src = ?, note = ?, extra = ? WHERE key_id = ? AND id = ?'),
-    selAssigned: db.prepare('SELECT tool FROM assigned WHERE key_id = ? ORDER BY rowid'),
-    insAssigned: db.prepare('INSERT OR IGNORE INTO assigned (key_id, tool) VALUES (?, ?)'),
-    delAssigned: db.prepare('DELETE FROM assigned WHERE key_id = ? AND tool = ?'),
+    selAssigned: db.prepare('SELECT tool, host FROM assigned WHERE key_id = ? ORDER BY rowid'),
+    insAssigned: db.prepare('INSERT OR IGNORE INTO assigned (key_id, tool, host) VALUES (?, ?, ?)'),
+    delAssigned: db.prepare('DELETE FROM assigned WHERE key_id = ? AND tool = ? AND host = ?'),
+    delAssignedAllTool: db.prepare('DELETE FROM assigned WHERE key_id = ? AND tool = ?'),
     delAssignedAll: db.prepare('DELETE FROM assigned WHERE key_id = ?'),
     insHistory: db.prepare('INSERT INTO history (key_id, at, kind, status, latency, value, detail) VALUES (?, ?, ?, ?, ?, ?, ?)'),
     selHistory: db.prepare('SELECT * FROM history WHERE key_id = ? ORDER BY id DESC LIMIT ?'),
@@ -995,7 +1035,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     return stmt.selModels.all(id).map(modelFromRow).map(deriveFlags);
   }
   function loadAssigned(id) {
-    return stmt.selAssigned.all(id).map(function (r) { return r.tool; });
+    return stmt.selAssigned.all(id).map(function (r) { return { tool: r.tool, host: r.host || '' }; });
   }
   function historyFromRow(r) {
     return {
@@ -1262,19 +1302,22 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       return toRec(getRow(id));
     },
 
-    addAssigned(id, tool) {
+    addAssigned(id, tool, host) {
       const cur = getRow(id);
       if (!cur) return null;
-      const r = stmt.insAssigned.run(id, tool);
+      const entry = assignedEntry(tool, host);
+      if (!entry.tool) return null;
+      const r = stmt.insAssigned.run(id, entry.tool, entry.host);
       if (r.changes === 0) return null;
       stmt.touch.run(nowIso(), id);
       return toRec(getRow(id));
     },
 
-    removeAssigned(id, tool) {
+    removeAssigned(id, tool, host) {
       const cur = getRow(id);
       if (!cur) return null;
-      stmt.delAssigned.run(id, tool);
+      if (host === undefined) stmt.delAssignedAllTool.run(id, tool);
+      else stmt.delAssigned.run(id, tool, host);
       stmt.touch.run(nowIso(), id);
       return toRec(getRow(id));
     },

@@ -1,3 +1,4 @@
+const os = require('node:os');
 const adapters = require('./adapters');
 const enrich = require('./enrich');
 const META_MODELS = require('./meta-models.json');
@@ -217,6 +218,8 @@ async function routeApi(req, res, ctx) {
       metaModels: META_MODELS._updated || null,
       storage: storage.backend,
       dataDir: storage.dataDir,
+      /* 界面把「配置去向」记到哪台电脑，默认就是服务这台 */
+      host: os.hostname(),
       shadowStore: storage.shadowStore || null
     });
   }
@@ -633,15 +636,20 @@ async function routeApi(req, res, ctx) {
     const b = await readBody(req);
     const tool = str(b.tool);
     if (!tool) throw bad(400, '请填写工具名');
-    const rec = storage.addAssigned(k.id, tool);
-    if (!rec) throw bad(409, '该工具已在配置清单中');
+    /* host 留空 = 这台电脑（服务所在机器），「去向是哪一台」默认即它 */
+    const host = str(b.host) || os.hostname();
+    const rec = storage.addAssigned(k.id, tool, host);
+    if (!rec) throw bad(409, '「' + tool + '」已登记在「' + host + '」');
     return json(res, 201, { assigned: rec.assigned });
   }
 
   if (req.method === 'DELETE' && (m = /^\/api\/keys\/(\d+)\/assigned\/([^/]+)$/.exec(path))) {
     const k = requireKey(m[1]);
     const tool = decodeURIComponent(m[2]);
-    const rec = storage.removeAssigned(k.id, tool);
+    /* ?host= 缺省 = 取消这个工具在所有电脑上的登记（旧调用方的兼容语义）；
+       带了就只取消那一台，空串也是有效目标（老数据「不知道哪台」的归属） */
+    const qHost = url.searchParams.get('host');
+    const rec = storage.removeAssigned(k.id, tool, qHost === null ? undefined : qHost);
     return json(res, 200, { assigned: rec.assigned });
   }
 
@@ -814,7 +822,12 @@ async function routeApi(req, res, ctx) {
         }
         if (Array.isArray(item.assigned) && item.assigned.length) {
           item.assigned.forEach(function (t) {
-            try { storage.addAssigned(rec.id, String(t).trim()); } catch (e) { /* 跳过重复 */ }
+            /* 旧导出是纯字符串数组，新导出是 {tool, host} 对象，两种都收；
+               字符串按「不知道哪台电脑」处理，host 留空 */
+            const tool = typeof t === 'string' ? t : str(t && t.tool);
+            const host = typeof t === 'string' ? '' : str(t && t.host);
+            if (!tool) return;
+            try { storage.addAssigned(rec.id, tool, host); } catch (e) { /* 跳过重复 */ }
           });
         }
         imported.push(maskedKeyView(storage.getKey(rec.id)));
