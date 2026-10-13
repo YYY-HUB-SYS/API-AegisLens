@@ -4,8 +4,9 @@
   零依赖 / 零 CDN / 零图片。不 @import、不引外部 url()，动效与分隔全靠渐变。
 
   命名：全部 .cvw- 前缀，根 .cvw-root，避开凭证视图的 .cv- 命名空间，两套可同页共存。
-  配色：只消费宿主 index.html 的主题 token（--surface/--ink/--rule/--accent/--warn/
-        --danger/--code-bg/--mono/--fs-*/--r-*/--t*），每个 var() 带浅色回退值，
+  配色：只消费宿主 index.html 的主题 token（--surface、--ink、--rule、--accent、
+        --warn、--danger、--code-bg、--mono、--fs 系列、--r 系列、--t 系列），
+        每个 var() 带浅色回退值，
         不自建设计系统、不写品牌色字面量。
   窄屏：390px 不许横向溢出。长值（指纹 / 日期 / 令牌串）一律 overflow-wrap:anywhere，
         flex 行允许 wrap，弹性子项 min-width:0，按钮与徽标 flex-shrink:0。
