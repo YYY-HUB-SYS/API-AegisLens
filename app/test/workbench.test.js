@@ -766,3 +766,21 @@ test('统计数字的动效只给变了的那一格：先取旧值、后比对�
   assert.match(html, /\.stat\.is-ticked \.num \{[^}]*animation:\s*statTick/, '类得真有对应动画');
   assert.match(html, /@keyframes statTick \{/, 'statTick 关键帧要在');
 });
+
+/* 双列把版面劈成两栏后，收起的分组若还留一行标题，会在列底各自占一格，
+   把页面戳出洞（用户 10-13 截图红框）。修法：双列下收起的组整体退出多栏流，
+   改由看板底部一条通栏标签条汇总，点标签即把组展开。 */
+test('双列收起：收起的组退出栏流，底部标签条汇总且可点回展开', () => {
+  const html = readHomepage();
+  assert.match(html, /:root\[data-cols="2"\] \.group\.collapsed \{[^}]*display:\s*none/,
+    '双列下收起的组应整体退出多栏流，不留一行标题占位');
+  assert.match(html, /:root\[data-cols="2"\] \.collapsed-bar \{[^}]*column-span:\s*all/,
+    '标签条应 column-span: all 通栏落在看板底部');
+  assert.ok(html.includes('.collapsed-bar { display: none; }'),
+    '单列下标签条不显示——组标题本身就是开合入口');
+  assert.ok(html.includes('aria-label="已收起的分组"'), '标签条应有无障碍标签');
+  assert.ok(html.includes('class="cb-tag" type="button" data-act="toggle-group"'),
+    '标签要复用 toggle-group 动作，点一下即展开');
+  assert.ok(html.includes("}).join('') + bar;"), '标签条要接在分组渲染之后');
+  assert.ok(/var shutLabels = groups\.filter/.test(html), '应从当前分组里取收起的那批');
+});
