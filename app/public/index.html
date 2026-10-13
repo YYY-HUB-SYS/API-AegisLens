@@ -228,13 +228,15 @@
   :root[data-cols="2"] .keycard { min-width: 0; }
   /* 双列下收起的分组整体退出多栏流：只剩一行标题的组留在流里，
      会在列底各占一格，把版面戳出洞（用户 10-13 截图红框）。
-     收起的组改由看板底部一条通栏标签条汇总，点标签即展开；
+     收起的组改由看板顶部一条通栏标签条汇总，点标签即展开；
      单列不变——那种视图里组标题本身就是开合入口。 */
   :root[data-cols="2"] .group.collapsed { display: none; }
   .collapsed-bar { display: none; }
   :root[data-cols="2"] .collapsed-bar {
     display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-    column-span: all; margin: 2px 0 0; padding: 8px 11px;
+    column-span: all; margin: 0 0 10px; padding: 8px 11px;
+    /* 组数 = 平台数，通常十几家封顶；真到几百家时条带自己滚动，不吃整页 */
+    max-height: 9.5em; overflow-y: auto; overscroll-behavior: contain;
     border: 1px solid var(--rule); border-radius: var(--r-ctl);
     background: var(--surface-2);
   }
@@ -1689,7 +1691,7 @@
       byLabel[label].keys.push(k);
     });
     /* 双列下收起的分组已退出多栏流（见上方 .collapsed-bar 样式），
-       底部这条标签条是它们唯一的出口：点名 + 点开。 */
+       顶部这条标签条是它们唯一的出口：点名 + 点开。 */
     var shutLabels = groups.filter(function (g) { return ui.collapsedGroup[g.label]; }).map(function (g) { return g.label; });
     var bar = shutLabels.length
       ? '<div class="collapsed-bar" role="group" aria-label="已收起的分组"><span class="cb-label">已收起</span>' +
@@ -1697,7 +1699,7 @@
           return '<button class="cb-tag" type="button" data-act="toggle-group" data-label="' + esc(l) + '" aria-expanded="false" title="点击展开「' + esc(l) + '」">' + esc(l) + '</button>';
         }).join('') + '</div>'
       : '';
-    document.getElementById('board').innerHTML = groups.map(function (g) {
+    document.getElementById('board').innerHTML = bar + groups.map(function (g) {
       /* 组标题就是折叠开关：一屏十几把密钥时，「只看我要的那两家」比筛选标签更快。
          收起时整组卡片不渲染（不是 display:none），列高才会让给真正展开的组。 */
       var shut = !!ui.collapsedGroup[g.label];
@@ -1707,7 +1709,7 @@
           '<span class="plat-dot" style="background:' + g.color + '"></span>' + esc(g.label) +
           '<span class="grp-n">' + g.keys.length + '</span></button>' +
         (shut ? '' : g.keys.map(renderCard).join('')) + '</section>';
-    }).join('') + bar;
+    }).join('');
     if (filteredKeys.length === 0) {
       if (state.keys.length === 0) {
         document.getElementById('empty').style.display = '';
