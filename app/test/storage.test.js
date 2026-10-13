@@ -171,6 +171,31 @@ function runSuite(backend) {
     assert.deepStrictEqual(store.getKey(rec.id).assigned, []);
   });
 
+  test('存储后端 json：rename 瞬态 EPERM 要重试，不该让保存挂掉', () => {
+    if (backend !== 'json') return;
+    const { store } = newStore(backend);
+    const rec = store.createKey({
+      name: '重试', platform: 'deepseek', customName: '', key: KEY_VALUE,
+      base: 'https://api.deepseek.com', model: '', reg: '', exp: ''
+    });
+    /* Windows 上 rename 覆盖现存文件会被 Defender/索引器瞬态锁住（EPERM）。
+       模拟前两次失败：重试必须兜住，保存路径不该因此挂掉 */
+    const realRename = fs.renameSync;
+    let fails = 2;
+    fs.renameSync = function (a, b) {
+      if (fails-- > 0) { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; }
+      return realRename.call(fs, a, b);
+    };
+    try {
+      store.addAssigned(rec.id, 'Dify', '办公室工作站');
+      const k = store.getKey(rec.id);
+      assert.deepStrictEqual(k.assigned, [{ tool: 'Dify', host: '办公室工作站' }],
+        '瞬态 EPERM 后重试仍应落盘');
+    } finally {
+      fs.renameSync = realRename;
+    }
+  });
+
   test('存储后端 ' + backend + '：旧格式去向（纯字符串）读进来自动归一', () => {
     const { store, dir } = newStore(backend);
     const rec = store.createKey({

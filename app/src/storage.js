@@ -412,10 +412,20 @@ function makeJsonStore(dataDir, masterKey) {
       return Math.max(max, Number(t && t.id) || 0);
     }, 0) + 1;
   }
+  const sleepTick = new Int32Array(new SharedArrayBuffer(4));
   function persist() {
     const tmp = file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-    fs.renameSync(tmp, file);
+    /* Windows 上 rename 覆盖现存文件会偶发 EPERM（Defender / 搜索索引
+       瞬态锁住目标），这是环境瞬态不是逻辑错误：短退避重试几次。
+       重试耗尽才抛——否则一次杀毒扫描就能让密钥保存整路径挂掉。 */
+    for (let i = 0; ; i++) {
+      try { fs.renameSync(tmp, file); return; }
+      catch (e) {
+        if (i >= 4 || (e.code !== 'EPERM' && e.code !== 'EBUSY' && e.code !== 'EACCES')) throw e;
+        Atomics.wait(sleepTick, 0, 0, 25);
+      }
+    }
   }
   function find(id) { return data.keys.find(function (x) { return x.id === id; }) || null; }
   function findCred(id) {
