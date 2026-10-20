@@ -1665,7 +1665,7 @@
          ok/warn/exp 已经把每把钥匙分完了，total - ok - warn - exp 恒等于 0。
          「没测过连通」才可以和「有效」同时成立——一把没测过、也没过期的钥匙，
          两边都该算。计数口径与行上的「未测」标记同源。 */
-      if (!k.test || k.test.ok === null || k.test.ok === undefined) untested++;
+      if (!k.test || k.test.ok === null) untested++;   /* 后端 testKey() 不产 ok 字段，ok 恒为 undefined —— 加上 === undefined 会把每把都算成未测试，统计条与行上的「未测」标记就永远对不上 */
     });
     var html =
       '<div class="stat"><span class="num">' + total + '</span><span class="lbl">个密钥</span></div>' +
