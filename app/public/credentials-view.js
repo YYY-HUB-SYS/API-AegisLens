@@ -84,10 +84,12 @@
     update: function (id) { return '/api/credentials/' + encodeURIComponent(id); },
     remove: function (id) { return '/api/credentials/' + encodeURIComponent(id); },
     policy: function (id) { return '/api/credentials/' + encodeURIComponent(id) + '/password-policy'; },
-    // 契约未列举的金库控制端点——best-effort，可被 opts.unlock / opts.endpoints 替换：
+    // 契约未列举的金库控制端点——best-effort，可被 opts.unlock / opts.endpoints 替换。
+    // vaultInit 必须对准后端真实路径 /api/vault/passphrase：后端**没有** /api/vault/init，
+    // 原先默认写 /api/vault/init，单独用这个视图文件（不经过主应用覆盖）的人按它去调必然 404。
     vaultStatus: '/api/vault/status',
     vaultUnlock: '/api/vault/unlock',
-    vaultInit: '/api/vault/init',
+    vaultInit: '/api/vault/passphrase',
     vaultLock: '/api/vault/lock',
     vaultDiscard: '/api/vault/discard-master-key',
     // 主应用侧端点（平台打通用，best-effort：拿不到只是没有候选，不影响凭证 CRUD）
@@ -1614,7 +1616,7 @@
       if (mode === 'net') return Promise.reject(new Error('network down'));
       // 金库控制
       if (u.indexOf('/api/vault/status') !== -1) return res(200, { needsSetup: !setupDone, unlocked: !locked });
-      if (u.indexOf('/api/vault/init') !== -1) { setupDone = true; locked = false; pw = (init.body ? JSON.parse(init.body).password : pw); return res(200, { ok: true, recoveryCode: RECOVERY }); }
+      if (u.indexOf('/api/vault/passphrase') !== -1) { setupDone = true; locked = false; pw = (init.body ? JSON.parse(init.body).next : pw); return res(200, { ok: true, recoveryCode: RECOVERY }); }
       if (u.indexOf('/api/vault/unlock') !== -1) { if (!setupDone) return res(423, { error: '保险库未解锁' }); locked = false; return res(200, { ok: true }); }
       if (u.indexOf('/api/vault/lock') !== -1) { locked = true; return res(200, { ok: true }); }
       // 主应用侧：平台目录 + 已登记 Key（平台打通的候选来源）

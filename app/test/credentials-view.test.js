@@ -284,3 +284,22 @@ test('凭证样式表不许长死规则：每个类名都要被视图代码用�
   assert.deepStrictEqual(dead, [],
     '这些类只在样式表里定义、视图代码一次都没用：' + dead.join(', '));
 });
+
+/* 金库端点要对准后端真实路径：后端只有 POST /api/vault/passphrase，
+   **没有** /api/vault/init（复核报告第 3 条）。
+   端点表 EP 不对外暴露（只能经 opts.endpoints 覆盖），所以在源码层断言——
+   谁把默认值写回 /api/vault/init，单独用这个视图文件的人按它去调必然 404。 */
+test('金库端点表要对准后端真实路径：没有 /api/vault/init', () => {
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'credentials-view.js'), 'utf8');
+  /* 注释里要写清"后端没有 /api/vault/init"，源码级断言不能把注释也算进去：
+     剥掉块注释与行注释，只看真代码。 */
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  assert.ok(!code.includes('/api/vault/init'),
+    'credentials-view.js 的代码里还在引用后端不存在的 /api/vault/init');
+  assert.ok(code.includes("vaultInit: '/api/vault/passphrase'"),
+    'vaultInit 默认值应对准后端真实路径 /api/vault/passphrase');
+  /* 内部 mock 也要跟真实后端一致：设口令收的是 next，不收 password。
+     mock 原先按 password 取，等于把字段名写错这件事藏在自测里。 */
+  assert.ok(/vault\/passphrase'\)[\s\S]{0,240}?\.next/.test(js),
+    'CV_MOCK 的设口令分支应当走 /api/vault/passphrase 并读 next 字段');
+});
