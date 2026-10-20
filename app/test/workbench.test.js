@@ -7,6 +7,9 @@ const batPath = path.join(__dirname, '..', 'workbench.bat');
 const jsonPath = path.join(__dirname, '..', 'workbench.json');
 const homepagePath = path.join(__dirname, '..', 'public', 'index.html');
 const repoRoot = path.join(__dirname, '..', '..');
+/* 皮肤层：变量搬到了 app/public/app/theme.css，6 组挂在属性选择器下。
+   查变量的测试都要走这个模块（内联样式 + theme.css 合并后解析），别再抠 index.html 的 :root 块。 */
+const themeCss = require('./theme-css');
 
 function readHomepage() {
   return fs.readFileSync(homepagePath, 'utf8');
@@ -229,14 +232,22 @@ test('窄屏：参数胶囊必须能被压进容器，不许撑出横向滚动',
   assert.ok(/min-width:\s*0/.test(rule), '.param 需解除 flex 子项的 min-width:auto');
 });
 
-test('主题开关：两套令牌齐全，且首屏前就落 data-theme', () => {
+test('主题开关：6 套令牌（3 皮肤 × 明暗）齐全，且首屏前就落 data-theme', () => {
   const html = readHomepage();
-  assert.ok(html.includes(':root[data-theme="dark"]'), '应有暗色令牌块');
-  const darkBlock = html.slice(html.indexOf(':root[data-theme="dark"]'));
-  const lightBlock = html.slice(0, html.indexOf(':root[data-theme="dark"]'));
-  for (const tok of ['--bg', '--surface', '--ink', '--ink-2', '--rule', '--accent', '--api', '--warn', '--danger']) {
-    assert.ok(lightBlock.includes(tok + ':'), '浅色缺令牌 ' + tok);
-    assert.ok(darkBlock.slice(0, 1400).includes(tok + ':'), '暗色缺令牌 ' + tok);
+  /* 变量搬到 theme.css 之后，"浅色一块 + 暗色一块"变成 3 皮肤 × 明暗 = 6 套。
+     缺任何一套，那个皮肤下的界面就会有一处颜色落回浏览器默认值。 */
+  const blocks = themeCss.skinBlocks();
+  assert.strictEqual(blocks.size, 6,
+    'theme.css 应有 6 组变量（3 皮肤 × 明暗两态），实得 ' + blocks.size);
+  const toks = ['--bg', '--surface', '--ink', '--ink-2', '--rule', '--accent', '--api', '--warn', '--danger'];
+  for (const skin of themeCss.SKINS) {
+    for (const th of themeCss.THEMES) {
+      const b = blocks.get(skin + '|' + th);
+      assert.ok(b, '缺 ' + skin + ' × ' + th + ' 这一组变量');
+      for (const tok of toks) {
+        assert.ok(b.vars.has(tok), skin + '/' + th + ' 缺令牌 ' + tok);
+      }
+    }
   }
   assert.ok(html.includes("localStorage.getItem('aegis-theme')"), '主题选择要持久化');
   const head = html.slice(0, html.indexOf('<style>'));
@@ -278,9 +289,15 @@ test('配置高亮：不得在自身生成的标签上二次着色', () => {
 
 test('CSS 变量不得有悬空引用（改令牌名时最容易漏）', () => {
   const html = readHomepage();
-  const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-  const defined = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
-  const used = new Set([...html.matchAll(/var\((--[a-z0-9-]+)/g)].map(m => m[1]));
+  /* 变量定义在 theme.css，引用在两处都有（index.html 的内联样式 + theme.css 自己）。
+     只看其中一头就会漏：改了 theme.css 里的令牌名，内联样式里的 var() 就悬空了。 */
+  const css = themeCss.mergedCss();
+  const defined = new Set([...css.matchAll(/(--[a-z0-9][a-z0-9-]*)\s*:/g)].map(m => m[1]));
+  /* var(--x, 兜底) 不是悬空：没人定义 --x 时浏览器就用兜底值，那是有意写的。 */
+  const used = new Set([...(html + '\n' + themeCss.readThemeCss())
+    .matchAll(/var\(\s*(--[a-z0-9][a-z0-9-]*)\s*[,)]/g)]
+    .filter(m => m[0].slice(-1) !== ',')
+    .map(m => m[1]));
   const dangling = [...used].filter(t => !defined.has(t));
   assert.deepStrictEqual(dangling, [], '这些 var() 引用没有对应定义，浏览器会静默失效：' + dangling);
 });
@@ -405,9 +422,37 @@ test('品牌：标识与主色对齐 logo，且内联版与 vendor 版几何一�
     '改名前遗留的字母 K 标识应已被替换');
   assert.ok(/<link rel="icon"[^>]+\/vendor\/brand\//.test(html),
     'favicon 应指向本地 vendor，不许外链');
-  assert.ok(html.includes('--accent: #3E3BC8'), '浅色主色对齐 logo 实测色');
-  assert.ok(html.includes('--accent: #8B85EE'), '深色主色为 logo 色的提亮版');
-  assert.ok(!/rgba\(75, 63, 227/.test(html) && !html.includes('#4B3FE3') && !html.includes('#7C6FF5'),
+
+  /* 主色不再写死在页面里（现在是 3 套皮肤各有一套，钉死一个色值只会钉死一套皮肤）。
+     "标识与主色对齐"从"两处写同一个色值"变成"标识不许自己带色，必须吃主色令牌"——
+     这样换皮肤时标识自动跟过去，不会出现界面换色、标识还是旧色。 */
+  assert.ok(/fill="currentColor"/.test(logoBlock),
+    '内联标识不许自带填色，必须吃 currentColor 才会跟皮肤走');
+  const logoRule = html.match(/\.brand \.logo\s*\{([^}]*)\}/);
+  assert.ok(logoRule, '应有 .brand .logo 规则');
+  assert.ok(/color:\s*var\(--accent\)/.test(logoRule[1]),
+    '标识颜色必须取主色令牌 var(--accent)，否则换皮肤时标识与界面脱节');
+
+  /* 每套皮肤的明暗两态都要有自己的主色，且暗色主色要比浅色主色亮一档
+     （旧实现是浅色 #3E3BC8 / 深色 #8B85EE 这对"同色提亮"）。 */
+  const blocks = themeCss.skinBlocks();
+  for (const skin of themeCss.SKINS) {
+    const light = blocks.get(skin + '|light');
+    const dark = blocks.get(skin + '|dark');
+    assert.ok(light && dark, skin + ' 缺明/暗任一态');
+    const lAccent = light.vars.get('--accent');
+    const dAccent = dark.vars.get('--accent');
+    assert.ok(lAccent && dAccent, skin + ' 的 --accent 缺失');
+    const ll = themeCss.luminance(lAccent);
+    const dl = themeCss.luminance(dAccent);
+    assert.ok(ll !== null && dl !== null,
+      skin + ' 的主色要是可解析的十六进制色值，实得 ' + lAccent + ' / ' + dAccent);
+    assert.ok(dl > ll,
+      skin + ' 的暗色主色应是浅色主色的提亮版，实测亮度 ' + ll.toFixed(3) + ' → ' + dl.toFixed(3));
+  }
+
+  const css = themeCss.mergedCss();
+  assert.ok(!/rgba\(75, 63, 227/.test(css) && !css.includes('#4B3FE3') && !css.includes('#7C6FF5'),
     '旧主色的派生 rgba 也要一并换掉，否则软底和描边会留着上一个颜色');
 });
 
@@ -453,13 +498,22 @@ test('入场动效不许把内容藏没：默认态可见，开关由 JS 加', (
 });
 
 test('字阶：层级阶梯比值要达标，注释不许替代码撒谎', () => {
-  const html = readHomepage();
-  const m = html.match(/--fs-xs:\s*([\d.]+)px;\s*--fs-sm:\s*([\d.]+)px;\s*--fs-base:\s*([\d.]+)px;\s*--fs-lg:\s*([\d.]+)px;\s*--fs-xl:\s*([\d.]+)px/);
-  assert.ok(m, '应能解析五档字号');
-  const v = m.slice(1).map(Number);
-  assert.ok(v[3] / v[2] >= 1.25, 'base→lg 应 >= 1.25，实测 ' + (v[3] / v[2]).toFixed(3));
-  assert.ok(v[4] / v[3] >= 1.25, 'lg→xl 应 >= 1.25，实测 ' + (v[4] / v[3]).toFixed(3));
-  assert.ok(!/相邻档差\s*>=\s*1\.18/.test(html),
+  /* 字号阶梯现在是每套皮肤各一份（3 皮肤 × 明暗）。
+     判定口径照旧：只看 base→lg 与 lg→xl 这两档（xs/sm/base 三档本来就挨得近，
+     旧实现也是这样判的，不许为了过就把近档也纳入比值）。 */
+  const blocks = themeCss.skinBlocks();
+  assert.strictEqual(blocks.size, 6, 'theme.css 应有 6 组变量，实得 ' + blocks.size);
+  for (const [key, b] of blocks) {
+    const v = ['--fs-xs', '--fs-sm', '--fs-base', '--fs-lg', '--fs-xl']
+      .map(t => Number(String(b.vars.get(t) || '').replace(/px$/, '')));
+    assert.ok(v.every(n => Number.isFinite(n)),
+      key + ' 的五档字号应能解析，实得 ' + JSON.stringify(b.vars.get('--fs-base')));
+    assert.ok(v[3] / v[2] >= 1.25,
+      key + ' base→lg 应 >= 1.25，实测 ' + (v[3] / v[2]).toFixed(3));
+    assert.ok(v[4] / v[3] >= 1.25,
+      key + ' lg→xl 应 >= 1.25，实测 ' + (v[4] / v[3]).toFixed(3));
+  }
+  assert.ok(!/相邻档差\s*>=\s*1\.18/.test(themeCss.mergedCss()),
     '旧注释声称相邻档差 >= 1.18，实测三档只有 1.12~1.14，属于注释撒谎');
 });
 
@@ -533,12 +587,36 @@ test('P0 回归：窄屏不许再拿 URL 换按钮，收缩压力不得全落在
 
 test('代码面与图标：浅色主题下不许再贴一块深色终端，图标不许用 emoji', () => {
   const html = readHomepage();
-  const lightBlock = html.slice(0, html.indexOf(':root[data-theme="dark"]'));
-  assert.ok(/--code-bg:\s*#EDEFF5/.test(lightBlock),
-    '浅色的 code-bg 必须是浅面。原先两套主题共用 #141623，浅色弹窗里像另一套主题没跟上');
-  const darkBlock = html.slice(html.indexOf(':root[data-theme="dark"]'));
-  assert.ok(/--code-bg:\s*#232833/.test(darkBlock) && /--code-k:\s*#7FE0B4/.test(darkBlock),
-    '深色侧要显式拿回为深底调的亮语法色，否则会继承浅色的深字配色');
+  /* 原来这里是两段钉死的色值（浅色 #EDEFF5 / 深色 #232833 + #7FE0B4）。
+     皮肤换成 3 套之后色值跟着皮肤走，钉死色值等于只钉一套皮肤，
+     改成按亮度判："这块面是浅的还是深的"本来就是这条测试要守的事，
+     而且 6 套皮肤每一套都判一遍，比原来只判一套还严。 */
+  const blocks = themeCss.skinBlocks();
+  assert.strictEqual(blocks.size, 6, 'theme.css 应有 6 组变量，实得 ' + blocks.size);
+  for (const [key, b] of blocks) {
+    const bg = themeCss.luminance(b.vars.get('--code-bg'));
+    const ink = themeCss.luminance(b.vars.get('--code-ink'));
+    const k = themeCss.luminance(b.vars.get('--code-k'));
+    assert.ok(bg !== null && ink !== null && k !== null,
+      key + ' 的 --code-bg/--code-ink/--code-k 要能解析成十六进制色值');
+    if (b.theme === 'light') {
+      assert.ok(bg >= 0.5,
+        key + ' 的 code-bg 必须是浅面（实测亮度 ' + bg.toFixed(3) +
+        '）。原先两套主题共用 #141623，浅色弹窗里像另一套主题没跟上');
+      assert.ok(ink <= 0.3,
+        key + ' 的 code-ink 必须是深色字（实测亮度 ' + ink.toFixed(3) + '）');
+      assert.ok(k <= 0.35,
+        key + ' 的 code-k 是深底上的深色语法字（实测亮度 ' + k.toFixed(3) + '）');
+    } else {
+      assert.ok(bg <= 0.2,
+        key + ' 的 code-bg 必须是深底（实测亮度 ' + bg.toFixed(3) + '）');
+      assert.ok(ink >= 0.6,
+        key + ' 的 code-ink 必须是亮字（实测亮度 ' + ink.toFixed(3) + '）');
+      assert.ok(k >= 0.4,
+        key + ' 深色侧要显式拿回为深底调的亮语法色（--code-k 实测亮度 ' + k.toFixed(3) +
+        '），否则会继承浅色的深字配色');
+    }
+  }
   assert.ok(!/🙈|👁/.test(html), '显示/隐藏明文改用内联 SVG，emoji 跨字体渲染不一致');
   assert.ok(/function eyeIcon\(revealed\)/.test(html) && /aria-label="' \+ \(revealed \? '隐藏明文'/.test(html),
     'SVG 图标要 aria-hidden 且按钮自带 aria-label');
@@ -737,7 +815,7 @@ test('每一个 animation 引用的关键帧都必须真存在（打错名字是
 
 test('看板只做微交互：悬停抬 1px，但绝不用全量过渡', () => {
   const html = readHomepage();
-  for (const rel of ['public/index.html', 'public/credentials-view.css', 'public/consumer-view.css']) {
+  for (const rel of ['public/index.html', 'public/app/theme.css', 'public/credentials-view.css', 'public/consumer-view.css']) {
     const file = path.join(__dirname, '..', ...rel.split('/'));
     if (!fs.existsSync(file)) continue;
     assert.ok(!/transition:\s*all\b/.test(fs.readFileSync(file, 'utf8')),
@@ -746,8 +824,16 @@ test('看板只做微交互：悬停抬 1px，但绝不用全量过渡', () => {
   const hover = html.match(/\.keycard:hover \{([\s\S]*?)\}/);
   assert.ok(hover && /transform:\s*translateY\(-1px\)/.test(hover[1]), '卡片悬停要有一点抬起的反馈');
   assert.ok(/box-shadow:\s*var\(--shadow-hover\)/.test(hover[1]), '悬停投影要用专用 token，不许借浮层的 --shadow-modal');
-  const light = (html.match(/--shadow-hover:/g) || []).length;
-  assert.strictEqual(light, 2, '--shadow-hover 要在浅色和深色各定义一次，缺一边就是一坨错色');
+  /* 投影令牌搬去 theme.css 之后不再是"浅色一次 + 深色一次"，而是 6 套皮肤各一次。
+     少任何一套，那个皮肤下悬停就是一片默认投影（等于没有投影）。 */
+  const blocks = themeCss.skinBlocks();
+  assert.strictEqual(blocks.size, 6, 'theme.css 应有 6 组变量，实得 ' + blocks.size);
+  for (const [key, b] of blocks) {
+    assert.ok(b.vars.has('--shadow-hover'), key + ' 缺 --shadow-hover，悬停投影会落回浏览器默认值');
+  }
+  const light = (themeCss.readThemeCss().match(/--shadow-hover\s*:/g) || []).length;
+  assert.strictEqual(light, 6,
+    '--shadow-hover 要在 6 套皮肤（3 皮肤 × 明暗）各定义一次，缺一边就是一坨错色');
   const kf = html.match(/@keyframes gateScan \{([^}]*)\}/);
   assert.ok(kf, 'gateScan 关键帧没了，扫光那条规则就是空转');
 });

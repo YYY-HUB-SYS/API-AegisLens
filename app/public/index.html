@@ -20,8 +20,15 @@
     var c = null;
     try { c = localStorage.getItem('aegis-cols'); } catch (e2) {}
     document.documentElement.setAttribute('data-cols', c === '1' ? '1' : '2');
+    /* 皮肤：3 套 × 明暗两态。皮肤与布局是两个独立维度，各自记住自己的选择。 */
+    var sk = null;
+    try { sk = localStorage.getItem('aegis-skin'); } catch (e3) {}
+    if (['s1', 's2', 's3'].indexOf(sk) < 0) sk = 's1';
+    document.documentElement.setAttribute('data-skin', sk);
   })();
 </script>
+  <!-- 皮肤层：3 套皮肤 × 明暗两态，变量在这里，结构在下面的 <style> 里 -->
+  <link rel="stylesheet" href="/app/theme.css">
 <style>
   /* 随仓库走的 latin 子集（可变字重，31KB）。中文不内置：子集化必漏用户自填的字，
      漏字会让同一段文字一半思源一半雅黑，比全用系统字体更难看。*/
@@ -31,86 +38,6 @@
     font-weight: 100 800;
     font-display: block;
     src: url("/vendor/fonts/jetbrains-mono-latin-var.woff2") format("woff2");
-  }
-  :root {
-    color-scheme: light;
-    /* 表面与墨色：冷中性 + 高对比，正文 7:1 起 */
-    --bg: #E9EDF5;
-    --surface: #FFFFFF;
-    --surface-2: #F1F4F9;
-    --ink: #0E1420;
-    --ink-2: #44506A;
-    --ink-3: #5C6779;
-    --rule: #D5DCE8;
-    --rule-soft: #E4E9F2;
-    /* 主色只服务动作与焦点，占比克制 */
-    --accent: #3E3BC8;
-    --accent-ink: #2E2B9B;
-    --accent-soft: rgba(62, 59, 200, 0.08);
-    --accent-line: rgba(62, 59, 200, 0.32);
-    /* 语义色：模型参数来源与状态各有其色，不靠灰度表达差异 */
-    --api: #0B7A52;
-    --api-soft: rgba(11, 122, 82, 0.10);
-    --web: #1D4ED8;
-    --web-soft: rgba(29, 78, 216, 0.10);
-    --warn: #8A5A00;
-    --warn-soft: rgba(180, 116, 9, 0.13);
-    --danger: #B3261E;
-    --danger-soft: rgba(179, 38, 30, 0.09);
-    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
-    /* 11 / 12 / 13 是"读"的那一层，密度优先，靠字重和颜色区分，不靠字号拉开。
-       层级阶梯是 13 → 17 → 22，比值 1.308 与 1.294，都在 1.25 以上。
-       原先这条注释声称相邻档差不小于 1.18，实测只有 1.136 / 1.120 / 1.143 / 1.250，
-       四档里三档不达标：注释在替代码撒谎。 */
-    --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-lg: 17px; --fs-xl: 22px;
-    --r-card: 6px; --r-ctl: 5px; --r-chip: 4px; --r-pill: 999px;
-    --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
-    --z-modal: 60; --z-toast: 70;
-    /* 实心色块上的文字：浅色主题用白，深色主题反过来用墨 */
-    --on-accent: #FFFFFF; --on-danger: #FFFFFF;
-    --card-hover-border: #B4BFD4; --card-hover-bg: #FBFCFF;
-    --warn-line: rgba(180, 116, 9, 0.28); --warn-line-strong: rgba(180, 116, 9, 0.5);
-    --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(62, 59, 200, 0.16);
-    --overlay-ink: rgba(14, 20, 32, 0.5);
-    /* 底色上的 HUD 网格：极淡，只服务氛围，不承载信息 */
-    --grid-line: rgba(62, 59, 200, 0.05);
-    --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.22);
-    --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.24);
-    --shadow-hover: 0 4px 14px rgba(20, 22, 35, 0.12);
-    /* 代码面跟随主题。浅色四色对 code-bg 实测 14.41 / 5.69 / 5.15 / 5.16；
-       code-bg 与弹窗白底只差 1.15，靠 .config-pre 的 1px 描边分界。 */
-    --code-bg: #EDEFF5; --code-ink: #1B1E2B;
-    --code-k: #0B6B48; --code-c: #5C6478; --code-s: #8A5A00;
-    --toast-bg: #1E2233; --toast-warn: #6E4700; --toast-ok: #0A5F41;
-    /* toast 三种底色都是深色，所以字色必须反过来走亮。原先直接复用浅色主题的 --code-ink
-       （一块近黑的深墨），深墨压深底，实测对比度 1.05:1，等于每条操作反馈都读不见。 */
-    --toast-ink: #F1F3FA;
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --bg: #080B11; --surface: #0E131C; --surface-2: #141B26;
-    --ink: #E6ECF6; --ink-2: #9AA6BA; --ink-3: #78839A;
-    --rule: #1C2532; --rule-soft: #151D29;
-    --accent: #8B85EE; --accent-ink: #B4ABFF;
-    --accent-soft: rgba(139, 133, 238, 0.16); --accent-line: rgba(139, 133, 238, 0.42);
-    --api: #2DD4BF; --api-soft: rgba(45, 212, 191, 0.13);
-    --web: #5B9BFF; --web-soft: rgba(91, 155, 255, 0.13);
-    --warn: #F5A524; --warn-soft: rgba(245, 165, 36, 0.13);
-    --danger: #FF5C5C; --danger-soft: rgba(255, 92, 92, 0.12);
-    --on-accent: #0B0D13; --on-danger: #1A0B0B;
-    --card-hover-border: #33405A; --card-hover-bg: #121826;
-    --warn-line: rgba(245, 165, 36, 0.34); --warn-line-strong: rgba(245, 165, 36, 0.6);
-    --warn-line-hover: rgba(245, 165, 36, 0.22); --accent-line-soft: rgba(139, 133, 238, 0.28);
-    --overlay-ink: rgba(4, 6, 10, 0.66);
-    /* 底色上的 HUD 网格：深紫微光，与浅色同一角色 */
-    --grid-line: rgba(139, 133, 238, 0.055);
-    --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
-    --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
-    --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.45), 0 0 14px rgba(139, 133, 238, 0.20);
-    /* 深色里代码块反过来比面板亮一档，靠明度而不是描边分层 */
-    --code-bg: #232833; --toast-bg: #242C3C;
-    --toast-ink: #E8EAF4;
-    --code-ink: #E8EAF4; --code-k: #7FE0B4; --code-c: #8A90AE; --code-s: #F5C97B;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   /* 打开抽屉会让页面刚好超出视口，滚动条一出现整块看板就窄 15px。
@@ -804,6 +731,10 @@
   </style>
   <link rel="stylesheet" href="/credentials-view.css">
   <link rel="stylesheet" href="/consumer-view.css">
+  <!-- 布局层：共享渲染原子 + 主视图。只注册 window.BoardLayouts，不碰业务行为。 -->
+  <link rel="stylesheet" href="/app/layout.css">
+  <script src="/app/layout-shared.js"></script>
+  <script src="/app/layout-main.js"></script>
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
@@ -1020,6 +951,14 @@
     <button type="button" role="tab" data-view="keys" aria-selected="true" class="viewnav-tab"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-key"></use></svg>密钥看板</button>
     <button type="button" role="tab" data-view="vault" aria-selected="false" tabindex="-1" class="viewnav-tab"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-shield-check"></use></svg>凭证保险库</button>
     <button type="button" role="tab" data-view="tokens" aria-selected="false" tabindex="-1" class="viewnav-tab"><svg class="ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-zap"></use></svg>消费者令牌</button>
+    <div class="viewnav-tools">
+      <div class="seg" role="group" aria-label="外观皮肤">
+        <span class="seg-label">皮肤</span>
+        <button type="button" class="seg-btn" data-skin="s1" aria-pressed="true">夜班值守</button>
+        <button type="button" class="seg-btn" data-skin="s2" aria-pressed="false">档案冷白</button>
+        <button type="button" class="seg-btn" data-skin="s3" aria-pressed="false">白台</button>
+      </div>
+    </div>
   </nav>
 
   <div class="view-panel" id="view-keys">
@@ -1288,6 +1227,74 @@
   var revealTmp = {};      /* id -> 明文，仅显示用，到点必删 */
   var revealTimers = {};   /* id -> 收回掩码的计时器 */
   var revealNote = {};     /* id -> {pending:true} 取用中 / {err:文案} 取用失败 */
+
+  /* ---- 外观皮肤切换 ----
+     皮肤 3 套 × 明暗两态，记在 localStorage 里。
+     放这里而不是顶层：state / ui 都在这个作用域内，顶层拿不到。 */
+  function syncSkinButtons() {
+    var cur = document.documentElement.getAttribute('data-skin');
+    document.querySelectorAll('.seg-btn[data-skin]').forEach(function (b) {
+      var on = b.dataset.skin === cur;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  function setSkin(v) {
+    if (['s1', 's2', 's3'].indexOf(v) < 0) return;
+    document.documentElement.setAttribute('data-skin', v);
+    try { localStorage.setItem('aegis-skin', v); } catch (e) {}
+    syncSkinButtons();
+  }
+  document.addEventListener('click', function (ev) {
+    var sk = ev.target.closest('.seg-btn[data-skin]');
+    if (sk) { setSkin(sk.dataset.skin); }
+  });
+  /* 启动时把控件的选中态对上当前值（不触发 render，render 归 boot 管）。
+     URL 参数优先：?skin=s2&theme=light 直接进指定外观，也顺手记住，
+     这样某个外观可以直接把链接发出去。 */
+  (function () {
+    var qp = new URLSearchParams(location.search);
+    var qs = qp.get('skin'); var qt = qp.get('theme'); /* theme=light|dark 也能直接进明暗两态 */ if (qt === 'light' || qt === 'dark') { document.documentElement.setAttribute('data-theme', qt); try { localStorage.setItem('aegis-theme', qt); } catch (e) {} }
+    if (qs && ['s1', 's2', 's3'].indexOf(qs) > -1) {
+      document.documentElement.setAttribute('data-skin', qs);
+      try { localStorage.setItem('aegis-skin', qs); } catch (e) {}
+    }
+  })();
+  syncSkinButtons();
+
+  /* ---- 把内部渲染原子整包交给布局层 ----
+     getter 而不是直接赋值：这里执行时 ST_LABEL 之类 var 还没赋值，
+     取用时才读，才拿得到真值。布局层要用的原子都在这里，
+     避免它自己复刻一份（复刻就会与真实行为分叉）。 */
+  window.AegisUI = {
+    get renderCard() { return renderCard; },
+    get keyStatus() { return keyStatus; },
+    get balanceText() { return balanceText; },
+    get platLabel() { return platLabel; },
+    get shortName() { return shortName; },
+    get styleShort() { return styleShort; },
+    get styleLabel() { return styleLabel; },
+    get isAutoName() { return isAutoName; },
+    get findKey() { return findKey; },
+    get esc() { return esc; },
+    get ic() { return ic; },
+    get fmtDate() { return fmtDate; },
+    get daysFromToday() { return daysFromToday; },
+    get fmtK() { return fmtK; },
+    get maskKey() { return maskKey; },
+    get keyMaskText() { return keyMaskText; },
+    get authNoteOf() { return authNoteOf; },
+    get srcChips() { return srcChips; },
+    get fieldSrcs() { return fieldSrcs; },
+    get modelWarnings() { return modelWarnings; },
+    get ST_LABEL() { return ST_LABEL; },
+    get state() { return state; },
+    get ui() { return ui; },
+    get revealNote() { return revealNote; },
+    get revealTmp() { return revealTmp; },
+    get LAYOUT_NAMES() { return LAYOUT_NAMES; },
+    get SKIN_NAMES() { return SKIN_NAMES; }
+  };
 
   /* ================= API ================= */
 
@@ -1587,6 +1594,32 @@
 
   /* ================= 渲染 ================= */
 
+  /* ================= 布局与皮肤 =================
+     布局：4 套结构并存，用户自己挑（a 仪表盘 / b 账本 / c 主从 / d 状态列）。
+     皮肤：3 套 × 明暗两态，只换颜色、字体与表面语言，不换结构。
+     两个维度互相独立，各自记在 localStorage 里。 */
+  var LAYOUT_NAMES = { main: '主视图' };
+  var SKIN_NAMES = { s1: '夜班值守', s2: '档案冷白', s3: '白台' };
+
+  /* 布局脚本没就位时用默认那套渲染，不白屏。 */
+  function boardCtx() {
+    return {
+      keys: state.keys,
+      platforms: state.platforms,
+      ui: ui,
+      state: state,
+      api: window.AegisUI
+    };
+  }
+
+  function applyBoardLayout() {
+    var L = window.BoardLayouts && window.BoardLayouts.main;
+    if (!L) return;
+    var board = document.getElementById('board');
+    if (!board) return;
+    board.innerHTML = L(boardCtx());
+  }
+
   function render() {
     var poolView = state.view === 'pools';
     var poolsBtn = document.getElementById('btn-pools');
@@ -1606,6 +1639,7 @@
     renderStats();
     renderFilterTabs();
     renderBoard();
+    applyBoardLayout();
   }
 
   /* 0 不染色：染成告警色的零比染成正常色的非零更容易让人误判 */
@@ -1814,8 +1848,20 @@
     var k = state.keys.filter(function (x) { return x.id === id; })[0];
     if (!node || !k) { render(); return; }
     var holder = document.createElement('div');
-    holder.innerHTML = renderCard(k);
+    holder.innerHTML = cardHtmlFor(k);
     node.replaceWith(holder.firstElementChild);
+  }
+
+  /* 单卡重绘必须按当前布局给对应形态：账本里那行是 <tr>，
+     换成整张 <article> 表格会散架；主从的列表项同理。
+     布局层没就位时退回整张卡片，行为与从前一致。 */
+  function cardHtmlFor(k) {
+    var L = window.LayoutShared;
+    if (L && typeof L.cardHtml === 'function') {
+      var html = L.cardHtml('main', boardCtx(), k);
+      if (html) return html;
+    }
+    return renderCard(k);
   }
 
   /* 内置元数据库的整理日期由后端 /api/meta 带出来，界面只负责显示：
@@ -3705,6 +3751,7 @@
     show(next.getAttribute('data-view'));
   });
 })();
+
 </script>
 </body>
 </html>

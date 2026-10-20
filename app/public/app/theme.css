@@ -1,0 +1,405 @@
+/* API-AegisLens · 皮肤层
+   3 套皮肤 × 明暗两态 = 6 组变量。皮肤只管颜色、字体、表面语言；结构在 index.html 与 layout.css。
+   沿用仓库既有的变量名（--bg / --surface / --r-card / --accent-line …），
+   所以 index.html 里已有的 CSS 与 renderCard 生成的 HTML 会自动跟随皮肤，无需改写。
+
+   选择器：html[data-skin="s1|s2|s3"][data-theme="dark|light"]
+   每组必须定义全契约第二节列出的变量，缺一个就有一处颜色失效。 */
+
+[data-skin="s1"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0A0E13; --surface: #111721; --surface-2: #171E2A;
+  --ink: #E6ECF4; --ink-2: #9BA9BC; --ink-3: #6B7A8F;
+  --rule: rgba(150, 175, 210, 0.16); --rule-soft: rgba(150, 175, 210, 0.09);
+  --accent: #4CC2C4; --accent-ink: #7EDCDD;
+  --accent-soft: rgba(76, 194, 196, 0.13); --accent-line: rgba(76, 194, 196, 0.42);
+  --api: #4CC2C4; --api-soft: rgba(76, 194, 196, 0.13);
+  --web: #7AA2E8; --web-soft: rgba(122, 162, 232, 0.13);
+  --warn: #E8A33D; --warn-soft: rgba(232, 163, 61, 0.13);
+  --danger: #E15A52; --danger-soft: rgba(225, 90, 82, 0.12);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: var(--font);
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 5px; --r-ctl: 4px; --r-chip: 3px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #081014; --on-danger: #1A0B0B;
+  --card-hover-border: rgba(150, 175, 210, 0.34); --card-hover-bg: #151D28;
+  --warn-line: rgba(232, 163, 61, 0.34); --warn-line-strong: rgba(232, 163, 61, 0.6);
+  --warn-line-hover: rgba(232, 163, 61, 0.22); --accent-line-soft: rgba(76, 194, 196, 0.28);
+  --overlay-ink: rgba(4, 7, 11, 0.66);
+  --grid-line: rgba(76, 194, 196, 0.035);
+  --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --code-bg: #1A212C; --code-ink: #E4EAF2;
+  --code-k: #7EDCDD; --code-c: #8A93A5; --code-s: #E8A33D;
+  --toast-bg: #1A2029; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #EAF0F6;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}
+
+[data-skin="s1"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #EDF0F4; --surface: #FFFFFF; --surface-2: #F3F5F9;
+  --ink: #0E1420; --ink-2: #44506A; --ink-3: #5C6779;
+  --rule: #D5DCE8; --rule-soft: #E4E9F2;
+  --accent: #0E7C7E; --accent-ink: #0A5E60;
+  --accent-soft: rgba(14, 124, 126, 0.09); --accent-line: rgba(14, 124, 126, 0.36);
+  --api: #0B7A72; --api-soft: rgba(11, 122, 114, 0.10);
+  --web: #2F5FBF; --web-soft: rgba(47, 95, 191, 0.10);
+  --warn: #8A5A00; --warn-soft: rgba(180, 116, 9, 0.13);
+  --danger: #B3261E; --danger-soft: rgba(179, 38, 30, 0.09);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: var(--font);
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 5px; --r-ctl: 4px; --r-chip: 3px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #FFFFFF; --on-danger: #FFFFFF;
+  --card-hover-border: #B4BFD4; --card-hover-bg: #FBFCFF;
+  --warn-line: rgba(180, 116, 9, 0.28); --warn-line-strong: rgba(180, 116, 9, 0.5);
+  --warn-line-hover: rgba(180, 116, 9, 0.2); --accent-line-soft: rgba(14, 124, 126, 0.16);
+  --overlay-ink: rgba(14, 20, 32, 0.5);
+  --grid-line: rgba(14, 124, 126, 0.04);
+  --shadow-modal: 0 18px 44px rgba(20, 22, 35, 0.22);
+  --shadow-toast: 0 10px 28px rgba(20, 22, 35, 0.24);
+  --shadow-hover: 0 4px 14px rgba(20, 22, 35, 0.12);
+  --code-bg: #EDEFF5; --code-ink: #1B1E2B;
+  --code-k: #0B6B48; --code-c: #5C6478; --code-s: #8A5A00;
+  --toast-bg: #1E2233; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #F1F3FA;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}
+
+/* S2 档案冷白：索引卡与钢印。冷白纸面（不是暖奶油），墨绿主色，赭石次色。 */
+[data-skin="s2"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #E8EAE5; --surface: #F7F8F4; --surface-2: #EFF1EB;
+  --ink: #161A17; --ink-2: #4A524B; --ink-3: #78817A;
+  --rule: #C9CFC5; --rule-soft: #DDE1D9;
+  --accent: #1F5D4C; --accent-ink: #164436;
+  --accent-soft: rgba(31, 93, 76, 0.10); --accent-line: rgba(31, 93, 76, 0.38);
+  --api: #1F5D4C; --api-soft: rgba(31, 93, 76, 0.10);
+  --web: #8A5A12; --web-soft: rgba(138, 90, 18, 0.11);
+  --warn: #9A6B12; --warn-soft: rgba(154, 107, 18, 0.14);
+  --danger: #A63A2A; --danger-soft: rgba(166, 58, 42, 0.10);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --display: "Songti SC", "SimSun", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13.5px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 3px; --r-ctl: 2px; --r-chip: 2px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #FFFFFF; --on-danger: #FFFFFF;
+  --card-hover-border: #A8B1A4; --card-hover-bg: #FAFBF7;
+  --warn-line: rgba(154, 107, 18, 0.3); --warn-line-strong: rgba(154, 107, 18, 0.55);
+  --warn-line-hover: rgba(154, 107, 18, 0.2); --accent-line-soft: rgba(31, 93, 76, 0.18);
+  --overlay-ink: rgba(22, 26, 23, 0.5);
+  --grid-line: rgba(31, 93, 76, 0.035);
+  --shadow-modal: 0 18px 44px rgba(22, 26, 23, 0.2);
+  --shadow-toast: 0 10px 28px rgba(22, 26, 23, 0.22);
+  --shadow-hover: 0 4px 14px rgba(22, 26, 23, 0.1);
+  --code-bg: #EDEFE9; --code-ink: #1B1E1A;
+  --code-k: #1F5D4C; --code-c: #5C6478; --code-s: #9A6B12;
+  --toast-bg: #1E241F; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #F1F3EE;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}
+
+[data-skin="s2"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141815; --surface: #1C211D; --surface-2: #232923;
+  --ink: #E8EDE7; --ink-2: #A3AEA4; --ink-3: #748074;
+  --rule: #333C34; --rule-soft: #262D26;
+  --accent: #6FBFA3; --accent-ink: #93D3BC;
+  --accent-soft: rgba(111, 191, 163, 0.12); --accent-line: rgba(111, 191, 163, 0.42);
+  --api: #6FBFA3; --api-soft: rgba(111, 191, 163, 0.12);
+  --web: #D2A24C; --web-soft: rgba(210, 162, 76, 0.12);
+  --warn: #D2A24C; --warn-soft: rgba(210, 162, 76, 0.13);
+  --danger: #D2796A; --danger-soft: rgba(210, 121, 106, 0.12);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+  --display: "Songti SC", "SimSun", "Source Han Serif SC", "Noto Serif CJK SC", serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13.5px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 3px; --r-ctl: 2px; --r-chip: 2px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #0C1512; --on-danger: #1A0B0B;
+  --card-hover-border: #4A564C; --card-hover-bg: #202620;
+  --warn-line: rgba(210, 162, 76, 0.34); --warn-line-strong: rgba(210, 162, 76, 0.6);
+  --warn-line-hover: rgba(210, 162, 76, 0.22); --accent-line-soft: rgba(111, 191, 163, 0.28);
+  --overlay-ink: rgba(4, 6, 4, 0.66);
+  --grid-line: rgba(111, 191, 163, 0.035);
+  --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --code-bg: #232A24; --code-ink: #E4E9E2;
+  --code-k: #93D3BC; --code-c: #8A93A5; --code-s: #D2A24C;
+  --toast-bg: #1A201B; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #EAF0E9;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}
+
+/* S3 白台：明快的工具台。纯白、圆角、轻阴影、留白呼吸、靛蓝主色。 */
+[data-skin="s3"][data-theme="light"] {
+  color-scheme: light;
+  --bg: #F7F8FA; --surface: #FFFFFF; --surface-2: #F2F4F7;
+  --ink: #14171C; --ink-2: #4E5661; --ink-3: #838C99;
+  --rule: #E2E6EC; --rule-soft: #EDF0F4;
+  --accent: #2F4FE0; --accent-ink: #1F39B8;
+  --accent-soft: rgba(47, 79, 224, 0.09); --accent-line: rgba(47, 79, 224, 0.34);
+  --api: #12805C; --api-soft: rgba(18, 128, 92, 0.10);
+  --web: #2F4FE0; --web-soft: rgba(47, 79, 224, 0.10);
+  --warn: #B26A00; --warn-soft: rgba(178, 106, 0, 0.12);
+  --danger: #C62B1F; --danger-soft: rgba(198, 43, 31, 0.09);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: var(--font);
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 13.5px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 10px; --r-ctl: 7px; --r-chip: 6px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #FFFFFF; --on-danger: #FFFFFF;
+  --card-hover-border: #CBD2DC; --card-hover-bg: #FFFFFF;
+  --warn-line: rgba(178, 106, 0, 0.28); --warn-line-strong: rgba(178, 106, 0, 0.5);
+  --warn-line-hover: rgba(178, 106, 0, 0.2); --accent-line-soft: rgba(47, 79, 224, 0.16);
+  --overlay-ink: rgba(20, 23, 28, 0.42);
+  --grid-line: rgba(47, 79, 224, 0.03);
+  --shadow-modal: 0 18px 44px rgba(20, 23, 28, 0.16);
+  --shadow-toast: 0 10px 28px rgba(20, 23, 28, 0.14);
+  --shadow-hover: 0 4px 14px rgba(20, 23, 28, 0.08);
+  --code-bg: #F2F4F7; --code-ink: #1B1E24;
+  --code-k: #12805C; --code-c: #5C6478; --code-s: #B26A00;
+  --toast-bg: #1B1F26; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #F1F3F8;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}
+
+[data-skin="s3"][data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #101216; --surface: #181B21; --surface-2: #1F232A;
+  --ink: #ECEEF2; --ink-2: #A3ABB8; --ink-3: #737C8A;
+  --rule: #2A2F37; --rule-soft: #22262D;
+  --accent: #7B93FF; --accent-ink: #9DB0FF;
+  --accent-soft: rgba(123, 147, 255, 0.13); --accent-line: rgba(123, 147, 255, 0.42);
+  --api: #48C08C; --api-soft: rgba(72, 192, 140, 0.12);
+  --web: #7B93FF; --web-soft: rgba(123, 147, 255, 0.12);
+  --warn: #E0A340; --warn-soft: rgba(224, 163, 64, 0.13);
+  --danger: #EE6A5D; --danger-soft: rgba(238, 106, 93, 0.12);
+  --font: "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --display: var(--font);
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --fs-xs: 11px; --fs-sm: 12.5px; --fs-base: 13.5px; --fs-lg: 17px; --fs-xl: 22px;
+  --r-card: 10px; --r-ctl: 7px; --r-chip: 6px; --r-pill: 999px;
+  --t-fast: 120ms; --t: 200ms; --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --z-modal: 60; --z-toast: 70;
+  --on-accent: #0B0E18; --on-danger: #1A0B0B;
+  --card-hover-border: #3C434D; --card-hover-bg: #1C2028;
+  --warn-line: rgba(224, 163, 64, 0.34); --warn-line-strong: rgba(224, 163, 64, 0.6);
+  --warn-line-hover: rgba(224, 163, 64, 0.22); --accent-line-soft: rgba(123, 147, 255, 0.28);
+  --overlay-ink: rgba(4, 5, 8, 0.66);
+  --grid-line: rgba(123, 147, 255, 0.035);
+  --shadow-modal: 0 18px 44px rgba(0, 0, 0, 0.55);
+  --shadow-toast: 0 10px 28px rgba(0, 0, 0, 0.5);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --code-bg: #20242C; --code-ink: #E8EAF0;
+  --code-k: #93D3BC; --code-c: #8A90AE; --code-s: #E0A340;
+  --toast-bg: #1B1F26; --toast-warn: #6E4700; --toast-ok: #0A5F41;
+  --toast-ink: #EAF0F8;
+  /* 两个独立视图的变量别名（凭证保险库 cv-、消费者令牌 cvw-）。
+     它们各自带前缀，接到这里就跟着同一套皮肤走，
+     两个视图自己的 CSS 一个字都不用改。
+     本块选择器特异性 [data-skin][data-theme] 高于它们内部的 :root，压得住。 */
+  --cv-bg: var(--bg); --cv-surface: var(--surface); --cv-surface-2: var(--surface-2);
+  --cv-ink: var(--ink); --cv-ink-2: var(--ink-2); --cv-ink-3: var(--ink-3);
+  --cv-rule: var(--rule); --cv-rule-soft: var(--rule-soft);
+  --cv-accent: var(--accent); --cv-accent-ink: var(--accent-ink);
+  --cv-accent-soft: var(--accent-soft); --cv-accent-line: var(--accent-line);
+  --cv-accent-line-soft: var(--accent-line-soft);
+  --cv-warn: var(--warn); --cv-warn-soft: var(--warn-soft);
+  --cv-danger: var(--danger); --cv-danger-soft: var(--danger-soft);
+  --cv-on-accent: var(--on-accent); --cv-on-danger: var(--on-danger);
+  --cv-mono: var(--mono); --cv-sans: var(--font);
+  --cv-fs-xs: var(--fs-xs); --cv-fs-sm: var(--fs-sm); --cv-fs-base: var(--fs-base);
+  --cv-fs-lg: var(--fs-lg); --cv-fs-xl: var(--fs-xl);
+  --cv-r-card: var(--r-card); --cv-r-ctl: var(--r-ctl); --cv-r-chip: var(--r-chip); --cv-r-pill: var(--r-pill);
+  --cv-t-fast: var(--t-fast); --cv-t: var(--t); --cv-ease: var(--ease);
+  --cv-shadow-modal: var(--shadow-modal); --cv-shadow-toast: var(--shadow-toast);
+  --cvw-accent: var(--accent); --cvw-accent-ink: var(--accent-ink);
+  --cvw-accent-soft: var(--accent-soft); --cvw-accent-line: var(--accent-line);
+  --cvw-code-bg: var(--code-bg); --cvw-code-ink: var(--code-ink);
+  --cvw-warn: var(--warn); --cvw-warn-soft: var(--warn-soft);
+  --cvw-danger: var(--danger); --cvw-danger-soft: var(--danger-soft);
+  --cvw-on-accent: var(--on-accent); --cvw-on-danger: var(--on-danger);
+  --cvw-ink: var(--ink); --cvw-ink-2: var(--ink-2); --cvw-ink-3: var(--ink-3);
+  --cvw-rule: var(--rule); --cvw-rule-soft: var(--rule-soft);
+  --cvw-surface: var(--surface); --cvw-surface-2: var(--surface-2);
+  --cvw-mono: var(--mono);
+  --cvw-fs-xs: var(--fs-xs); --cvw-fs-sm: var(--fs-sm); --cvw-fs-base: var(--fs-base);
+  --cvw-fs-lg: var(--fs-lg);
+  --cvw-r-card: var(--r-card); --cvw-r-ctl: var(--r-ctl); --cvw-r-chip: var(--r-chip); --cvw-r-pill: var(--r-pill);
+  --cvw-t-fast: var(--t-fast); --cvw-ease: var(--ease);
+}

@@ -1,0 +1,276 @@
+/* API-AegisLens · 布局层公共样式（layout.css）
+   这一层只管「怎么摆」的公共部分：
+   1) 切换器（布局 / 皮肤两套分段控件）
+   2) 公共重置：把旧的双列多栏流规则从新布局脚下撤走
+   3) 四套布局根容器 .lay-a / .lay-b / .lay-c / .lay-d 的共同骨架
+   4) layout-shared.js 产出的几种卡片变体（行 / 紧凑卡 / 列表项 / 详情面板）的样式
+
+   颜色一律取 theme.css 的变量，本文件不写死任何一个 #xxx。
+   布局样式作用域用 [data-layout="a"] 之类，不靠 .a- 前缀类名。
+   动效包在 @media (prefers-reduced-motion: no-preference) 里。 */
+
+/* ================= 1. 切换器 ================= */
+
+/* 工作区导航右侧的布局 / 皮肤两组分段控件。
+   .seg 与 .seg button 在 index.html 里已有一套（给配置弹窗的平台选择用），
+   这里用 .viewnav-tools 压一层，免得两套长相打架。 */
+.viewnav-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.viewnav-tools .seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  flex-wrap: nowrap;
+}
+.viewnav-tools .seg-label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink-3);
+  padding: 0 7px 0 5px;
+  white-space: nowrap;
+}
+.viewnav-tools .seg-btn {
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 4px 11px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.viewnav-tools .seg-btn:hover { color: var(--accent-ink); background: var(--accent-soft); }
+.viewnav-tools .seg-btn.on { background: var(--accent); color: var(--on-accent); }
+.viewnav-tools .seg-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+
+/* ================= 2. 公共重置 ================= */
+
+/* 旧规则 `:root[data-cols="2"] .board { display: block; columns: 2 }` 是给
+   「多栏卡片流」用的。四套布局各有自己的骨架，列数不归它管，必须撤走。
+   旧规则特异性 (0,3,0)，下面用 (0,3,1) 的选择器压过它 —— 这样 layout.css
+   无论排在 index.html 内联样式之前还是之后，重置都生效。 */
+html[data-layout] .board,
+html[data-layout] .board.board {
+  display: block;
+  columns: auto;
+  column-gap: normal;
+}
+
+/* 双列下旧规则会把收起的分组整组 display:none，可新布局里没有那条
+   「已收起」标签条（applyBoardLayout 覆盖了整个 #board），组头必须留着，
+   否则用户点开就再也合不回来。 */
+html[data-layout][data-cols] .group.collapsed { display: block; }
+html[data-layout][data-cols] .group { break-inside: auto; }
+
+/* ================= 3. 布局根容器公共骨架 ================= */
+
+/* 四个根容器共同的底：占满看板宽度、不塌、不横向溢出。
+   内部结构由各自的 layout-*.js 负责（各自只注册自己那一个）。 */
+.lay-a, .lay-b, .lay-c, .lay-d {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 可选的公共骨架类：想用就用，不合口味就自己写。
+   窄屏一律折成一列，390px 下不许横向溢出。 */
+.lay-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.lay-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.lay-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.lay-columns { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; align-items: start; }
+.lay-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.lay-table-wrap { max-width: 100%; overflow-x: auto; }
+
+@media (max-width: 720px) {
+  .lay-split { grid-template-columns: minmax(0, 1fr); }
+  .lay-columns { grid-template-columns: minmax(0, 1fr); }
+  .lay-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ================= 4. 共享原子的变体样式 ================= */
+
+/* ---- 表格行（账本） ----
+   容器带 .keycard 是硬约束（事件委托靠它找记录），但卡片的边框、圆角、
+   悬停抬升放进表格全是噪音，这里抹平：.keycard.lm-row 是 (0,2,0)，
+   压得住 .keycard 的 (0,1,0)，不靠文件加载顺序。 */
+.keycard.lm-row {
+  display: table-row;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+  transition: none;
+}
+.keycard.lm-row:hover {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+.keycard.lm-row:focus-within { border-color: transparent; }
+.keycard.lm-row > td { vertical-align: top; }
+
+.lm-c-key { white-space: nowrap; }
+.lm-c-key .plat-dot { display: inline-block; margin-right: 6px; vertical-align: middle; }
+.lm-c-key .auto-tag { margin-left: 6px; }
+.lm-c-acts { white-space: nowrap; }
+.lm-c-keyparam .param { max-width: 100%; }
+
+/* ---- 紧凑卡（状态列） ---- */
+.keycard.lm-compact { display: flex; flex-direction: column; gap: 8px; padding: 11px 12px; }
+.lm-compact-head { align-items: center; }
+.lm-compact-head .lm-name { font-size: var(--fs-base); }
+.lm-plat-name { font-size: var(--fs-sm); color: var(--ink-2); }
+.lm-compact-params { gap: 6px; }
+
+/* ---- 列表项（主从） ----
+   是 <button>：里面不能再套按钮，样式按按钮重置。 */
+.keycard.lm-listitem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-ctl);
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.keycard.lm-listitem:hover {
+  background: var(--surface-2);
+  border-color: var(--rule);
+  box-shadow: none;
+  transform: none;
+}
+.keycard.lm-listitem:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+.lm-li-top { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.lm-li-top .plat-dot { flex-shrink: 0; }
+.lm-li-top .lm-name { font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lm-li-sub { font-size: var(--fs-xs); color: var(--ink-3); }
+.lm-li-line { font-size: var(--fs-xs); color: var(--ink-2); overflow-wrap: anywhere; }
+.lm-li-line.lm-dim { color: var(--ink-3); }
+
+/* ---- 详情面板（主从） ---- */
+.keycard.lm-detail { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; }
+.lm-detail-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lm-detail-head .plat-dot { flex-shrink: 0; }
+.lm-detail-title { min-width: 0; }
+.lm-detail-title h3 { font-size: var(--fs-lg); }
+.lm-detail-head .lm-acts { margin-left: auto; }
+.lm-detail-foot { display: flex; align-items: center; gap: 8px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--rule); }
+
+.lm-sec {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.lm-kv-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.lm-kv {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.lm-kv .lbl2 { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 700; white-space: nowrap; }
+.lm-kv-wide { grid-column: 1 / -1; }
+.lm-kv .param { border: 0; background: transparent; padding: 0; }
+
+/* ---- 共用片段 ---- */
+.lm-eps { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.lm-eps .param { max-width: 100%; }
+.lm-models { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lm-model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 5px 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-ctl);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.lm-model.default { border-color: var(--accent-line); background: var(--accent-soft); }
+.lm-model-id { font-family: var(--mono); font-size: var(--fs-sm); font-weight: 600; overflow-wrap: anywhere; }
+.lm-assigned { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.lm-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lm-sub { font-size: var(--fs-xs); color: var(--ink-3); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.lm-empty { font-size: var(--fs-sm); color: var(--ink-3); }
+.lm-mono { font-family: var(--mono); }
+.lm-dim { color: var(--ink-3); }
+
+/* 特殊认证说明：变体里一直显示，所以是静态文字，不要做成可点的样子。 */
+.lm-auth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-ctl);
+  padding: 5px 9px;
+  line-height: 1.5;
+}
+.lm-note {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--warn);
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--r-chip);
+  padding: 2px 8px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 分组标题 ---- */
+.lm-group-head { display: flex; align-items: center; gap: 10px; margin: 4px 0 8px; }
+.lm-group-head .group-title { margin: 0; flex: 1; min-width: 0; }
+.lm-group-extra { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* ================= 5. 动效与焦点 ================= */
+
+@media (prefers-reduced-motion: no-preference) {
+  .viewnav-tools .seg-btn {
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  }
+  .keycard.lm-listitem {
+    transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+}
+
+.keycard.lm-listitem:focus-visible,
+.viewnav-tools .seg-btn:focus-visible,
+.lm-group-title:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }

@@ -22,7 +22,13 @@ const APP_ASSETS = {
   '/credentials-view.js': 'text/javascript; charset=utf-8',
   '/credentials-view.css': 'text/css; charset=utf-8',
   '/consumer-view.js': 'text/javascript; charset=utf-8',
-  '/consumer-view.css': 'text/css; charset=utf-8'
+  '/consumer-view.css': 'text/css; charset=utf-8',
+  /* 布局层：皮肤变量、唯一那套布局、共享渲染原子。逐个列举，不放开整个目录——
+     路径解析后仍必须落在 publicDir 内（见 serveAppAsset 的 startsWith 守卫）。 */
+  '/app/theme.css': 'text/css; charset=utf-8',
+  '/app/layout.css': 'text/css; charset=utf-8',
+  '/app/layout-shared.js': 'text/javascript; charset=utf-8',
+  '/app/layout-main.js': 'text/javascript; charset=utf-8'
 };
 
 function pathnameOf(url) {
@@ -151,7 +157,7 @@ function createApp(opts) {
   }
 
   return http.createServer(function (req, res) {
-    if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) {
+    if (req.method === 'GET' && /^\/(index\.html)?$/.test(pathnameOf(req.url))) {
       if (!indexHtml) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
         return res.end('index.html 缺失');
