@@ -119,8 +119,8 @@ that trips providers' geo/IP risk controls. See the [deployment guide](./DEPLOYM
 
 ## Reporting a security issue
 
-Please use the repository's **Private vulnerability reporting** (Security tab → Report a vulnerability) rather
-than a public issue. Expect a reply within a reasonable time; fixes usually ship with the next release.
+**Do not open a public issue.** Use the repository's **Report a vulnerability** entry (GitHub → Security tab → Report a vulnerability); it is a private channel, visible only to the maintainer.
+If that entry is disabled or unreachable, message the maintainer account `YYY-HUB-SYS` directly instead — still not a public issue. Expect a reply within a reasonable time; fixes usually ship with the next release.
 
 ## Related documents
 

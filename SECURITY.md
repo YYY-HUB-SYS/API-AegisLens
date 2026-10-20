@@ -96,8 +96,8 @@ README 顶部就写了这句，这里给出它的确切含义：
 
 ## 报告安全问题
 
-请走仓库的 **Private vulnerability reporting**（Security 标签页 → Report a vulnerability），
-不要开公开 issue。会在合理时间内回复；修复通常随下一个版本发出。
+**不要开公开 issue。** 请走仓库的 **Report a vulnerability**（GitHub 仓库页 → Security 标签页 → Report a vulnerability）——这是私密入口，报告只对维护者可见。
+若该入口未开启或打不开，直接私信维护者账号 `YYY-HUB-SYS`，同样不要退回公开 issue。会在合理时间内回复；修复通常随下一个版本发出。
 
 ## 相关文档
 

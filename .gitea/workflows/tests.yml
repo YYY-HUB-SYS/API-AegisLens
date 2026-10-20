@@ -1,0 +1,35 @@
+name: tests
+
+# 门禁：master 每次 push、每个 PR 都跑全量测试。
+# 与仓库 AGENTS.md 的硬门禁一致 —— 交付前必须 `cd app && node --test test/*.test.js` 全绿。
+# 矩阵覆盖两个存储后端：Node 22/24 走 SQLite（node:sqlite），Node 18–21 走 JSON 回退。
+# 若要补 JSON 回退路径的覆盖，在矩阵里加 '20'（该版本在本机未实测，加之前先本地跑一遍）。
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  test:
+    name: node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 装 Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: 跑全量测试
+        working-directory: app
+        run: node --test test/*.test.js
