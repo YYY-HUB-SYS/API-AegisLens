@@ -30,6 +30,20 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # 失败时把完整输出写进 step summary：run 页面上的 summary 是公开可读的，
+      # 不用 admin 权限就能拿到「到底哪条挂了」——否则日志接口要 admin，
+      # 出了红只能看着 job 页面干瞪眼。
       - name: 跑全量测试
         working-directory: app
-        run: node --test test/*.test.js
+        run: |
+          set +e
+          set -o pipefail
+          node --test test/*.test.js 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
+          status=${PIPESTATUS[0]}
+          {
+            echo '### 全量测试输出'
+            echo '```'
+            cat "$RUNNER_TEMP/test-output.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
