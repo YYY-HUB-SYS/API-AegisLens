@@ -151,7 +151,7 @@ test('落盘：recovery.env 带结尾换行、已存在默认不覆盖、force �
   assert.strictEqual(path.basename(file), RECOVERY_FILE);
   assert.strictEqual(fs.readFileSync(file, 'utf8'), env1 + '\n', '写入应带结尾换行');
   if (process.platform !== 'win32') {
-    assert.strictEqual(fs.statSync(file).mode & 0o077, 0o600, '恢复信封只能属主可读');
+    assert.strictEqual(fs.statSync(file).mode & 0o777, 0o600, '恢复信封只能属主可读');
   }
   assert.strictEqual(readRecoveryEnvelope(dir), env1);
   assert.deepStrictEqual(openRecoveryEnvelope(readRecoveryEnvelope(dir), k1), dek);
