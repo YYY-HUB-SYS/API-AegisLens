@@ -30,32 +30,33 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      # 跑测试之前先把运行环境的诊断写进 step summary。
-      # step summary 是公开可读的（不用 admin 权限），日志接口要 admin。
-      # 这一段故意放在测试之前：万一测试把整个 shell 打死，
-      # 至少 runner 的 CPU/内存/磁盘与 glob 展开结果已经留在页面上了。
+      # 诊断与失败摘要都用 ::error:: 打出去 —— 它会变成 check annotation，
+      # 而 check-runs 的 annotations API **匿名可读**；日志接口要 admin 权限，
+      # 出了红只能看着 job 页面干瞪眼。
+      # 诊断特意放在跑测试**之前**：万一测试把整个 shell 打死，这些证据已经留下��。
       - name: 跑全量测试
         working-directory: app
         run: |
           set +e
-          {
-            echo '### 运行前诊断'
-            echo '```'
-            echo "node: $(node --version)"
-            echo "平台: $(uname -a)"
-            echo "CPU 核数: $(nproc)"
-            echo "内存:"; free -m
-            echo "磁盘:"; df -h . | tail -2
-            echo "glob 展开到的测试文件数: $(ls test/*.test.js 2>/dev/null | wc -l)"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          set -o pipefail
-          node --test test/*.test.js 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
-          status=${PIPESTATUS[0]}
-          {
-            echo '### 全量测试输出'
-            echo '```'
-            cat "$RUNNER_TEMP/test-output.txt"
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::group::运行前诊断"
+          echo "node: $(node --version)"
+          echo "平台: $(uname -a)"
+          echo "核数: $(nproc)"
+          free -m
+          df -h . | tail -2
+          echo "glob 展开到的测试文件数: $(ls test/*.test.js 2>/dev/null | wc -l)"
+          echo "::endgroup::"
+          echo "::notice::node --test 开始，输出见本步日志"
+          node --test test/*.test.js > "$RUNNER_TEMP/test-output.txt" 2>&1
+          status=$?
+          echo "::group::测试输出"
+          cat "$RUNNER_TEMP/test-output.txt"
+          echo "::endgroup::"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::node --test 退出码 $status"
+            grep -E 'not ok|✖|Error|error:|AssertionError|ERR_' "$RUNNER_TEMP/test-output.txt" \
+              | head -60 | sed 's/^/::error::/'
+            echo "::error::完整输出（前 120 行）"
+            head -120 "$RUNNER_TEMP/test-output.txt" | sed 's/^/::error::/'
+          fi
           exit $status
