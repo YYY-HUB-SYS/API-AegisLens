@@ -81,6 +81,22 @@ function autoName(keyValue) {
   return keyValue.length >= 4 ? keyValue.slice(-4) : keyValue;
 }
 
+/* 端点比对只看内容（url + style + 顺序），不看「这次有没有传 endpoints 字段」。
+   显式传回同一组端点不算变更——表单每次保存都带着端点，
+   真按「传了就算改」处理的话，余额会被自己的表单清掉 */
+function sameEndpoints(a, b) {
+  const x = a || [];
+  const y = b || [];
+  if (x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i++) {
+    const ea = x[i] || {};
+    const eb = y[i] || {};
+    if (String(ea.url || '') !== String(eb.url || '')) return false;
+    if (String(ea.style || '') !== String(eb.style || '')) return false;
+  }
+  return true;
+}
+
 function str(v) { return String(v == null ? '' : v).trim(); }
 
 /* 账号池只持久化成员 id；给前端展示时现取完整密钥记录，池里某个密钥已被删除时
@@ -479,8 +495,16 @@ async function routeApi(req, res, ctx) {
       ? (patch.customName !== undefined && patch.customName !== '' ? patch.customName : (cur.customName || '自定义平台'))
       : '';
     if (platform === 'custom') patch.customName = customName;
+    /* 自动名跟着 key 走：请求里没带 name 字段（不是带了空串）且 key 真换了，
+       且**原名本身就是自动名**（末 4 位）时，名字按新 key 的末 4 位重算。
+       只有自动生成的名字才跟着 key 变；手工起过的名字（「Claude 生产」）不能被
+       覆盖——那是丢数据，不是重算。显式传了 name 的以显式的为准；
+       传空串沿用「重算」的既有语义。 */
     if (patch.name === '') {
       patch.name = autoName(patch.key || cur.key);
+    } else if (patch.name === undefined && patch.key !== undefined && patch.key !== cur.key
+      && cur.name === autoName(cur.key)) {
+      patch.name = autoName(patch.key);
     }
     if (b.endpoints !== undefined || b.base !== undefined) {
       try {
@@ -501,15 +525,13 @@ async function routeApi(req, res, ctx) {
     });
     if (dup) throw bad(409, '该平台下已存在同名密钥');
     const rec = storage.updateKey(id, patch);
-    /* 端点变更可能改变余额可查性：支持↔不支持切换时重置余额，避免旧值误导 */
-    if (patch.endpoints !== undefined) {
+    /* 端点一改，旧余额就是「上一家厂商的数」：值和状态一起清，别只清状态。
+       比对内容而不是看字段在不在——显式传回同一组端点不算变更，余额不该动 */
+    if (patch.endpoints !== undefined && !sameEndpoints(cur.endpoints, rec.endpoints)) {
       const supported = (rec.endpoints || []).some(function (e) { return adapters.supportsBalanceUrl(e.url); });
-      const wasSupported = rec.balance.status !== 'unsupported';
-      if (supported !== wasSupported) {
-        return json(res, 200, {
-          key: maskedKeyView(storage.saveBalance(id, { value: null, status: supported ? 'pending' : 'unsupported' }))
-        });
-      }
+      return json(res, 200, {
+        key: maskedKeyView(storage.saveBalance(id, { value: null, status: supported ? 'pending' : 'unsupported' }))
+      });
     }
     return json(res, 200, { key: maskedKeyView(rec) });
   }

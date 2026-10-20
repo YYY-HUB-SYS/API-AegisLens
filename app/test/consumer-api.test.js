@@ -233,6 +233,22 @@ test('签发被限流时 429 带 retryAfterMs，且不碰存储', async () => {
   assert.strictEqual(h.storage.tokens.size, 0);
 });
 
+/* body 坏掉要报「body 坏了」，不能吞成空对象再报「label 必须是字符串」——
+   排查方向不能被带偏（调用方会以为该改 label，其实该改 body）。
+   （2026-10-21 夜测：坏 JSON 被报成「label 必须是字符串」。） */
+test('签发时请求体坏掉：报 body 的错，不报「label 必须是字符串」', async () => {
+  const h = harness();
+  h.unlock();
+  const broken = new Error('请求体不是合法的 JSON');
+  broken.httpStatus = 400;
+  h.ctx.readBody = function () { return Promise.reject(broken); };
+  const r = await h.call('POST', '/api/consumer/tokens', { label: 'svc', scopes: ['key:read'], keyIds: [1] });
+  assert.strictEqual(r.status, 400, JSON.stringify(r.data));
+  assert.match(r.data.error, /JSON|请求体/, '要说的是 body 坏了');
+  assert.doesNotMatch(r.data.error, /label/, '不能把排查方向引到 label 上');
+  assert.strictEqual(h.storage.tokens.size, 0, '签发失败不该在库里留下行');
+});
+
 /* ── 机器面：正例与门禁顺序 ─────────────────────────────────────── */
 
 test('作用域命中：给明文、记最近使用、审计里是 fingerprint 不是令牌', async () => {

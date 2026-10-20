@@ -504,8 +504,8 @@ test('API 集成：余额按端点域名匹配（自定义平台与多端点回�
         { url: 'https://api.deepseek.com/anthropic', style: 'anthropic' }
       ]
     });
-    assert.strictEqual(r.data.key.balance.status, 'ok', '支持状态未变时应保留余额');
-    assert.strictEqual(r.data.key.balance.value, 66.6);
+    assert.strictEqual(r.data.key.balance.status, 'pending', '端点内容变了就清余额（余额可查性没变也一样）');
+    assert.strictEqual(r.data.key.balance.value, null, '旧余额值必须一并清掉：那是上一组端点的数');
   } finally {
     server.close();
   }
@@ -742,4 +742,138 @@ test('GET /api/keys/:id 取单条掩码视图，明文不出现在响应里', as
     const miss = await call(h.base, 'GET', '/api/keys/999999');
     assert.strictEqual(miss.status, 404, '不存在的 id 应当 404');
   } finally { await new Promise(r => h.server.close(r)); }
+});
+
+/* 换端点后旧余额必须清掉：那个数是「上一家厂商」的，留着就是错数据。
+   但要按**内容**比对——显式传回同一组端点不算变更，余额不能被自己的表单清掉。
+   （2026-10-21 夜测：deepseek 88.5 换成 moonshot 端点后仍是 88.5。） */
+test('端点变更即清空旧余额的值与状态；端点内容没变则原样保留', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-ep-clear-0001',
+      endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    r = await call(base, 'GET', '/api/keys/' + id);
+    assert.strictEqual(r.data.key.balance.value, 88.5, '前置：余额已经查出来了');
+    assert.strictEqual(r.data.key.balance.status, 'ok');
+
+    /* 端点内容没变（显式传同一组）→ 余额不许动 */
+    r = await call(base, 'PUT', '/api/keys/' + id, {
+      endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.balance.value, 88.5, '端点没变，余额不该被清掉');
+    assert.strictEqual(r.data.key.balance.status, 'ok', '端点没变，状态也不该被清掉');
+
+    /* 端点变了（同为可查余额的厂商）→ 值和状态一起清 */
+    r = await call(base, 'PUT', '/api/keys/' + id, {
+      endpoints: [{ url: 'https://api.moonshot.cn/v1', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.balance.value, null, '旧余额值必须清掉：88.5 是上一家厂商的数');
+    assert.strictEqual(r.data.key.balance.status, 'pending', '新端点可查余额，应回到待查询');
+
+    /* 重新查：拿到的必须是新厂商的数，不是旧的那份 */
+    r = await call(base, 'POST', '/api/refresh-balances');
+    r = await call(base, 'GET', '/api/keys/' + id);
+    assert.strictEqual(r.data.key.balance.value, 12.34, '刷新后应是新端点的余额');
+    assert.strictEqual(r.data.key.balance.status, 'ok');
+  } finally { server.close(); }
+});
+
+/* 旧的 fail 状态连同它的文案一起清掉：留着就等于还在说「上次查询失败」，
+   而那条失败是上一组端点的事，新端点一次都没查过。 */
+test('端点变更时旧的 fail 状态也一起清掉，不留在新端点上', async () => {
+  const { server, base } = await startServer(mockFetch401);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'deepseek', key: 'sk-ep-fail-0002',
+      endpoints: [{ url: 'https://api.deepseek.com', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.key.id;
+
+    r = await call(base, 'POST', '/api/refresh-balances');
+    r = await call(base, 'GET', '/api/keys/' + id);
+    assert.strictEqual(r.data.key.balance.status, 'fail', '前置：余额查失败');
+    assert.strictEqual(r.data.key.balance.value, null);
+
+    r = await call(base, 'PUT', '/api/keys/' + id, {
+      endpoints: [{ url: 'https://api.moonshot.cn/v1', style: 'openai' }]
+    });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.balance.status, 'pending', '旧端点的失败状态不许留在新端点上');
+    assert.strictEqual(r.data.key.balance.value, null);
+  } finally { server.close(); }
+});
+
+/* 直调 API 换 key 时自动名要跟着重算：掩码已经是新 key 的末 4 位，
+   名字还挂着旧 key 的末 4 位，同一张卡片上两处对不上。
+   （2026-10-21 夜测：sk-ROTATE-OLD-1111 换成 sk-ROTATE-NEW-9999，名字仍是 1111。） */
+test('换 key 值时自动名按新 key 重算；显式传名以显式的为准，空串沿用重算语义', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    let r = await call(base, 'POST', '/api/keys', { platform: 'custom', key: 'sk-ROTATE-OLD-1111' });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.key.id;
+    assert.strictEqual(r.data.key.name, '1111', '自动名取旧 key 末 4 位');
+    assert.strictEqual(r.data.key.keyMasked, '1111');
+
+    /* 请求里没带 name 字段 + key 变了 → 按新 key 重算 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-ROTATE-NEW-9999' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, '9999', '自动名必须跟着新 key 重算');
+    assert.strictEqual(r.data.key.keyMasked, '9999', '掩码已是新 key 末 4 位，名字也要跟上');
+
+    /* 显式传了 name → 以显式的为准 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-ROTATE-THIRD-7777', name: '我起的名' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, '我起的名', '显式传名不许被自动名覆盖');
+
+    /* 传空串 → 沿用「重算」语义 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-ROTATE-FOURTH-6666', name: '' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, '6666', '空串沿用重算语义');
+
+    /* key 没变 → 名字不动 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { model: 'my-model' });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.data.key.name, '6666', '没换 key 就不该动名字');
+  } finally { server.close(); }
+});
+
+/* 手工起过的名字不能被自动名覆盖。自动名规则的本意是「**自动生成**的名字跟着 key 变」，
+   不是「所有名字都跟着 key 变」——丢掉用户自己起的名字是丢数据，不是重算。
+   （脚本直调 PUT {key:…} 不带 name 是常态，这条不守住就等于给数据开了个静默的口子。） */
+test('换 key 时手工起过的名字保持不变：只有自动名才跟着新 key 重算', async () => {
+  const { server, base } = await startServer(mockFetch);
+  try {
+    let r = await call(base, 'POST', '/api/keys', {
+      platform: 'custom', key: 'sk-MANUAL-OLD-1111', name: 'Claude 生产'
+    });
+    assert.strictEqual(r.status, 201, JSON.stringify(r.data));
+    const id = r.data.key.id;
+    assert.strictEqual(r.data.key.name, 'Claude 生产');
+
+    /* 不带 name 换 key → 手工名必须原样留着 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-MANUAL-NEW-9999' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, 'Claude 生产', '手工名不许被自动名覆盖——那是丢数据');
+    assert.strictEqual(r.data.key.keyMasked, '9999', 'key 确实换了（掩码跟着变）');
+
+    /* 显式传 name → 以显式的为准 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-MANUAL-THIRD-7777', name: '新名字' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, '新名字', '显式传名以显式的为准');
+
+    /* 传空串 → 沿用「重算」语义：用户主动要求重算，手工名也可以被覆盖 */
+    r = await call(base, 'PUT', '/api/keys/' + id, { key: 'sk-MANUAL-FOURTH-6666', name: '' });
+    assert.strictEqual(r.status, 200, JSON.stringify(r.data));
+    assert.strictEqual(r.data.key.name, '6666', '空串是显式要求重算，照重算走');
+  } finally { server.close(); }
 });

@@ -167,6 +167,10 @@ function buildPatch(key, body, opts) {
   }
   if (body.loginMethod !== undefined) {
     patch.loginMethod = normalizeLoginMethod(body.loginMethod);
+  } else if (!o.partial) {
+    /* 非局部更新时缺省也要归一：注释与前端契约都写「空与缺省一律归 password」。
+       缺省就不写这个键的话，存储层会落成 ''，直调 API 的第三方拿到的不是合法枚举值。 */
+    patch.loginMethod = 'password';
   }
   for (const field of ENC_FIELDS) {
     if (body[field.in] === undefined) continue;

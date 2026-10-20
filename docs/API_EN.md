@@ -107,9 +107,16 @@ Machine side (Bearer token):
 | `GET` | `/api/consumer/credentials/{id}` | `cred:read` |
 
 There are 4 scopes; resource lists are **enumerations** — an empty list grants nothing rather than
-everything. Limits: label 40 characters, 64 resource ids in total, lifetime 60 seconds to 90 days
+everything. The server stores the payload exactly as requested: check a scope but pick no resources
+and you get a token that can read nothing (**an empty resource list means zero readable**, not
+"everything readable"). The browser's minting form blocks that case; a script calling the API
+directly does not.
+Limits: label 40 characters, 64 resource ids in total, lifetime 60 seconds to 90 days
 (30 days by default). Status codes: `423` vault locked (says nothing about your token), `401` token
 missing / invalid / expired / revoked, `403` scope not granted, `429` too frequent (with `retryAfterMs`).
+The revocation check runs **after** the scope check: a revoked token used against an endpoint whose
+scope it does not carry gets `403` scope, not `401` revoked — to confirm that a token was revoked,
+call with a token whose scope matches.
 
 ## Scheduler
 
@@ -135,7 +142,7 @@ explicit checkbox, which then reveals items one by one.
 | UI actions | 69 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
-| Minimum passphrase length | 8 characters | `crypto.js` |
+| Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |
 | KDF | scrypt `N=32768, r=8, p=1` | `crypto.js` |
 | Recovery code | 52 characters (base32, 256 bits) | `recovery.js` |
 | Idle auto-lock | 5 minutes by default | `AKM_IDLE_LOCK_MINUTES` |

@@ -6,7 +6,7 @@ const path = require('node:path');
 const tmp = require('./tmp.js');
 const { loadOrCreateMasterKey, encryptField, decryptField, wrapDek, unwrapDek, parseKekBlob,
   readVaultBlob, vaultMode, enablePassphrase, changePassphrase, unlockDek, discardRawDek,
-  zeroSecret, VAULT_FILE, MIN_PASSPHRASE } = require('../src/crypto');
+  zeroSecret, VAULT_FILE, MIN_PASSPHRASE, MAX_PASSPHRASE } = require('../src/crypto');
 
 function tempDir() {
   return tmp.mk('akm-crypto');
@@ -125,6 +125,19 @@ test('信封：自定义 KDF 档位封出来的 blob 靠头部参数就能解', 
   assert.strictEqual(blob.split(':')[3], '16384.8.1');
   assert.strictEqual(parseKekBlob(blob).kdf.N, 16384);
   assert.deepStrictEqual(unwrapDek(blob, 'correct-pass-1'), dek);
+});
+
+/* 口令有下限就该有上限：5000 位口令原先能被接受并生效，
+   与 8 位下限不对称——超长口令既拖慢解锁（scrypt 输入）又多半是误粘贴。
+   （2026-10-21 夜测：5000 位口令被接受。） */
+test('解锁口令有上限：超上限一律拒绝，上限值本身仍然可用', () => {
+  const dek = require('node:crypto').randomBytes(32);
+  const atLimit = 'a'.repeat(MAX_PASSPHRASE);
+  const blob = wrapDek(dek, atLimit);
+  assert.deepStrictEqual(unwrapDek(blob, atLimit), dek, '上限值本身必须可用');
+  const tooLong = 'a'.repeat(MAX_PASSPHRASE + 1);
+  assert.throws(() => wrapDek(dek, tooLong), /最长/, '封信封时超上限必须拒绝');
+  assert.throws(() => unwrapDek(blob, tooLong), /最长/, '解信封时超上限必须拒绝');
 });
 
 test('vault 模式：无 vault.key 是 legacy，写入后转 envelope', () => {

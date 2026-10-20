@@ -340,6 +340,24 @@ test('POST：不认识的字段与非法 JSON 一律 400，不透传进存储', 
   assert.strictEqual(h.sink.calls[before].status, 400, '请求体不是 JSON 对象也要 400');
 });
 
+/* loginMethod 是五值枚举，注释与前端契约都写「空与缺省一律归 password」。
+   缺省就不写这个键的话，存储层会落成 ''——直调 API 的第三方拿到的不是合法枚举值。
+   （2026-10-21 夜测：POST 不带 loginMethod，库里落成空串。） */
+test('创建时缺省 loginMethod 归 password（不能落成空串）；局部更新缺省则保持原值', async () => {
+  const h = harness();
+  h.unlock();
+  const made = await h.call('POST', '/api/credentials', { site: 'x.com', title: '没写登录方式' });
+  assert.strictEqual(made.status, 201, JSON.stringify(made.data));
+  assert.strictEqual(made.data.credential.loginMethod, 'password', '缺省要归一成合法枚举值');
+  assert.strictEqual(h.storage.rows.get(made.data.credential.id).loginMethod, 'password', '库里也要是合法枚举值，不是空串');
+
+  /* 局部更新（PUT）缺省 loginMethod → 不该把原有的值冲掉 */
+  const seeded = h.seed({ title: 'T', site: 'y.com', loginMethod: 'sms' });
+  const upd = await h.call('PUT', '/api/credentials/' + seeded.id, { title: '只改标题' });
+  assert.strictEqual(upd.status, 200, JSON.stringify(upd.data));
+  assert.strictEqual(upd.data.credential.loginMethod, 'sms', '局部更新缺省 loginMethod 不动原值');
+});
+
 /* ── 更新 ─────────────────────────────────────────────────────────── */
 
 test('PUT：只改传入字段，空串清除，改口令必须 bump updated_at', async () => {

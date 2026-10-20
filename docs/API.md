@@ -102,8 +102,10 @@ TOTP 种子可以是裸 Base32,也可以是整条 `otpauth://` URI(此时 `perio
 | `GET` | `/api/consumer/credentials/{id}` | `cred:read` |
 
 scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不到,不是"全部"。
+签发时服务端按请求原样存 payload:勾了 scope 却不选资源,签出来的是一把读不到东西的令牌(**空资源清单 = 零把可读**,不是"全部可读")。浏览器的签发表单会拦这种情况,脚本直调 API 不会。
 上限:label 40 字符、资源 id 合计 64、有效期 60 秒 ~ 90 天(默认 30 天)。
 状态码:`423` 保险库锁着(不告诉你令牌对不对)、`401` 令牌缺失/无效/过期/已吊销、`403` scope 不够、`429` 过于频繁(带 `retryAfterMs`)。
+吊销检查排在 scope 检查**之后**:已吊销的令牌若用错 scope 的端点访问,拿到的是 `403` scope 而不是 `401` revoked——要确认一把令牌是否被吊销,得用一把 scope 匹配的令牌去调。
 
 ## 定时调度
 
@@ -128,7 +130,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 | 界面动作 | 69 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
-| 口令最短 | 8 位 | `crypto.js` |
+| 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |
 | KDF | scrypt `N=32768, r=8, p=1` | `crypto.js` |
 | 恢复码 | 52 字符(base32,256 位) | `recovery.js` |
 | 闲置自动锁 | 默认 5 分钟 | `AKM_IDLE_LOCK_MINUTES` |

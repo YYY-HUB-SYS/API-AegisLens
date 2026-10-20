@@ -226,6 +226,22 @@ test('parseList：site 与 loginMethod 会进视图项', () => {
   assert.strictEqual(items[1].loginMethod, '');
 });
 
+/* 后端把多个标签落成逗号串（存储层就是文本列），视图不按逗号切的话，
+   「生产,数据库」会变成一个标签：按「生产」筛不中、也选不了。
+   （2026-10-21 夜测：多标签渲染成一个、筛标签筛不中。） */
+test('parseList：后端逗号串的标签要按逗号切开', () => {
+  const items = view.__internals.parseList({ credentials: [
+    { id: 1, title: '多标签', tags: '生产,数据库' },
+    { id: 2, title: '单标签', tags: '财务' },
+    { id: 3, title: '数组标签', tags: ['甲', '乙'] },
+    { id: 4, title: '没标签' }
+  ] });
+  assert.deepStrictEqual(items[0].tags, ['生产', '数据库'], '逗号串必须切开成两个标签');
+  assert.deepStrictEqual(items[1].tags, ['财务'], '单个标签切完还是它自己');
+  assert.deepStrictEqual(items[2].tags, ['甲', '乙'], '已经是数组的原样');
+  assert.deepStrictEqual(items[3].tags, [], '没标签就是空数组');
+});
+
 test('groupBySite：同站多账号归一组，空网站单独成组不丢', () => {
   const groups = view.__internals.groupBySite([
     { id: '1', site: 'github.com', username: 'a' },

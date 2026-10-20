@@ -58,6 +58,7 @@ const KEK_AAD = Buffer.from('aegis:kek:v1', 'utf8');
 // 实测 N=2^15/r=8/p=1 约 64ms，双击即用的门槛内；再高一档要到 277ms。
 const KDF_DEFAULT = { N: 32768, r: 8, p: 1 };
 const MIN_PASSPHRASE = 8;
+const MAX_PASSPHRASE = 1024;
 
 function deriveKek(passphrase, salt, kdf) {
   // scrypt 在 N≥2^15 时必须显式给 maxmem，否则 Node 直接抛 ERR_CRYPTO_INVALID_SCRYPT_PARAMETER
@@ -72,6 +73,9 @@ function deriveKek(passphrase, salt, kdf) {
 function assertPassphrase(passphrase) {
   if (typeof passphrase !== 'string' || passphrase.length < MIN_PASSPHRASE) {
     throw new Error('解锁口令至少 ' + MIN_PASSPHRASE + ' 位');
+  }
+  if (passphrase.length > MAX_PASSPHRASE) {
+    throw new Error('解锁口令最长 ' + MAX_PASSPHRASE + ' 位，当前 ' + passphrase.length);
   }
 }
 
@@ -204,4 +208,5 @@ module.exports = {
   MASTER_KEY_FILE,
   KDF_DEFAULT,
   MIN_PASSPHRASE,
+  MAX_PASSPHRASE,
 };

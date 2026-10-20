@@ -161,9 +161,11 @@ async function issueToken(ctx, req, res) {
     audit(ctx, { kind: 'token', status: 'denied', detail: 'throttled' });
     return ctx.bad(res, 429, '签发令牌过于频繁，请稍后再试', { retryAfterMs: gate.retryAfterMs });
   }
-  const b = await ctx.readBody(req).catch(function () { return {}; });
   let issued;
   try {
+    /* body 坏掉要报「body 坏了」，不能吞成空对象再报「label 必须是字符串」——
+       排查方向不能被带偏（调用方会以为该改 label，其实该改 body）。 */
+    const b = await ctx.readBody(req);
     issued = ct.issueToken({
       dek: dek,
       label: b.label,

@@ -159,7 +159,11 @@
         username: str(it.username),
         url: str(it.url),
         folder: str(it.folder),
-        tags: Array.isArray(it.tags) ? it.tags.map(str) : (it.tags ? [str(it.tags)] : []),
+        /* 后端把多个标签落成逗号串（storage 里就是文本列），这里必须按逗号切，
+           否则「生产,数据库」会变成一个标签，按「生产」筛不中、也选不了。
+           单个标签没有逗号，切完还是它自己，不受影响。 */
+        tags: Array.isArray(it.tags) ? it.tags.map(str)
+          : (it.tags ? String(it.tags).split(',').map(function (t) { return str(t).trim(); }).filter(Boolean) : []),
         createdAt: it.createdAt || null,
         updatedAt: it.updatedAt || null,
         lastUsedAt: it.lastUsedAt || null,
