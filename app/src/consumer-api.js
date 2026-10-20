@@ -5,7 +5,8 @@
 
    两类路径分开，别混：
    - /api/consumer/tokens*             人（浏览器）管理令牌，受保险库会话与限流约束
-   - /api/consumer/keys|credentials/*  机器带 Bearer 令牌取数据，按 scope 与白名单放行 */
+   - /api/consumer/keys|credentials/*  机器带 Bearer 令牌取数据，按 scope 与白名单放行，
+                                        并按令牌分桶限流（每令牌 60 秒 120 次，见下方「数据面限流」段） */
 
 const ct = require('./consumer-tokens');
 const { decryptField } = require('./crypto');
@@ -115,12 +116,8 @@ function guard(ctx, req, res, want) {
     denied(ctx, res, req, 'revoked', v.fingerprint);
     return null;
   }
-  audit(ctx, {
-    kind: 'consumer',
-    target: want.target,
-    status: 'ok',
-    detail: want.scope + ' ' + fpOf(v.fingerprint)
-  });
+  /* 审计的 ok 由调用方在过了限流门之后补记：这一条只代表「认证过了」，
+     代表不了「真取到数据」——被限流挡下的请求不该留下一条 ok */
   return { payload: v.payload, row: row, fingerprint: v.fingerprint };
 }
 
@@ -148,6 +145,130 @@ function tokenView(t, nowSec) {
 function listView(ctx) {
   const nowSec = Math.floor(Date.now() / 1000);
   return ctx.storage.listTokens().map(function (t) { return tokenView(t, nowSec); });
+}
+
+/* ---------- 数据面限流（按令牌分桶） ---------- */
+
+/* 档位：每把令牌每 60 秒最多 120 次数据面请求。
+   分桶键是令牌的 tid（令牌 id），**不是来源 IP**：脚本可能从多个 IP 来（容器、重试网关、
+   换网），按 IP 分桶会误伤；按令牌分桶正好对应「一把令牌」的粒度——谁拿到的额度就记在谁头上。 */
+const DATA_MAX_REQUESTS = 120;
+const DATA_WINDOW_MS = 60 * 1000;
+
+/* 滑窗（存每次请求的时刻）：任何连续 60 秒内不超过 120 次。
+   固定窗口在窗口边界能放出 240 次/秒（上一窗口末尾 120 + 下一窗口开头 120），滑窗没这条缝。
+   桶里最多留 120 个时间戳，内存可以忽略；桶表只在内存里，进程重启即清零（与现有限流一致，不落盘）。 */
+function createDataThrottle(opts) {
+  const o = opts || {};
+  const now = o.now || Date.now;
+  const max = Number.isFinite(o.max) && o.max > 0 ? Math.floor(o.max) : DATA_MAX_REQUESTS;
+  const windowMs = Number.isFinite(o.windowMs) && o.windowMs > 0 ? Math.floor(o.windowMs) : DATA_WINDOW_MS;
+  const sweepEvery = Number.isFinite(o.sweepEvery) && o.sweepEvery > 0 ? Math.floor(o.sweepEvery) : 64;
+  const buckets = new Map(); /* tid -> {stamps:[毫秒], at:最后一次活动} */
+  let written = 0;
+
+  /* 窗口是 [now-windowMs, now]：早于等于左边界的都算过期 */
+  function prune(b, nowMs) {
+    const cut = nowMs - windowMs;
+    let i = 0;
+    while (i < b.stamps.length && b.stamps[i] <= cut) i += 1;
+    if (i > 0) b.stamps.splice(0, i);
+  }
+
+  /* 清扫只在写入时顺带做，不起定时器：这套设计里没有任何东西在后台跑（与 vault.js 的节流同思路） */
+  function sweep(nowMs) {
+    buckets.forEach(function (b, tid) {
+      prune(b, nowMs);
+      if (!b.stamps.length) buckets.delete(tid);
+    });
+  }
+
+  return {
+    /* 预占一个名额。判断与占用必须在同一个同步函数里做完：拆成 check/count 两步，
+       并发请求会一起从缝里挤进来（Node 单线程，同步段才是原子的）。 */
+    reserve: function (tid) {
+      const nowMs = now();
+      let b = buckets.get(tid);
+      if (!b) { b = { stamps: [], at: nowMs }; buckets.set(tid, b); }
+      prune(b, nowMs);
+      b.at = nowMs;
+      if (b.stamps.length >= max) {
+        /* 最老的那次滑出窗口时就能再放一个：等这么久还不够就别等了 */
+        return { allowed: false, retryAfterMs: Math.max(1, (b.stamps[0] + windowMs) - nowMs) };
+      }
+      b.stamps.push(nowMs);
+      if (++written % sweepEvery === 0) sweep(nowMs);
+      return { allowed: true, stamp: nowMs };
+    },
+    /* 这次请求最后没取到数据（404 这类「脚本写错了」），把预占的名额还回去 */
+    refund: function (tid, stamp) {
+      const b = buckets.get(tid);
+      if (!b) return false;
+      const i = b.stamps.indexOf(stamp);
+      if (i === -1) return false;
+      b.stamps.splice(i, 1);
+      return true;
+    },
+    /* 令牌被吊销：桶随令牌一起走，不留残骸 */
+    drop: function (tid) { return buckets.delete(tid); },
+    /* 只有测试和排障会用：桶里此刻记着几次 */
+    peek: function (tid) {
+      const b = buckets.get(tid);
+      if (!b) return { count: 0 };
+      prune(b, now());
+      return { count: b.stamps.length };
+    },
+    size: function () { return buckets.size; },
+    reset: function () { buckets.clear(); }
+  };
+}
+
+/* 进程级默认桶表。ctx.dataThrottle 存在时用它（单测要隔离），生产走这一份 */
+const defaultDataThrottle = createDataThrottle();
+
+function dataThrottleOf(ctx) {
+  const t = ctx && ctx.dataThrottle;
+  return (t && typeof t.reserve === 'function') ? t : defaultDataThrottle;
+}
+
+/* 限流门：认证过了、准备取数据之前过这一关。
+   超了额度就别去碰存储，更别去发厂商请求（key:test 会真花钱）。 */
+function reserveData(ctx, authed) {
+  return dataThrottleOf(ctx).reserve(authed.row.tid);
+}
+
+/* 没取到数据就把名额还回去——额度只该被「真拿到了东西」的请求消耗 */
+function refundData(ctx, authed, gate) {
+  if (!gate || gate.allowed !== true) return false;
+  return dataThrottleOf(ctx).refund(authed.row.tid, gate.stamp);
+}
+
+/* Retry-After 头（秒）用标准写法给出；响应体里同时给毫秒级的 retryAfterMs。
+   res 不是真正的 ServerResponse 时（单测的假 res 没有 setHeader）就跳过这个头，
+   不能因为加个头把整个应答搞崩。 */
+function setRetryAfter(res, retryAfterMs) {
+  if (!res || typeof res.setHeader !== 'function') return false;
+  const secs = Math.max(1, Math.ceil((Number(retryAfterMs) || 0) / 1000));
+  try { res.setHeader('Retry-After', String(secs)); return true; } catch (e) { return false; }
+}
+
+function throttled(ctx, res, authed, gate, target) {
+  audit(ctx, {
+    kind: 'consumer', target: target, status: 'denied',
+    detail: 'throttled ' + fpOf(authed.fingerprint)
+  });
+  setRetryAfter(res, gate.retryAfterMs);
+  return ctx.bad(res, 429, '令牌请求过于频繁，请稍后再试', { retryAfterMs: gate.retryAfterMs });
+}
+
+/* 门禁过了才记 ok：被限流挡下的请求只该留一条 denied */
+function auditOk(ctx, target, authed, scope) {
+  audit(ctx, {
+    kind: 'consumer',
+    target: target,
+    status: 'ok',
+    detail: scope + ' ' + fpOf(authed.fingerprint)
+  });
 }
 
 /* ---------- 管理面（人） ---------- */
@@ -210,6 +331,8 @@ function revokeToken(ctx, res, tid) {
   if (!ctx.vault.isUnlocked()) return ctx.bad(res, 423, '保险库未解锁');
   const row = ctx.storage.revokeToken(tid);
   if (!row) return ctx.bad(res, 404, '没有这把令牌：' + tid);
+  /* 桶随令牌一起走：吊销后这把令牌不该再占着额度表的一行 */
+  dataThrottleOf(ctx).drop(tid);
   audit(ctx, { kind: 'token', status: 'ok', detail: 'revoke ' + fpOf(row.fingerprint) });
   /* 顺手把新列表带回，界面不必再发一次 GET：少一次往返就少一次状态不一致的机会 */
   return ctx.json(res, 200, { ok: true, tid: row.tid, revokedAt: row.revokedAt, tokens: listView(ctx) });
@@ -220,11 +343,21 @@ function revokeToken(ctx, res, tid) {
 /* 过了门禁才去查资源在不在：反过来的话，一把作用域不足的令牌就能拿「404 还是 403」探测哪些 id 存在 */
 function authorizedKey(ctx, req, res, rawId, scope) {
   const id = Number(rawId);
-  const authed = guard(ctx, req, res, { scope: scope, resource: { keyId: id }, target: 'key:' + id });
+  const target = 'key:' + id;
+  const authed = guard(ctx, req, res, { scope: scope, resource: { keyId: id }, target: target });
   if (!authed) return null;
+  /* 限流门在门禁之后、资源查询之前：超了额度就别去碰存储，更别去发厂商请求 */
+  const gate = reserveData(ctx, authed);
+  if (!gate.allowed) {
+    throttled(ctx, res, authed, gate, target);
+    return null;
+  }
+  auditOk(ctx, target, authed, scope);
   const key = ctx.storage.getKey(id);
   if (!key) {
-    audit(ctx, { kind: 'consumer', target: 'key:' + id, status: 'fail', detail: 'not-found ' + fpOf(authed.fingerprint) });
+    /* 404 是脚本写错了（白名单里有、库里没有），不该吃它的额度：名额还回去 */
+    refundData(ctx, authed, gate);
+    audit(ctx, { kind: 'consumer', target: target, status: 'fail', detail: 'not-found ' + fpOf(authed.fingerprint) });
     ctx.bad(res, 404, '密钥不存在');
     return null;
   }
@@ -258,11 +391,21 @@ function readBalanceViaToken(ctx, req, res) {
 
 function readCredentialViaToken(ctx, req, res) {
   const id = Number(CRED_ITEM_RE.exec(pathnameOf(req))[1]);
-  const authed = guard(ctx, req, res, { scope: 'cred:read', resource: { credId: id }, target: 'credential:' + id });
+  const target = 'credential:' + id;
+  const authed = guard(ctx, req, res, { scope: 'cred:read', resource: { credId: id }, target: target });
   if (!authed) return;
+  /* 限流门与 key 那条同一套：认证过了、准备取凭证之前 */
+  const gate = reserveData(ctx, authed);
+  if (!gate.allowed) {
+    throttled(ctx, res, authed, gate, target);
+    return;
+  }
+  auditOk(ctx, target, authed, 'cred:read');
   const rec = ctx.storage.getCredential(id);
   if (!rec) {
-    audit(ctx, { kind: 'consumer', target: 'credential:' + id, status: 'fail', detail: 'not-found ' + fpOf(authed.fingerprint) });
+    /* 同样是「脚本写错了」，名额还回去 */
+    refundData(ctx, authed, gate);
+    audit(ctx, { kind: 'consumer', target: target, status: 'fail', detail: 'not-found ' + fpOf(authed.fingerprint) });
     return ctx.bad(res, 404, '凭证不存在');
   }
   const dek = ctx.vault.key();
@@ -277,7 +420,7 @@ function readCredentialViaToken(ctx, req, res) {
       try {
         value = decryptField(dek, stored) || null;
       } catch (e) {
-        audit(ctx, { kind: 'consumer', target: 'credential:' + id, status: 'fail', detail: 'decrypt:' + field.in });
+        audit(ctx, { kind: 'consumer', target: target, status: 'fail', detail: 'decrypt:' + field.in });
         return ctx.bad(res, 500, '字段无法解密（' + field.in + '）：密文损坏或主密钥已更换');
       }
     }
@@ -286,7 +429,7 @@ function readCredentialViaToken(ctx, req, res) {
   }
   ctx.storage.setTokenLastUsed(authed.row.tid);
   audit(ctx, {
-    kind: 'consumer', target: 'credential:' + id, status: 'ok',
+    kind: 'consumer', target: target, status: 'ok',
     detail: 'opened:' + (opened.join('+') || 'empty') + ' ' + fpOf(authed.fingerprint)
   });
   return ctx.json(res, 200, out);
@@ -344,5 +487,8 @@ module.exports = {
   REASONS: ct.REASONS,
   tokenView: tokenView,
   bearerOf: bearerOf,
-  pathnameOf: pathnameOf
+  pathnameOf: pathnameOf,
+  createDataThrottle: createDataThrottle,
+  DATA_MAX_REQUESTS: DATA_MAX_REQUESTS,
+  DATA_WINDOW_MS: DATA_WINDOW_MS
 };

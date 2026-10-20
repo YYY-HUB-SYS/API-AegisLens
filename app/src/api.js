@@ -111,8 +111,9 @@ function poolWithKeys(storage, pool) {
   return rec;
 }
 
-/* 限流按来源地址分桶。服务只绑 127.0.0.1 时这里恒为回环地址，
-   将来放开局域网监听时它就是每设备一桶，不需要再改一遍。 */
+/* 解锁、恢复、改口令这几路按来源地址分桶。服务只绑 127.0.0.1 时这里恒为回环地址，
+   将来放开局域网监听时它就是每设备一桶，不需要再改一遍。
+   （密钥取用那一路按 id 分桶，不走这里——见 reveal 分支） */
 function clientIp(req) {
   return (req.socket && req.socket.remoteAddress) || 'unknown';
 }
@@ -337,10 +338,13 @@ async function routeApi(req, res, ctx) {
   }
 
   /* 忘口令的出口：恢复码解出 DEK → 用新口令重新封装 → 旧恢复码当场作废换新的。
-     全程在锁定态可用（否则这条路就没意义），并复用解锁那一档限流 */
+     全程在锁定态可用（否则这条路就没意义）。
+     限流与解锁同一档（maxFails=5、锁 5 分钟），但**自己一个桶**：
+     恢复码也是解锁凭据，错了就该限；可它跟 unlock 共用一个计数，
+     等于误输恢复码 5 次把解锁门也一起堵上——人被锁在门外 */
   if (req.method === 'POST' && path === '/api/vault/recover') {
     const b = await readBody(req);
-    const gateKey = 'unlock:' + clientIp(req);
+    const gateKey = 'recover:' + clientIp(req);
     const gate = throttle.unlock.check(gateKey);
     if (!gate.allowed) {
       vault.audit.push({ kind: 'recover', status: 'denied', detail: 'throttled' });
@@ -393,7 +397,11 @@ async function routeApi(req, res, ctx) {
 
   /* 明文唯一出口。审计只记 id，绝不记口令本身 */
   if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/reveal$/.exec(path))) {
-    const gateKey = 'reveal:' + clientIp(req);
+    /* 限流按**密钥 id** 分桶，不按来源 IP：
+       按 IP 分桶时，对某个不存在的 id 连打 30 次 → 同 IP 上所有密钥的取用一起被锁 5 分钟；
+       反过来，一把 key 取用成功会把整个 IP 桶的失败计数清零。
+       改成 reveal:<id>：连错只牵连那一个 id，成功也只清那一个 id 的桶 */
+    const gateKey = 'reveal:' + m[1];
     const gate = throttle.reveal.check(gateKey);
     if (!gate.allowed) {
       vault.audit.push({ kind: 'reveal', target: m[1], status: 'denied', detail: 'throttled' });

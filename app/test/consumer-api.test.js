@@ -104,6 +104,9 @@ function harness(opts) {
     storage: storage,
     vault: session,
     throttle: throttle,
+    /* 数据面限流单独一份，时钟跟着本 harness 走（o.dataThrottle 传 null 则用进程级默认桶表） */
+    dataThrottle: o.dataThrottle === null ? undefined
+      : (o.dataThrottle || api.createDataThrottle({ now: c.now })),
     json: function (res, status, payload) {
       sink.calls.push({ status: status, payload: payload });
       return true;
@@ -128,18 +131,27 @@ function harness(opts) {
     return out;
   }
 
-  function call(method, url, body, headers) {
+  /* callOpts.ip 可以逐次换来源 IP：分桶键是令牌 tid，换 IP 不该绕过额度 */
+  function call(method, url, body, headers, callOpts) {
+    const co = callOpts || {};
     const req = {
       method: method,
       url: url,
       headers: lowerHeaders(Object.assign({}, o.headers || {}, headers || {})),
-      socket: { remoteAddress: o.ip || '127.0.0.1' },
+      socket: { remoteAddress: co.ip || o.ip || '127.0.0.1' },
       body: body
     };
-    return Promise.resolve(api.handleConsumerApi(req, { writeHead: function () { return this; }, end: function () { return this; } }, ctx))
+    /* 假 res 也要有 setHeader：限流的 Retry-After 头是从 res 上设的 */
+    const res = {
+      headers: {},
+      setHeader: function (k, v) { this.headers[k] = v; return this; },
+      writeHead: function () { return this; },
+      end: function () { return this; }
+    };
+    return Promise.resolve(api.handleConsumerApi(req, res, ctx))
       .then(function (handled) {
         const last = sink.calls[sink.calls.length - 1];
-        return { handled: handled, status: last && last.status, data: last && last.payload };
+        return { handled: handled, status: last && last.status, data: last && last.payload, headers: res.headers };
       });
   }
 
@@ -447,3 +459,146 @@ test('活跃消费者会续上闲置计时，锁了之后要等人解锁', async
   assert.strictEqual(third.status, 423, '锁着时有效令牌也拿不到明文，这是设计里的后果');
   assert.strictEqual(third.data.reason, 'locked');
 });
+
+/* ── 数据面限流（按令牌分桶） ─────────────────────────────────────── */
+/* 签发面有限流、数据面没有：拿一把有效令牌就能无限次 GET /api/consumer/keys/:id 拉明文。
+   这一段盯的是四件容易写错的事：
+   1) 分桶键是令牌的 tid，不是来源 IP——脚本可能从多个 IP 来，按 IP 分桶会误伤；
+   2) 成功也计数（与签发面相反）：消费是正常业务，「成功即清零」等于没有限流；
+   3) 计数点在「认证过了、准备取数据」这一侧：401/403/404/423 是脚本写错了，不该吃额度；
+   4) 429 要带 retryAfterMs 与 Retry-After 头，调用方才知道该等多久。 */
+
+const MAX = api.DATA_MAX_REQUESTS;
+const WINDOW = api.DATA_WINDOW_MS;
+
+test('数据面限流：额度之内照常 200，而且成功是真的在记账', async () => {
+  const h = harness();
+  h.unlock();
+  const made = await h.issue();
+  const bearer = h.bearer(made.data.token);
+  for (let i = 0; i < MAX; i++) {
+    const r = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+    assert.strictEqual(r.status, 200, '第 ' + (i + 1) + ' 次不该被限流：' + JSON.stringify(r.data));
+  }
+  assert.strictEqual(h.ctx.dataThrottle.peek(made.data.tid).count, MAX,
+    '成功的请求必须记账，否则限流等于不存在');
+});
+
+test('数据面限流：连打超额度出 429，带 retryAfterMs 与 Retry-After 头，且不给明文', async () => {
+  const h = harness();
+  h.unlock();
+  const made = await h.issue();
+  const bearer = h.bearer(made.data.token);
+  for (let i = 0; i < MAX; i++) {
+    await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  }
+  const over = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(over.status, 429);
+  assert.strictEqual(over.data.error, '令牌请求过于频繁，请稍后再试');
+  assert.ok(over.data.retryAfterMs > 0, '要告诉调用方等多久：' + JSON.stringify(over.data));
+  assert.ok(over.data.retryAfterMs <= WINDOW, '等待时长不该超过一个窗口');
+  assert.strictEqual(over.headers['Retry-After'], String(Math.ceil(over.data.retryAfterMs / 1000)),
+    'Retry-After 头按秒给（HTTP 约定），毫秒级时长在响应体里');
+  assert.strictEqual(over.data.key, undefined, '被限流的请求绝不能拿到明文');
+
+  /* 被限流的那次不算额度：审计里只该留一条 denied，不该多一条 ok */
+  const rows = h.auditRows();
+  const denied = rows.filter(function (x) { return x.kind === 'consumer' && x.status === 'denied'; });
+  assert.ok(denied.length >= 1, '被限流的请求要留审计');
+  assert.match(denied[denied.length - 1].detail, /throttled/);
+  assert.strictEqual(h.ctx.dataThrottle.peek(made.data.tid).count, MAX, '被挡下的请求不占额度');
+
+  /* 窗口滑过去就恢复 */
+  h.clock.advance(WINDOW);
+  const after = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(after.status, 200, '窗口滑过去就该放行');
+});
+
+test('数据面限流：401/403/404/423 都不消耗额度，连打之后还能正常取一次', async () => {
+  const h = harness();
+  h.unlock();
+  /* 锁库会把会话里的 DEK 清零（vault.js 的 detach），重新解锁得用同一份字节，
+     否则令牌会验签失败变成 401——那就测不到「423 不消耗额度」了 */
+  const dekCopy = Buffer.from(h.dek);
+  const good = await h.issue({ label: 'good', scopes: ['key:read'], keyIds: [1] });
+  /* 白名单里有、库里没有的那个 id：过了门禁才 404 */
+  const ghost = await h.issue({ label: 'ghost', scopes: ['key:read'], keyIds: [900] });
+
+  for (let i = 0; i < MAX + 20; i++) {
+    const bad = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer('v1.bogus.sig'));
+    assert.strictEqual(bad.status, 401, '第 ' + (i + 1) + ' 次坏令牌');
+  }
+  for (let i = 0; i < MAX + 20; i++) {
+    const noScope = await h.call('GET', '/api/consumer/keys/900', undefined, h.bearer(good.data.token));
+    assert.strictEqual(noScope.status, 403, '第 ' + (i + 1) + ' 次作用域不足');
+  }
+  for (let i = 0; i < MAX + 20; i++) {
+    const missing = await h.call('GET', '/api/consumer/keys/900', undefined, h.bearer(ghost.data.token));
+    assert.strictEqual(missing.status, 404, '第 ' + (i + 1) + ' 次资源不存在');
+  }
+  h.session.lock();
+  for (let i = 0; i < MAX + 20; i++) {
+    const locked = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(good.data.token));
+    assert.strictEqual(locked.status, 423, '第 ' + (i + 1) + ' 次保险库锁着');
+  }
+  h.session.attach(dekCopy, 'envelope');
+
+  assert.strictEqual(h.ctx.dataThrottle.peek(ghost.data.tid).count, 0, '404 一个都不该记');
+  assert.strictEqual(h.ctx.dataThrottle.peek(good.data.tid).count, 0, '401/403/423 一个都不该记');
+  const ok = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(good.data.token));
+  assert.strictEqual(ok.status, 200, '脚本写错的请求不该把额度吃光');
+  assert.strictEqual(h.ctx.dataThrottle.peek(good.data.tid).count, 1, '只有真取到数据那次才记账');
+});
+
+test('数据面限流：A 用满不影响 B（分桶键是令牌，不是来源）', async () => {
+  const h = harness();
+  h.unlock();
+  const a = await h.issue({ label: 'a' });
+  const b = await h.issue({ label: 'b' });
+  for (let i = 0; i < MAX; i++) {
+    const r = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(a.data.token));
+    assert.strictEqual(r.status, 200);
+  }
+  const over = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(a.data.token));
+  assert.strictEqual(over.status, 429);
+  const other = await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(b.data.token));
+  assert.strictEqual(other.status, 200, '另一把令牌不该被连坐');
+  assert.strictEqual(h.ctx.dataThrottle.peek(b.data.tid).count, 1);
+});
+
+test('数据面限流：同一把令牌换个来源 IP 也共享额度（不是按 IP 分桶）', async () => {
+  const h = harness();
+  h.unlock();
+  const made = await h.issue();
+  const bearer = h.bearer(made.data.token);
+  for (let i = 0; i < MAX; i++) {
+    await h.call('GET', '/api/consumer/keys/1', undefined, bearer, { ip: '10.0.0.1' });
+  }
+  const other = await h.call('GET', '/api/consumer/keys/1', undefined, bearer, { ip: '10.0.0.2' });
+  assert.strictEqual(other.status, 429, '换 IP 不该绕过额度');
+});
+
+test('数据面限流：吊销后这把令牌的桶一起走掉，不留残骸', async () => {
+  const h = harness();
+  h.unlock();
+  const made = await h.issue();
+  await h.call('GET', '/api/consumer/keys/1', undefined, h.bearer(made.data.token));
+  assert.strictEqual(h.ctx.dataThrottle.peek(made.data.tid).count, 1);
+  const rv = await h.call('POST', '/api/consumer/tokens/' + made.data.tid + '/revoke');
+  assert.strictEqual(rv.status, 200);
+  assert.strictEqual(h.ctx.dataThrottle.peek(made.data.tid).count, 0, '吊销后不该留着桶');
+});
+
+test('数据面限流：没注入限流器时走进程级默认桶表，一样限得住', async () => {
+  const h = harness({ dataThrottle: null });
+  h.unlock();
+  const made = await h.issue();
+  const bearer = h.bearer(made.data.token);
+  for (let i = 0; i < MAX; i++) {
+    await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  }
+  const over = await h.call('GET', '/api/consumer/keys/1', undefined, bearer);
+  assert.strictEqual(over.status, 429, '生产路径（默认桶表）也得限得住');
+  assert.strictEqual(over.data.error, '令牌请求过于频繁，请稍后再试');
+});
+
