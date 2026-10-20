@@ -554,7 +554,7 @@
       '<aside class="px-listpane" aria-label="密钥列表">' +
         '<div class="px-pane-head">' +
           '<span class="px-pane-title">' + escOf(state.ctx, paneTitle(state.ctx)) + '</span>' +
-          '<span class="px-count" data-al-count title="当前筛选与搜索下显示的密钥数">' + visible.length + '</span>' +
+          '<span class="px-count" data-al-count title="符合当前筛选与搜索的密钥数（收起的分组里的也算）">' + visible.length + '</span>' +
         '</div>' +
         '<div class="px-search">' +
           '<input class="px-search-input" type="search" data-al-search ' +

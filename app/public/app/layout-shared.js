@@ -612,7 +612,9 @@
         '<div class="lm-kv"><span class="lbl2">注册时间</span><span>' + escOf(ctx, k.reg || '未记录') + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">协议风格</span><span>' + escOf(ctx, styles.length ? styles.join(' / ') : '未设置') + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">默认模型</span><span class="lm-mono">' + escOf(ctx, k.model || '未设置') + '</span></div>' +
-        '<div class="lm-kv lm-kv-wide"><span class="lbl2">Key</span>' + keyParamOf(ctx, k) + '</div>' +
+        /* 这一格不另起一个「Key」标签：keyParamOf 自己带 lbl2，
+           两边都写就会在详情面板里连出两个「Key Key」。 */
+        '<div class="lm-kv lm-kv-wide">' + keyParamOf(ctx, k) + '</div>' +
       '</div>' +
       authNoteLineOf(ctx, k) +
 

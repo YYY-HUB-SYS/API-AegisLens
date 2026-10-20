@@ -1654,13 +1654,18 @@
     Array.prototype.forEach.call(statsEl.querySelectorAll('.num'), function (el) { prev.push(el.textContent); });
     var total = state.keys.length;
     var platforms = {};
-    var ok = 0, warn = 0, exp = 0;
+    var ok = 0, warn = 0, exp = 0, untested = 0;
     state.keys.forEach(function (k) {
       platforms[platLabel(k)] = 1;
       var st = keyStatus(k);
       if (st === 'ok') ok++;
       else if (st === 'warn') warn++;
       else if (st === 'exp' || st === 'revoked') exp++;
+      /* 「未测试」是独立维度，不是 ok/warn/exp 的第四档：
+         ok/warn/exp 已经把每把钥匙分完了，total - ok - warn - exp 恒等于 0。
+         「没测过连通」才可以和「有效」同时成立——一把没测过、也没过期的钥匙，
+         两边都该算。计数口径与行上的「未测」标记同源。 */
+      if (!k.test || k.test.ok === null || k.test.ok === undefined) untested++;
     });
     var html =
       '<div class="stat"><span class="num">' + total + '</span><span class="lbl">个密钥</span></div>' +
@@ -1668,7 +1673,7 @@
       statCell(ok, '有效', 'var(--api)') +
       statCell(warn, '临期', 'var(--warn)') +
       statCell(exp, '过期/停用', 'var(--danger)') +
-      statCell(total - ok - warn - exp, '未测试', 'var(--ink)');
+      statCell(untested, '未测试', 'var(--ink)');
     statsEl.innerHTML = html;
     /* 只对「和上一次不一样」的那格上动画，全量刷新时不该满排都在跳 */
     Array.prototype.forEach.call(statsEl.querySelectorAll('.num'), function (el, i) {
