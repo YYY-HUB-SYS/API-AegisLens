@@ -11,6 +11,7 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` | `/api/keys` | 列表。**只出末 4 位**,不含密文 |
+| `GET` | `/api/keys/{id}` | 单条。**只出末 4 位**,不含密文;要明文走 `POST /api/keys/{id}/reveal` |
 | `POST` | `/api/keys` | 新增 |
 | `PUT` | `/api/keys/{id}` | 修改 |
 | `DELETE` | `/api/keys/{id}` | 删除 |
@@ -123,7 +124,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 47(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
+| 路由总数 | 48(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
 | 界面动作 | 69 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |

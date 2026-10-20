@@ -14,6 +14,7 @@
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/api/keys` | List. **Last 4 characters only**, never the ciphertext |
+| `GET` | `/api/keys/{id}` | One key. **Last 4 characters only**, never the ciphertext; plaintext goes through `POST /api/keys/{id}/reveal` |
 | `POST` | `/api/keys` | Create |
 | `PUT` | `/api/keys/{id}` | Update |
 | `DELETE` | `/api/keys/{id}` | Delete |
@@ -130,7 +131,7 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 47 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
+| Total routes | 48 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
 | UI actions | 69 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |

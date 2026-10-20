@@ -405,6 +405,16 @@ async function routeApi(req, res, ctx) {
     return json(res, 200, { keys: storage.listKeys().map(maskedKeyView) });
   }
 
+  /* 单条查询：外部集成方要「一把 Key 的非明文记录」时不必拉全量列表
+     （复核报告第 4 条：原先只有全量列表与 reveal 两条路）。
+     与列表同一把锁——只出掩码视图；明文仍然只能走 POST /api/keys/:id/reveal
+     （那条有会话校验、单独限流并记审计）。
+     正则带 $ 锚，/api/keys/1/history 这类更长的路径不会被它吃掉。 */
+  if (req.method === 'GET' && (m = /^\/api\/keys\/(\d+)$/.exec(path))) {
+    const k = requireKey(m[1]);
+    return json(res, 200, { key: maskedKeyView(k) });
+  }
+
   if (req.method === 'POST' && path === '/api/keys') {
     const b = await readBody(req);
     const platform = str(b.platform);

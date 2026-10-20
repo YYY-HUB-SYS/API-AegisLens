@@ -723,3 +723,23 @@ test('未匹配的 /api/consumer* 路径必须回 404，不能把连接挂住', 
     assert.ok(real.status === 200 || real.status === 423, '真路由不能被带坏，实得 ' + real.status);
   } finally { await new Promise(r => h.server.close(r)); }
 });
+
+/* 单条查询：外部集成方要「一把 Key 的非明文记录」时不必拉全量列表
+   （复核报告第 4 条：原先只有全量列表与 reveal 两条路）。
+   与列表同一把锁——只出掩码视图；明文仍然只能走 POST /api/keys/:id/reveal。 */
+test('GET /api/keys/:id 取单条掩码视图，明文不出现在响应里', async () => {
+  const h = await startServer(mockFetch);
+  try {
+    const created = await call(h.base, 'POST', '/api/keys', { platform: 'deepseek', key: 'sk-single-test-0001', name: '单条测试' });
+    assert.strictEqual(created.status, 201);
+    const id = created.data.key.id;
+    const one = await call(h.base, 'GET', '/api/keys/' + id);
+    assert.strictEqual(one.status, 200, '取单条应当 200');
+    assert.ok(one.data.key, '响应里应有 key 字段');
+    assert.ok(one.data.key.keyMasked, '应带掩码末 4 位');
+    assert.strictEqual(one.data.key.key, undefined, '响应里不得有明文 key 字段');
+    assert.ok(!JSON.stringify(one.data).includes('sk-single-test-0001'), '响应全文不得含明文');
+    const miss = await call(h.base, 'GET', '/api/keys/999999');
+    assert.strictEqual(miss.status, 404, '不存在的 id 应当 404');
+  } finally { await new Promise(r => h.server.close(r)); }
+});
