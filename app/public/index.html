@@ -2664,9 +2664,11 @@
      直接把 JSON 甩给用户看不懂，这里解析成人话。 */
   function historyValue(k, h) {
     if (h.kind === 'usage') {
-      if (h.value == null) return '—';
       var d = null;
       try { d = JSON.parse(h.detail || '{}'); } catch (e) { d = null; }
+      /* 失败行没有值（平台没报这个窗口），但**原因要说清**——
+         只写「查询失败」而不说是密钥无效还是平台没接口，等于让人自己猜。 */
+      if (h.value == null) return (d && d.msg) ? d.msg : '—';
       var unit = (d && d.unit) || '';
       var out = (d && d.name ? d.name + ' ' : '') + luTok(h.value) + unit;
       if (d && d.limit != null) out += ' / ' + luTok(d.limit) + unit;
