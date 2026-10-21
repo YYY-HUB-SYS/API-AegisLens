@@ -54,12 +54,54 @@ normalizes to `host: ""` (unknown computer) on read.
 | Method | Path | Notes |
 |---|---|---|
 | `GET` / `POST` | `/api/pools` | List / create (names unique, ≤40 characters) |
-| `PUT` / `DELETE` | `/api/pools/{id}` | Rename / delete |
+| `GET` / `PUT` / `DELETE` | `/api/pools/{id}` | Single pool / rename / delete |
 | `POST` | `/api/pools/{id}/keys` | Add members |
 | `DELETE` | `/api/pools/{id}/keys/{keyId}` | Remove a member |
+| `POST` | `/api/pools/{id}/rotate` | Rotate: swap the active key for the first healthy backup |
 
 `GET /api/pools` returns members through **the same masked view** as `GET /api/keys`, and answers
 `423` while the vault is locked.
+
+### The three roles of a pool member
+
+| Role | Field | Meaning |
+|---|---|---|
+| Active | `role: "active"` | At most one per pool. A new pool's first member is it |
+| Backup queue | `role: "backup"` | Ordered by `sortIndex`; rotation takes over in that order |
+| Queue position | `sortIndex` | The active key always occupies `0`; backups are numbered from `1` — `0` is the active slot, backups never take it |
+
+Editing the member list **does not change which key is active**: if it is still in the list it stays,
+otherwise the first member takes over. Removing the active key promotes the head of the backup queue
+(otherwise the pool would end up with nothing usable).
+
+### Health snapshot
+
+Every key carries two health fields (`failCount` / `lastHealthAt`) that follow the test outcome:
+a pass resets the consecutive-failure counter, a failure increments it, and any concluded probe
+refreshes the timestamp.
+
+**Unhealthy means 2 or more consecutive failures.** A key that was never tested is not unhealthy —
+never tested is not the same as broken, so an untested key still counts as able to take over, and
+rotation filters on that rule.
+
+`GET /api/pools/{id}` and the rotation response both carry `health[]`, one entry per member
+(`keyId` / `name` / `role` / `failCount` / `lastHealthAt` / `lastStatus` / `healthy`),
+with **no key material**.
+
+### Rotation
+
+`POST /api/pools/{id}/rotate`, the request body is optional:
+
+- no body: switch to the first healthy key in backup-queue order;
+- with `{"toKeyId": N}`: switch to that specific key (it must belong to this pool, otherwise `400`).
+  An explicit rotation does not apply the health filter — an explicitly named key is honoured.
+
+The response is `{ ok, changed, pool, rotatedFrom, rotatedTo, skipped }`, where `skipped` lists the
+unhealthy backups that were examined and passed over. Rotating to the key that is already active is
+**idempotent**: it answers `200` with `changed:false` and leaves the state untouched. A backup
+queue with no healthy key answers `400` 「备用队列里没有健康的密钥」.
+
+Rotation is audited (`kind: rotate`) and the audit entry records **key ids only, never key material**.
 
 ## Credential vault
 
@@ -144,8 +186,8 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 50 (method + path combinations; 40 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 73 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| Total routes | 52 (method + path combinations; 41 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
+| UI actions | 75 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |

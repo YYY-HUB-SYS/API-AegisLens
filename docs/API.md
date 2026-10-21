@@ -50,12 +50,51 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | `GET` / `POST` | `/api/pools` | 列表 / 新建(名称唯一,≤40 字符) |
-| `PUT` / `DELETE` | `/api/pools/{id}` | 改名 / 删除 |
+| `GET` / `PUT` / `DELETE` | `/api/pools/{id}` | 单个池详情 / 改名 / 删除 |
 | `POST` | `/api/pools/{id}/keys` | 加入成员 |
 | `DELETE` | `/api/pools/{id}/keys/{keyId}` | 移出成员 |
+| `POST` | `/api/pools/{id}/rotate` | 轮换:把当前生效的那把换成备用队列里第一把健康的 |
 
 `GET /api/pools` 返回的成员走的是和 `GET /api/keys` **同一套掩码视图**;
 保险库锁着时同样 `423`。
+
+### 池成员的三种身份
+
+| 身份 | 字段 | 含义 |
+|---|---|---|
+| 当前生效 | `role: "active"` | 一把池最多一把。建池时队首那把就是它 |
+| 备用队列 | `role: "backup"` | 按 `sortIndex` 排队,轮换时按这个顺序接班 |
+| 排队次序 | `sortIndex` | 当前生效那把固定占 `0`,备用从 `1` 起连续 —— `0` 是 active 的位置,备用不占 |
+
+改成员名单时**不换当前生效那把**:它还在名单里就还在,不在了才让队首那把顶上。
+删掉的正好是当前生效那把时,备用队首提上来(否则池子会变成「一把都不能用」)。
+
+### 健康快照
+
+每把密钥带两个健康字段(`failCount` / `lastHealthAt`),跟着「测试」结论走:
+通过 ⇒ 连续失败次数归零;失败 ⇒ 加一;测过 ⇒ 刷新时间。
+
+**不健康 = 连续失败 ≥2 次**。没测过的不算不健康 —— 没测过不等于坏了,
+所以没测过的密钥照样算「能接班」,轮换挑备用时按这条判。
+
+`GET /api/pools/{id}` 与轮换的响应都带 `health[]`:每个成员一条
+(`keyId` / `name` / `role` / `failCount` / `lastHealthAt` / `lastStatus` / `healthy`),
+**不含密钥明文**。
+
+### 轮换
+
+`POST /api/pools/{id}/rotate`,请求体可选:
+
+- 不带 body:按备用队列顺序,切到第一把健康的;
+- 带 `{"toKeyId": N}`:切到指定那把(必须在这个池子里,否则 `400`)。
+  指定轮换不拦健康 —— 操作者明确指名的就照做。
+
+响应 `{ ok, changed, pool, rotatedFrom, rotatedTo, skipped }`,
+`skipped` 是被跳过的那些不健康的备用(只记考察过的)。
+切到已经在用的那把是**幂等**的:返回 `200` 与 `changed:false`,状态不动。
+备用队列里一把健康的都没有 ⇒ `400`「备用队列里没有健康的密钥」。
+
+轮换会留审计(`kind: rotate`),**只记密钥 id,不记任何明文**。
 
 ## 凭证保险库
 
@@ -129,8 +168,8 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 50(方法+路径组合;去重后 40 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 73 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 路由总数 | 52(方法+路径组合;去重后 41 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
+| 界面动作 | 75 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |

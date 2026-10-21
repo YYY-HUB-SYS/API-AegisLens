@@ -722,6 +722,30 @@
   .pool-key-row .kname { flex: 1; min-width: 140px; }
   .pool-empty { text-align: center; padding: 48px 0; color: var(--ink-2); }
   .pool-empty h3 { margin-bottom: 8px; color: var(--ink); }
+  /* 池成员的三态：当前生效 / 备用队列 / 健康快照。
+     「未测试」是灰虚线边，不是红底——没测过不等于坏了，
+     把它画成不健康，人就会去删一把其实没问题的密钥。 */
+  .pool-slot {
+    font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
+    border-radius: var(--r-chip); padding: 2px 9px;
+  }
+  .pool-slot.current { color: var(--on-accent); background: var(--accent); }
+  .pool-slot.backup { color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--rule); }
+  .pool-health {
+    font-size: var(--fs-xs); font-weight: 700; white-space: nowrap;
+    border-radius: var(--r-chip); padding: 2px 8px;
+  }
+  .pool-health.ok { color: var(--api); background: var(--api-soft); }
+  .pool-health.warn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); }
+  .pool-health.bad { color: var(--danger); background: var(--danger-soft); border: 1px solid var(--danger); }
+  .pool-health.untested { color: var(--ink-3); background: transparent; border: 1px dashed var(--ink-3); }
+  /* 当前生效那一行：底色 + 左侧色条，一眼挑得出来（不动内边距，免得整块版面跳） */
+  .pool-key-row[data-role="active"] {
+    background: var(--accent-soft);
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .pool-rotate-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  .pool-rotate-note { flex: 1; min-width: 200px; }
   /* ================= 工作区导航：一页一域 =================
      三块域（密钥看板 / 凭证保险库 / 消费者令牌）原先沿长页面一字排开、
      各自带一整条品牌栏，拼在一页里像三张贴饼。改成显式工作区后，
@@ -1941,41 +1965,220 @@
       state.pools.map(renderPoolCard).join('');
   }
 
+  /* 健康快照有两处来源：密钥视图自带 failCount / lastHealthAt，
+     池记录上还挂了一份 pool.health[]（按 keyId 对齐）。两边都收，哪个有算哪个。 */
+  function poolHealthIndex(pool) {
+    var idx = {};
+    ((pool && Array.isArray(pool.health)) ? pool.health : []).forEach(function (h) {
+      if (h && h.keyId != null) idx[h.keyId] = h;
+    });
+    return idx;
+  }
+
+  /* ---- 池成员的三态：谁是当前生效、谁在备用队列排队、谁健康 ----
+     members 是权威（role + sortIndex），keyIds 只是派生字段。
+     万一后端还没给 members（老库），按 keyIds 兜底：第一把当当前生效，其余按顺序排队。 */
+  function poolMemberRows(pool) {
+    var idx = {};
+    ((pool && pool.keys) || []).forEach(function (k) { idx[k.id] = k; });
+    (state.keys || []).forEach(function (k) { if (!idx[k.id]) idx[k.id] = k; });
+    var snapIdx = poolHealthIndex(pool);
+    var rows = [];
+    var members = (pool && Array.isArray(pool.members)) ? pool.members : null;
+    if (members) {
+      members.forEach(function (m) {
+        var k = idx[m.keyId];
+        if (!k) return;                       /* 成员指向的密钥已经没了：不占位 */
+        rows.push({
+          key: k,
+          snap: snapIdx[m.keyId] || null,
+          role: m.role === 'active' ? 'active' : 'backup',
+          sortIndex: typeof m.sortIndex === 'number' ? m.sortIndex : 0
+        });
+      });
+    } else {
+      ((pool && pool.keyIds) || []).forEach(function (id, i) {
+        var k = idx[id];
+        if (!k) return;
+        rows.push({ key: k, snap: snapIdx[id] || null, role: i === 0 ? 'active' : 'backup', sortIndex: i });
+      });
+    }
+    rows.sort(function (a, b) {
+      if (a.role !== b.role) return a.role === 'active' ? -1 : 1;          /* 当前生效置顶 */
+      if (a.sortIndex !== b.sortIndex) return a.sortIndex - b.sortIndex;  /* 备用队列按 sortIndex 排队 */
+      return a.key.id - b.key.id;
+    });
+    var pos = 0;
+    rows.forEach(function (r) {
+      if (r.role === 'active') { r.backupPos = 0; return; }
+      pos++;
+      r.backupPos = pos;                    /* 备用队列的位次：第 1 位、第 2 位… */
+    });
+    rows.forEach(function (r) { r.health = poolHealthOf(r.key, r.snap); });
+    return rows;
+  }
+
+  /* 健康快照：三态，不能把「没测过」说成「坏了」。
+     不健康 = 连续失败 ≥2 次；健康 = 测过且最近没在失败；未测试 = 从来没测过。 */
+  function poolHealthOf(k, snap) {
+    var s = snap || {};
+    var failCount = (k && k.failCount != null) ? (Number(k.failCount) || 0) : (Number(s.failCount) || 0);
+    var lastStatus = (k && k.test && k.test.status) || s.lastStatus || null;
+    var lastHealthAt = (k && k.lastHealthAt) || s.lastHealthAt || null;
+    var at = (k && k.test && k.test.at) || lastHealthAt || null;
+    var level, label, detail;
+    if (failCount >= 2) {
+      level = 'bad'; label = '不健康';
+      detail = '连续失败 ' + failCount + ' 次（连续失败 ≥2 次视为不健康）';
+    } else if (failCount === 1) {
+      level = 'warn'; label = '待观察';
+      detail = '连续失败 1 次，再失败一次就算不健康';
+    } else if (lastStatus === 'fail') {
+      level = 'warn'; label = '待观察';
+      detail = '最近一次探测没通';
+    } else if ((k && k.test) || lastHealthAt) {
+      level = 'ok'; label = '健康';
+      detail = '最近一次探测通过';
+    } else {
+      level = 'untested'; label = '未测试';
+      detail = '还没测过：没测过不等于坏了';
+    }
+    return { level: level, label: label, detail: detail, failCount: failCount, at: at };
+  }
+
+  /* 备用队列里能接班的：没被停用，也没连续失败 ≥2 次。
+     没测过的算能接班——没测过不等于坏了，先切过去试一次比干等着强。 */
+  function poolHealthyBackups(rows) {
+    return rows.filter(function (r) {
+      if (r.role !== 'backup' || r.key.revoked) return false;
+      return (r.health ? r.health.failCount : (Number(r.key.failCount) || 0)) < 2;
+    });
+  }
+
+  function poolRotateBlockReason(rows) {
+    var backups = rows.filter(function (r) { return r.role === 'backup'; });
+    if (!backups.length) return '备用队列是空的，没有可轮换的密钥';
+    var bad = backups.filter(function (r) {
+      return r.key.revoked || (r.health ? r.health.failCount : (Number(r.key.failCount) || 0)) >= 2;
+    });
+    if (bad.length === backups.length) {
+      return '备用队列里 ' + bad.length + ' 把都不健康（连续失败 ≥2 次或已停用），换不出能接班的';
+    }
+    return '备用队列里没有健康的密钥';
+  }
+
+  function poolTimeText(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return (d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + d.getMinutes();
+  }
+
   function renderPoolCard(pool) {
-    var members = pool.keys || [];
-    var keysHtml = members.length
-      ? members.map(function (k) { return renderPoolKeyRow(pool, k); }).join('')
+    var rows = poolMemberRows(pool);
+    var keysHtml = rows.length
+      ? rows.map(function (r) { return renderPoolKeyRow(pool, r); }).join('')
       : '<p class="meta" style="margin:0.6rem 0">池内还没有密钥，点右上「+ 添加密钥」加入。</p>';
+    var cand = poolHealthyBackups(rows);
+    var rotTitle = cand.length
+      ? '按备用队列顺序，把当前生效切到下一把没连续失败的密钥'
+      : poolRotateBlockReason(rows);
+    var rotNote = cand.length
+      ? '备用队列里还有 ' + cand.length + ' 把能接班'
+      : poolRotateBlockReason(rows);
     return '<section class="pool-card" data-id="' + pool.id + '">' +
       '<div class="pool-head">' +
         '<span class="pool-title">' + esc(pool.name) + '</span>' +
-        '<span class="meta">' + members.length + ' 个成员</span>' +
+        '<span class="meta">' + rows.length + ' 个成员</span>' +
         '<span class="pool-actions">' +
           '<button class="btn ghost small" data-act="pool-add">+ 添加密钥</button>' +
           '<button class="btn ghost small" data-act="pool-rename">重命名</button>' +
           '<button class="btn ghost small danger" data-act="pool-del">删除</button>' +
         '</span>' +
       '</div>' +
+      '<div class="pool-rotate-bar">' +
+        '<button class="btn ghost small" type="button" data-act="pool-rotate-next"' + (cand.length ? '' : ' disabled') + ' title="' + esc(rotTitle) + '">轮换到下一把健康的</button>' +
+        '<span class="meta pool-rotate-note">' + esc(rotNote) + '</span>' +
+      '</div>' +
       '<div class="pool-keys">' + keysHtml + '</div>' +
     '</section>';
   }
 
-  function renderPoolKeyRow(pool, k) {
+  function renderPoolKeyRow(pool, row) {
+    var k = row.key;
     var st = keyStatus(k);
     var p = P(k.platform);
     var sn = shortName(k);
+    var h = row.health || poolHealthOf(k, row.snap);
     var testChip = k.test
       ? '<span class="test-chip ' + (k.test.status === 'pass' ? 'pass' : 'fail') + '" title="' + esc(k.test.msg || '') + '">' + (k.test.status === 'pass' ? '连通' : '不通') + '</span>'
       : '';
-    return '<div class="pool-key-row" data-key="' + k.id + '">' +
+    var slot = row.role === 'active'
+      ? '<span class="pool-slot current">当前生效</span>'
+      : '<span class="pool-slot backup">备用 第 ' + row.backupPos + ' 位</span>';
+    var atText = poolTimeText(h.at);
+    var rotateBtn = row.role === 'backup'
+      ? '<button class="btn ghost small" type="button" data-act="pool-rotate-set" data-key="' + k.id + '" title="把这把密钥设为当前生效">设为当前</button>'
+      : '';
+    return '<div class="pool-key-row" data-key="' + k.id + '" data-role="' + row.role + '"' + (row.role === 'active' ? ' aria-current="true"' : '') + '>' +
+      slot +
       '<span class="pool-dot" style="background:' + p.color + '"></span>' +
       '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(sn) + '</span>' +
       '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
       '<span class="meta">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
       (k.exp ? '<span class="meta">有效期至 <b>' + esc(k.exp) + '</b></span>' : '<span class="meta">长期有效</span>') +
       testChip +
+      '<span class="pool-health ' + h.level + '" title="' + esc(h.detail) + '">' + esc(h.label) + '</span>' +
+      (atText ? '<span class="meta">最近探测 ' + esc(atText) + '</span>' : '') +
+      rotateBtn +
       '<button class="btn ghost small danger" data-act="pool-rm" data-key="' + k.id + '">移除</button>' +
     '</div>';
+  }
+
+  /* 轮换：把备用队列里的一把切成当前生效。
+     toKeyId 为空 = 按排队顺序切到下一把健康的；给了 = 切到那把。
+     请求体按后端契约来：带 toKeyId 就带，不带就不带（body 可选）。 */
+  function rotatePool(pool, toKeyId, btn) {
+    var oldText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '轮换中…'; }
+    var body = toKeyId ? { toKeyId: toKeyId } : undefined;
+    return api('POST', '/pools/' + pool.id + '/rotate', body).then(function (data) {
+      return refreshPools().then(function () {
+        var msg = '已轮换';
+        var to = data && data.rotatedTo;
+        if (to != null) {
+          var k = poolKeyById(pool.id, to);
+          msg += '：当前生效改为 ' + (k ? (platLabel(k) + ' · ' + shortName(k)) : ('密钥 #' + to));
+        }
+        if (data && data.skipped && data.skipped.length) msg += '（跳过 ' + data.skipped.length + ' 把不健康的）';
+        toast(msg, 'ok');
+      }, function () {
+        /* 轮换本身成功了，只是刷新没成：别把刷新失败说成「轮换失败」 */
+        toast('已轮换，但池数据刷新失败，请手动刷新', 'warn');
+      });
+    }).catch(function (e) {
+      toast((e && e.message) || '轮换失败', 'warn');
+      if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = oldText; }
+    });
+  }
+
+  function refreshPools() {
+    return api('GET', '/pools').then(function (list) {
+      state.pools = (list && list.pools) || state.pools;
+      render();
+      return state.pools;
+    });
+  }
+
+  function poolKeyById(poolId, keyId) {
+    var pool = (state.pools || []).filter(function (p) { return p.id === poolId; })[0];
+    if (!pool) return null;
+    var keys = pool.keys || [];
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].id === keyId) return keys[i];
+    }
+    return null;
   }
 
   var poolEditId = null; /* null = 新建，否则编辑该池 */
@@ -3272,6 +3475,8 @@
     }
     if (!pool) return;
     if (act === 'pool-add' || act === 'pool-rename') { openPoolForm(pool); return; }
+    if (act === 'pool-rotate-next') { rotatePool(pool, null, btn); return; }
+    if (act === 'pool-rotate-set') { rotatePool(pool, Number(btn.dataset.key), btn); return; }
     if (act === 'pool-del') {
       if (btn.dataset.armed === '1') {
         api('DELETE', '/pools/' + pool.id).then(function () {

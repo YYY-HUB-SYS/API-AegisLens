@@ -120,7 +120,55 @@ function poolWithKeys(storage, pool) {
     .map(function (id) { return storage.getKey(id); })
     .filter(Boolean)
     .map(maskedKeyView);
+  /* 健康快照挂在池记录上：列表、单池详情、轮换结果三处拿的是同一份 */
+  rec.health = poolHealth(storage, pool);
   return rec;
+}
+
+/* 池的语义模型：当前生效那把 + 备用队列（按顺序排队）。
+   一把池最多一把 active。老库里可能一把都没有（早期 JSON 后端建的池全是 backup），
+   这时把队首那把当作当前生效——不然两个后端对同一个池的判断会对不上。 */
+function poolState(pool) {
+  const members = (pool.members || []).slice().sort(function (a, b) {
+    return (a.sortIndex || 0) - (b.sortIndex || 0);
+  });
+  const active = members.filter(function (x) { return x.role === 'active'; })[0] || null;
+  if (active) {
+    return {
+      current: active,
+      backups: members.filter(function (x) { return x.keyId !== active.keyId; })
+    };
+  }
+  const current = members[0] || null;
+  return { current: current, backups: current ? members.slice(1) : [] };
+}
+
+/* 健康判定：连续失败两次以上（fail_count >= 2）算不健康。
+   没测过的密钥 fail_count 是 0，不能因此被判死；只失败过一次的还在候选里——
+   一次失败可能是偶发，判死要等第二次。 */
+function keyHealth(rec) {
+  const failCount = Number(rec && rec.failCount) || 0;
+  const t = rec && rec.test;
+  const lastStatus = t && t.status ? String(t.status) : null;
+  return { failCount: failCount, lastStatus: lastStatus, healthy: failCount < 2 };
+}
+
+/* 池成员的健康快照：轮换挑备用靠它，界面上「哪把红着」也靠它。
+   只出 id、计数与状态，不出密钥明文。 */
+function poolHealth(storage, pool) {
+  return (pool.members || []).map(function (x) {
+    const k = storage.getKey(x.keyId);
+    const h = keyHealth(k);
+    return {
+      keyId: x.keyId,
+      name: k ? k.name : '',
+      role: x.role || 'backup',
+      failCount: h.failCount,
+      lastHealthAt: (k && k.lastHealthAt) || null,
+      lastStatus: h.lastStatus,
+      healthy: h.healthy
+    };
+  });
 }
 
 /* 解锁、恢复、改口令这几路按来源地址分桶。服务只绑 127.0.0.1 时这里恒为回环地址，
@@ -909,6 +957,7 @@ async function routeApi(req, res, ctx) {
         if (keyIds.indexOf(id) < 0) keyIds.push(id);
       });
     }
+    /* 建池时「队首那把就是当前生效」由存储层统一管：两个后端必须一样 */
     const pool = storage.createPool({ name: name, keyIds: keyIds });
     return json(res, 201, { pool: poolWithKeys(storage, pool) });
   }
@@ -939,7 +988,9 @@ async function routeApi(req, res, ctx) {
       patch.keyIds = keyIds;
     }
     if (!Object.keys(patch).length) throw bad(400, '没有可更新的字段');
-    return json(res, 200, { pool: poolWithKeys(storage, storage.updatePool(id, patch)) });
+    /* 改成员名单不换当前生效那把 —— 这条由存储层统一管，两个后端口径一致 */
+    const pool = storage.updatePool(id, patch);
+    return json(res, 200, { pool: poolWithKeys(storage, pool) });
   }
 
   if (req.method === 'DELETE' && (m = /^\/api\/pools\/(\d+)$/.exec(path))) {
@@ -967,6 +1018,74 @@ async function routeApi(req, res, ctx) {
     let pool = storage.removePoolKey(id, keyId);
     if (!pool) pool = storage.getPool(id); /* key 本就不在池中：幂等返回当前池 */
     return json(res, 200, { pool: poolWithKeys(storage, pool) });
+  }
+
+  /* 单池详情：池记录之外还要带健康快照——轮换挑备用靠它，界面显示红绿也靠它。
+     成员密钥仍走掩码视图：池子一回显明文，「堵 GET /api/keys」就等于没堵。 */
+  if (req.method === 'GET' && (m = /^\/api\/pools\/(\d+)$/.exec(path))) {
+    const id = Number(m[1]);
+    const pool = storage.getPool(id);
+    if (!pool) throw bad(404, '账号池不存在');
+    return json(res, 200, { pool: poolWithKeys(storage, pool) });
+  }
+
+  /* 轮换：把当前在用的那把换成备用队列里第一把健康的。
+     换掉在用的密钥是安全动作 ⇒ 审计只记 id，不记任何明文。 */
+  if (req.method === 'POST' && (m = /^\/api\/pools\/(\d+)\/rotate$/.exec(path))) {
+    const id = Number(m[1]);
+    const pool = storage.getPool(id);
+    if (!pool) throw bad(404, '账号池不存在');
+    const b = await readBody(req);
+    const state = poolState(pool);
+    const memberIds = (pool.members || []).map(function (x) { return x.keyId; });
+    let target = null;
+    const skipped = [];
+    if (b.toKeyId !== undefined && b.toKeyId !== null && b.toKeyId !== '') {
+      const toKeyId = Number(b.toKeyId);
+      if (!Number.isInteger(toKeyId)) {
+        vault.audit.push({ kind: 'rotate', status: 'fail', target: String(id), detail: 'bad-target' });
+        throw bad(400, 'toKeyId 不是有效的密钥 id');
+      }
+      if (memberIds.indexOf(toKeyId) < 0) {
+        vault.audit.push({ kind: 'rotate', status: 'fail', target: String(id), detail: 'target-not-in-pool' });
+        throw bad(400, '这把密钥不在这个池子里');
+      }
+      target = toKeyId;
+    } else {
+      /* 自动挑：备用队列里第一把健康的。没测过的不算坏（fail_count 是 0），
+         连续失败两次以上才跳过。 */
+      for (const mem of state.backups) {
+        if (keyHealth(storage.getKey(mem.keyId)).healthy) { target = mem.keyId; break; }
+        skipped.push(mem.keyId);
+      }
+      if (target === null) {
+        vault.audit.push({ kind: 'rotate', status: 'fail', target: String(id), detail: 'no-healthy-backup' });
+        throw bad(400, '备用队列里没有健康的密钥');
+      }
+    }
+    const fromId = state.current ? state.current.keyId : null;
+    if (target === fromId) {
+      /* 幂等：轮换到已经在用的那把 —— 不报错、不改状态，原样返回当前池 */
+      vault.audit.push({ kind: 'rotate', status: 'ok', target: String(id), detail: 'already-active' });
+      return json(res, 200, {
+        ok: true, changed: false, pool: poolWithKeys(storage, pool),
+        rotatedFrom: null, rotatedTo: target, skipped: skipped
+      });
+    }
+    /* 旧的当前生效那把排到备用队列末尾：它没坏，只是排到了后面 */
+    const order = state.backups.filter(function (x) { return x.keyId !== target; })
+      .map(function (x) { return x.keyId; });
+    if (fromId !== null && fromId !== target) order.push(fromId);
+    storage.setPoolActive(id, target);
+    storage.setPoolBackupOrder(id, order);
+    vault.audit.push({
+      kind: 'rotate', status: 'ok', target: String(id),
+      detail: 'from:' + (fromId === null ? 'none' : fromId) + ' to:' + target
+    });
+    return json(res, 200, {
+      ok: true, changed: true, pool: poolWithKeys(storage, storage.getPool(id)),
+      rotatedFrom: fromId, rotatedTo: target, skipped: skipped
+    });
   }
 
   if (req.method === 'POST' && path === '/api/import') {
