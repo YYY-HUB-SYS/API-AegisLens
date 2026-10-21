@@ -445,12 +445,14 @@
           authChipOf(ctx, k) +
           '<span class="kc-actions">' +
             testBtnOf(ctx, k) +
+            '<button class="btn ghost small" data-act="key-usage" title="查这个平台的限额快照（用量/限流窗口）：账户级数据，与余额不是一回事">查限额</button>' +
             '<button class="btn ghost small" data-act="edit">编辑</button>' +
             '<button class="btn ghost small danger" data-act="del">删除</button>' +
           '</span>' +
         '</div>' +
         '<div class="kc-meta">' +
-          '<span class="m-item">余额 <b>' + escOf(ctx, balanceTextOf(ctx, k)) + '</b></span>' +
+          '<span class="m-item" title="' + escOf(ctx, balanceTitleOf(ctx, k)) + '">余额 <b>' + escOf(ctx, balanceTextOf(ctx, k)) + '</b></span>' +
+          '<span class="m-item" title="' + escOf(ctx, usageTitleOf(ctx, k)) + '">限额快照 <b>' + escOf(ctx, usageTextOf(ctx, k)) + '</b></span>' +
           (k.exp ? '<span class="m-item st-' + st + '">有效期至 <b>' + escOf(ctx, k.exp) + '</b></span>'
                  : '<span class="m-item">长期有效</span>') +
           (k.reg ? '<span class="m-item">注册于 <b>' + escOf(ctx, k.reg) + '</b></span>' : '') +

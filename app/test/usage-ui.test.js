@@ -119,11 +119,19 @@ test('AegisUI 暴露了 usageText / usageTitle —— 不暴露 layout 层那格
     'AegisUI 里没有暴露 balanceTitle（余额格的新鲜度会一直是空的）');
 });
 
-test('单卡重绘那条路（index.html 的 renderCard）也有这两样', () => {
-  /* index.html 的 IIFE 太重（依赖整个页面），跑不起来 ⇒ 这一条做源码层断言。
-     守的是「两处都要有」：只加一处 = 用户在一种操作下看得到、另一种操作下消失。 */
+test('兜底那条路（layout 层缺位时用 index.html 的 renderCard）也有这两样', () => {
+  /* 实际路径：主视图走 layout 层的 detailOf，单卡重绘走 cardHtmlFor → LayoutShared.cardHtml('main', …)
+     ⇒ 两条都在 layout 层。index.html 的 renderCard 只在 **layout 层缺位**时兜底（window.LayoutShared 没就位）。
+     那一格也该有 —— 否则 layout 层一旦没加载，界面上的限额快照就凭空消失。
+     index.html 的 IIFE 太重（依赖整个页面），跑不起来 ⇒ 这一条做源码层断言。 */
   assert.ok(html.indexOf('data-act="key-usage"') > -1, 'index.html 的 renderCard 里没有「查限额」按钮');
   assert.ok(html.indexOf('>限额快照 <b>') > -1, 'index.html 的 renderCard 里没有「限额快照」这一格');
+});
+
+test('兜底那条路（layout-shared 的 localCard）也有这两样', () => {
+  /* localCard 是 ctx.api.renderCard 缺位时的本地等价实现（最后一层兜底） */
+  assert.ok(sharedSrc.indexOf('data-act="key-usage"') > -1, 'localCard 里没有「查限额」按钮');
+  assert.ok(sharedSrc.indexOf('限额快照 <b>') > -1, 'localCard 里没有「限额快照」这一格');
 });
 
 test('两个渲染层的 data-act 名字一致（事件委托按名字找，分叉了就点了没反应）', () => {
