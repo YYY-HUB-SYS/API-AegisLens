@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20后端-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
-![Tests](https://img.shields.io/badge/测试-545%20全绿-4B3FE3)
+![Tests](https://img.shields.io/badge/测试-585%20全绿-4B3FE3)
 ![Loopback](https://img.shields.io/badge/监听-默认%20127.0.0.1-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -15,9 +15,9 @@
 
 </div>
 
-![密钥看板：统计条、按平台分组、掩码 Key 与端点风格徽章](./docs/assets/hero-board.png)
+![密钥看板：统计条、左侧按平台分组的列表、右侧选中那把的完整档案](./docs/assets/hero-board.png)
 
-*看板长这样（浅色是默认主题）。图里四把 Key 是隔离演示库中的假密钥（`sk-demo-*`）。还没决定装不装？用浏览器直接打开 [`demo/index.html`](./demo/index.html) —— 界面是真的、数据是假的，不装 Node、不碰磁盘。*
+*看板长这样（深色是默认主题）。图里六把 Key 是隔离演示库里灌的假密钥（掩码末四位 0001–0006），真实凭据一张都没有。还没决定装不装？用浏览器直接打开 [`demo/index.html`](./demo/index.html) —— 界面是真的、数据是假的，不装 Node、不碰磁盘。*
 
 ---
 
@@ -79,7 +79,7 @@ npm start
 
 逐项能力、对应接口、字段上限和所有限制数字，在[接口与限制一览](./docs/API.md)。那里每条路径和每个数字都是从代码里数出来的，并由 `app/test/docs.test.js` 对着源码复核 —— 写了代码里不存在的接口，它就红。
 
-![凭证保险库：口令掩码、TOTP 出码与环形进度](./docs/assets/credential-vault.png)
+![凭证保险库：已解锁状态、按网站分组的账号卡、口令默认掩码](./docs/assets/credential-vault.png)
 
 *凭证保险库解锁之后：口令默认掩码，动态码当场出码（环形进度跟着服务端 `step` 走），明文 30 秒自动收回、切走标签页立即收回。*
 
@@ -162,7 +162,7 @@ flowchart LR
 cd app && npm test        # 等价于 node --test test/*.test.js
 ```
 
-2026-10-20 在 Node v24.10.0 实跑：`tests 545 / pass 545 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、TOTP 与口令生成、API 集成与校验、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
+2026-10-21 在 Node v24.10.0 实跑：`tests 585 / pass 585 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、TOTP 与口令生成、API 集成与校验、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
 
 ## 报告安全问题 / 备份
 

@@ -25,6 +25,23 @@
     try { sk = localStorage.getItem('aegis-skin'); } catch (e3) {}
     if (['s1', 's2', 's3'].indexOf(sk) < 0) sk = 's1';
     document.documentElement.setAttribute('data-skin', sk);
+    /* favicon 跟着皮肤走：独立 SVG 没有 CSS 上下文，currentColor 在它里面不生效，
+       只能按皮肤各备一版（vendor/brand/aegislens-favicon*.svg），启动时把 href 换过去。
+       不换的话标签页上的图标颜色就还是旧皮肤的主色，和界面主色对不上。 */
+    var FAVICON_BY_SKIN = {
+      s1: '/vendor/brand/aegislens-favicon.svg',
+      s2: '/vendor/brand/aegislens-favicon-s2.svg',
+      s3: '/vendor/brand/aegislens-favicon-s3.svg'
+    };
+    function faviconFor(skin) { return FAVICON_BY_SKIN[skin] || FAVICON_BY_SKIN.s1; }
+    function applyFavicon(skin) {
+      var link = document.querySelector('link[rel="icon"]');
+      if (!link) return;
+      var href = faviconFor(skin);
+      if (link.getAttribute('href') !== href) link.setAttribute('href', href);
+    }
+    window.AegisFavicon = { href: faviconFor, apply: applyFavicon };
+    applyFavicon(sk);
   })();
 </script>
   <!-- 皮肤层：3 套皮肤 × 明暗两态，变量在这里，结构在下面的 <style> 里 -->
@@ -942,6 +959,7 @@
       <button class="btn ghost" id="btn-export">导出</button>
       <button class="btn ghost" id="btn-import">导入</button>
       <button class="btn ghost" id="btn-pools">账号池</button>
+      <button class="btn" id="btn-autorefresh" type="button" aria-pressed="true" title="当前开启自动刷新（每 10 秒拉一次密钥列表），点击关闭"><span id="autorefresh-label">自动刷新 · 开</span></button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
       <button class="btn primary" id="btn-add">+ 新增密钥</button>
     </div>
@@ -1244,6 +1262,8 @@
     document.documentElement.setAttribute('data-skin', v);
     try { localStorage.setItem('aegis-skin', v); } catch (e) {}
     syncSkinButtons();
+    /* 换了皮肤，标签页图标也得跟着换：它是一份独立的 SVG，不吃 currentColor */
+    if (window.AegisFavicon) window.AegisFavicon.apply(v);
   }
   document.addEventListener('click', function (ev) {
     var sk = ev.target.closest('.seg-btn[data-skin]');
@@ -1258,6 +1278,7 @@
     if (qs && ['s1', 's2', 's3'].indexOf(qs) > -1) {
       document.documentElement.setAttribute('data-skin', qs);
       try { localStorage.setItem('aegis-skin', qs); } catch (e) {}
+      if (window.AegisFavicon) window.AegisFavicon.apply(qs);
     }
   })();
   syncSkinButtons();
@@ -3294,6 +3315,186 @@
     }
   });
 
+  /* ================= 列表自动刷新（轻量轮询） =================
+     别的窗口新增了密钥，这边不跟着变，只能手动刷 —— 加一条 10 秒的轮询：
+     每轮只拉 GET /api/keys（列表接口，不去碰单条详情），内容没变就什么都不做。
+
+     三条硬边界：
+       1. 标签页不可见（document.hidden）不轮询：看不见的时候拉数据没有意义。
+       2. 用户正在做的事不许被冲掉：焦点在输入框里、弹层开着、明文正显示着、
+          还有请求在路上、行内正在编辑 —— 命中任何一条就跳过这一轮，等下一轮。
+       3. 开关存在 localStorage（默认开），顶栏有按钮可以关。
+
+     重画只动三块：统计条、筛选条、看板（左侧分组列表 + 右侧详情）。
+     重画前把滚动位置与焦点记下来，画完还原回去：列表滚到一半被弹回顶部、
+     键盘用户的焦点掉回 body，这两样都属于"打断了用户"。 */
+
+  var AUTO_REFRESH_MS = 10000;
+  var autoRefresh = { on: true, timer: null, inFlight: false };
+
+  function loadAutoRefreshPref() {
+    var v = null;
+    try { v = localStorage.getItem('aegis-autorefresh'); } catch (e) {}
+    autoRefresh.on = v !== 'off';   /* 只认 'off'，别的值一律当开着 */
+    syncAutoRefreshBtn();
+  }
+  function saveAutoRefreshPref() {
+    try { localStorage.setItem('aegis-autorefresh', autoRefresh.on ? 'on' : 'off'); } catch (e) {}
+  }
+  function syncAutoRefreshBtn() {
+    var b = document.getElementById('btn-autorefresh');
+    if (!b) return;
+    b.setAttribute('aria-pressed', autoRefresh.on ? 'true' : 'false');
+    b.title = autoRefresh.on
+      ? '当前开启自动刷新（每 10 秒拉一次密钥列表），点击关闭'
+      : '当前关闭自动刷新（密钥列表要手动刷新才更新），点击开启';
+    var label = document.getElementById('autorefresh-label');
+    if (label) label.textContent = autoRefresh.on ? '自动刷新 · 开' : '自动刷新 · 关';
+  }
+
+  /* 列表指纹：把界面上看得见的字段摊平了比。
+     按 id 排序后再比 —— 不认顺序：本地新增的密钥是往后追加的，
+     服务端按 id 排，顺序不一样不该算成"变了"（否则每 10 秒白刷一次 DOM）。 */
+  function keyListSig(keys) {
+    return JSON.stringify((keys || []).slice().sort(function (a, b) {
+      return Number(a.id) - Number(b.id);
+    }).map(function (k) {
+      var t = k.test || {};
+      return {
+        id: k.id, name: k.name || '', platform: k.platform || '', customName: k.customName || '',
+        keyMasked: k.keyMasked || '', model: k.model || '', reg: k.reg || '', exp: k.exp || '',
+        authNote: k.authNote || '', revoked: k.revoked ? '1' : '0',
+        /* 后端不产 ok 字段（恒为 undefined），"没测过"要单独认，不能混进"失败" */
+        test: k.test ? [(t.ok === null || t.ok === undefined) ? 'u' : (t.ok ? '1' : '0'), t.at || 0, t.status || ''] : null,
+        balance: k.balance ? [k.balance.value === undefined ? null : k.balance.value, k.balance.status || ''] : null,
+        endpoints: (k.endpoints || []).map(function (e) { return [e.url || '', e.style || '']; }),
+        models: (k.models || []).map(function (m) { return [m.id || '', m.ctx === undefined ? null : m.ctx, m.out === undefined ? null : m.out, m.note || '']; }),
+        assigned: (k.assigned || []).map(function (a) { return [a.tool || '', a.host || '']; })
+      };
+    }));
+  }
+
+  function anyTruthy(obj) {
+    for (var k in obj) { if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k]) return true; }
+    return false;
+  }
+
+  /* 有一把的明文正显示着？（只看还存在的密钥：删掉的那把不该把轮询永久卡住） */
+  function revealedOnScreen() {
+    for (var rid in revealTmp) {
+      if (!Object.prototype.hasOwnProperty.call(revealTmp, rid)) continue;
+      if (!revealTmp[rid]) continue;
+      if (findKey(Number(rid))) return true;
+    }
+    return false;
+  }
+
+  /* 用户正忙着吗？返回原因（空串＝不忙，可以重画）。 */
+  function pollBusyReason() {
+    var a = document.activeElement;
+    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.tagName === 'SELECT' || a.isContentEditable)) return 'input';
+    if (document.querySelector('.overlay.show')) return 'overlay';
+    if (revealedOnScreen()) return 'reveal';
+    if (anyTruthy(ui.testing) || anyTruthy(ui.modelsLoading) || anyTruthy(ui.enriching)) return 'busy';
+    if (anyTruthy(ui.editingNote) || anyTruthy(ui.editingSupp)) return 'editing';
+    return '';
+  }
+
+  /* 元素路径：同一批节点重画后位置不变，靠它把滚动位置与焦点还回去。 */
+  function elementPath(el) {
+    var parts = [];
+    while (el && el !== document.body && el.nodeType === 1) {
+      var p = el.parentNode;
+      if (!p) break;
+      parts.unshift(Array.prototype.indexOf.call(p.children, el));
+      el = p;
+    }
+    return parts.join('.');
+  }
+  function resolvePath(path) {
+    if (!path) return null;
+    var node = document.body;
+    path.split('.').forEach(function (idx) {
+      if (!node || !node.children) { node = null; return; }
+      node = node.children[Number(idx)] || null;
+    });
+    return node;
+  }
+
+  /* 重画前的现场：滚动位置 + 焦点 */
+  function captureUiState() {
+    var scrolls = [];
+    Array.prototype.forEach.call(document.querySelectorAll('*'), function (el) {
+      if (el.scrollTop > 0 || el.scrollLeft > 0) {
+        scrolls.push({ path: elementPath(el), top: el.scrollTop, left: el.scrollLeft });
+      }
+    });
+    var a = document.activeElement;
+    return {
+      scrolls: scrolls,
+      focus: (a && a !== document.body) ? elementPath(a) : null
+    };
+  }
+  function restoreUiState(snap) {
+    if (!snap) return;
+    snap.scrolls.forEach(function (s) {
+      var el = resolvePath(s.path);
+      if (!el) return;
+      if (s.top) el.scrollTop = s.top;
+      if (s.left) el.scrollLeft = s.left;
+    });
+    if (snap.focus) {
+      var el = resolvePath(snap.focus);
+      if (el && typeof el.focus === 'function') {
+        try { el.focus({ preventScroll: true }); } catch (e) { el.focus(); }
+      }
+    }
+  }
+
+  function pollOnce() {
+    if (!autoRefresh.on) return;
+    if (autoRefresh.inFlight) return;            /* 上一轮还在路上，别叠 */
+    if (gateState.open) return;                 /* 锁着的时候不轮询 */
+    if (typeof document !== 'undefined' && document.hidden) return;   /* 标签页不可见不轮询 */
+    if (pollBusyReason()) return;               /* 用户正忙着，这一轮跳过 */
+    autoRefresh.inFlight = true;
+    /* 返回这条 Promise：测试要等它落地才知道这一轮画没画 */
+    return api('GET', '/keys').then(function (data) {
+      autoRefresh.inFlight = false;
+      var fresh = (data && data.keys) || [];
+      /* 跟屏上现在这份比：一样就说明没有外部变化，什么都不做。
+         本地自己加/改/删的密钥已经写进 state.keys，比的是同一份，不会自己跟自己打架。 */
+      if (keyListSig(fresh) === keyListSig(state.keys)) return;
+      /* 拉到数据到落笔之间用户可能又动手了：再判一次，别把人家正在填的表单冲掉 */
+      if (pollBusyReason()) return;
+      var snap = captureUiState();
+      state.keys = fresh;
+      renderStats();
+      renderFilterTabs();
+      applyBoardLayout();
+      restoreUiState(snap);
+    }, function () {
+      autoRefresh.inFlight = false;
+      /* 拉失败不弹窗：轮询是后台动作，错误留给手动刷新或下一次成功去暴露 */
+    });
+  }
+
+  function startAutoRefresh() {
+    if (autoRefresh.timer) return;
+    autoRefresh.timer = setInterval(pollOnce, AUTO_REFRESH_MS);
+  }
+
+  loadAutoRefreshPref();
+  var autoRefreshBtn = document.getElementById('btn-autorefresh');
+  if (autoRefreshBtn) {
+    autoRefreshBtn.addEventListener('click', function () {
+      autoRefresh.on = !autoRefresh.on;
+      saveAutoRefreshPref();
+      syncAutoRefreshBtn();
+      if (autoRefresh.on) pollOnce();
+    });
+  }
+
   /* ================= 启动 ================= */
 
   /* 原来的四路并发取数原样搬进 loadBoard()，只是不再在页面加载时直接跑：
@@ -3316,6 +3517,8 @@
       document.getElementById('foot-meta').textContent =
         'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
       render();
+      /* 轮询从这里起：之后每 10 秒拉一次列表，跟屏上这份比。 */
+      startAutoRefresh();
       /* 入场开关由 JS 加，不写死在 HTML 上：默认态必须是"可见"。
          原先 HTML 自带 first-paint + 动画用 backwards 填充，动画不跑时
          （后台标签页、无头渲染）卡片会停在 opacity:0，等于把内容藏没了。

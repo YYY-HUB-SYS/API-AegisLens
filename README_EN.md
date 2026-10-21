@@ -7,16 +7,16 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20backend-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-zero-0E9F6E)
-![Tests](https://img.shields.io/badge/tests-545%20passing-4B3FE3)
+![Tests](https://img.shields.io/badge/tests-585%20passing-4B3FE3)
 ![Loopback](https://img.shields.io/badge/bind-127.0.0.1%20by%20default-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
 [简体中文](./README.md) ｜ [Deployment guide](./DEPLOYMENT_EN.md) ｜ [Security model](./SECURITY_EN.md) ｜ [API & limits](./docs/API_EN.md) ｜ [Product design doc](./api-aegislens-prd/api-aegislens-prd.html) (written before the implementation; includes unshipped items, divergence notice at the top of the page)
 </div>
 
-![The key board: stat strip, grouping by platform, masked keys and endpoint style badges](./docs/assets/hero-board.png)
+![The key board: stat strip, platform-grouped list on the left, full record of the selected key on the right](./docs/assets/hero-board.png)
 
-*This is the board (light is the default theme). The four keys in the picture are fake data from an isolated demo store (`sk-demo-*`). The UI itself is currently Chinese-only — these docs describe exactly what the Chinese labels say.*
+*This is the board (dark is the default theme). The six keys in the picture are fake data seeded into an isolated demo store (masked, last four digits 0001–0006) — no real credential is in that picture. The UI itself is currently Chinese-only — these docs describe exactly what the Chinese labels say.*
 
 *Not sure yet? Open [`demo/index.html`](./demo/index.html) in a browser — real UI, fake data, no Node required, nothing touches your disk.*
 
@@ -80,7 +80,7 @@ Ten lines, and every one of them has a button in the UI:
 
 Every capability, endpoint, field limit and number lives in [API & limits](./docs/API_EN.md) — each path and each figure there is counted out of the source and re-checked against it by `app/test/docs.test.js`, so documenting an endpoint that does not exist turns the suite red.
 
-![The credential vault: masked passwords and a live TOTP code with its ring](./docs/assets/credential-vault.png)
+![The credential vault: unlocked state, account cards grouped by site, passwords masked by default](./docs/assets/credential-vault.png)
 
 *The unlocked credential vault: passwords stay masked, TOTP codes are generated on the spot (the ring follows the server's `step`), and plaintext is retracted after 30 seconds — or immediately when the tab loses focus.*
 
@@ -163,7 +163,7 @@ Listed so that they never arrive as a surprise.
 cd app && npm test        # same as node --test test/*.test.js
 ```
 
-Measured on this version on 2026-10-20 with Node v24.10.0: `tests 545 / pass 545 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals, reclamation of the scratch directories tests create (`tmp-sweep.test.js`) — plus `docs.test.js`, which watches that the documentation and the code still agree.
+Measured on this version on 2026-10-21 with Node v24.10.0: `tests 585 / pass 585 / fail 0` — the count moves with the code, so trust the run. Coverage: crypto, vault sessions and rate limiting, the recovery envelope, both storage backends plus shadow-store detection, credential routes, consumer token minting / verification / revocation / the gating order of all four data routes, TOTP and password generation, API integration and validation, platform adapters, proxy and start scripts, frontend templates and modals, reclamation of the scratch directories tests create (`tmp-sweep.test.js`) — plus `docs.test.js`, which watches that the documentation and the code still agree.
 
 ## Reporting a vulnerability / backups
 
