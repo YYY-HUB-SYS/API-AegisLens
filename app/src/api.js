@@ -935,7 +935,9 @@ async function routeApi(req, res, ctx) {
     const k = requireKey(m[1]);
     const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
     if (!eps.some(function (e) { return adapters.supportsUsageUrl(e.url); })) {
-      throw bad(400, '这个平台没有公开的用量/限额接口，额度只能在厂商控制台看');
+      /* 原因按平台说准：OpenAI 要 admin key、xAI 要 management key、火山方舟要 Access Key，
+         与「平台压根没有这个接口」不是一回事 —— 说混了用户会跑错地方。 */
+      throw bad(400, adapters.usageUnavailableReason(eps));
     }
     let snap = null;
     try {
@@ -944,7 +946,7 @@ async function routeApi(req, res, ctx) {
       storage.saveUsage(k.id, { status: 'fail', windows: [], kind: null, raw: null, msg: e.message });
       throw bad(502, e.message);
     }
-    if (!snap) throw bad(404, '这个平台没有公开的用量/限额接口，额度只能在厂商控制台看');
+    if (!snap) throw bad(404, adapters.usageUnavailableReason(eps));
     const rec = storage.saveUsage(k.id, snap);
     return json(res, 200, { usage: rec.usage });
   }

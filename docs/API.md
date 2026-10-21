@@ -43,9 +43,20 @@
   把认证失败包在 **HTTP 200** 里,不先判平台错误码就会把「密钥无效」报成
   「平台返回了余额数据但没解析出金额」。
 
-已接余额接口的平台:DeepSeek、Moonshot·Kimi、智谱、阶跃星辰、硅基流动、MiniMax、OpenRouter、Novita。
-已接限额接口的平台:智谱(`{origin}/monitor/usage/quota/limit`,`{origin}` 即该厂商的 API 根地址)、MiniMax(`/v1/token_plan/remains`)、
+已接余额接口的平台（7 家）:DeepSeek、Moonshot·Kimi、智谱、阶跃星辰、硅基流动、OpenRouter、Novita。
+已接限额接口的平台（3 家）:智谱(`{origin}/monitor/usage/quota/limit`,`{origin}` 即该厂商的 API 根地址)、MiniMax(`/v1/token_plan/remains`)、
 Anthropic(`/v1/organizations/usage/costs`,**要组织管理员密钥**,普通项目密钥会 403)。
+
+**查不到时的原因要说准**：「接口存在但凭据类型不对」≠「平台压根没这个接口」。
+`POST /api/keys/{id}/usage` 在没有公开限额接口时回 `400`,文案按平台给：
+
+- OpenAI:用量接口只对**组织管理员**开放（要 admin key）
+- xAI:账单接口在 `management-api.x.ai`,只认 **management key**（`sk-` 推理 key 会被拒）
+- 火山方舟:`GetInferenceUsage` / `ListModelRateLimit` 只认 **Access Key 签名**
+- 其余平台:这个平台没有公开的用量/限额接口,额度只能在厂商控制台看
+
+出站**没配代理**时,网络失败/超时的文案会带一句提示（设 `AKM_PROXY=http://127.0.0.1:7897` 后重启）；
+配了代理就不提 —— 那时超时不是代理的锅。
 
 ### 端点(models)
 
@@ -196,19 +207,6 @@ scope 共 5 个;资源清单是**枚举**——清单为空就是什么都拿不
   整条请求 5 分钟总预算;请求体上限 1 MiB(超限 `413`)。
 - 本版本**不支持流式**(`stream:true` 明确回 `400`,不静默降级)。
 - 跨源写请求一律 `403`。
-
-## 本机用量
-
-`GET /api/local-usage?days=30&sources=1`
-
-读本机几个 AI 编程 agent（MiniMax Code / cc-switch / WorkBuddy AI）**自己记的账**，汇总成按天 / 按模型 / 按 agent 的用量。
-
-- **只出数字与模型名**：不读对话内容、不带出任何会话标题，也不出这台机器的路径。
-  采集是**只读**打开对方的 sqlite 库、用完就关；源格式变了或读不到就降级成空结果，不会 500。
-- **两套口径分开**：消耗（token 数、花费）与上下文占用（当前窗口占了多少）**不是一回事**，
-  响应里分别是 `totals` 与 `context`，别混着说。
-- 保险库锁着时 `423`；限流 60 次 / 60 秒；结果在进程内缓存 5 秒。
-- 界面入口：顶栏「本机用量」。
 
 ## 本机用量
 

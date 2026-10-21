@@ -29,6 +29,8 @@ function hostOf(u) {
 
 function matchBalanceApi(url) { return balanceApis.matchBalanceApi(url); }
 function matchUsageApi(url) { return balanceApis.matchUsageApi(url); }
+function usageUnavailableReason(urls) { return balanceApis.usageUnavailableReason(urls); }
+function balanceUnavailableReason(urls) { return balanceApis.balanceUnavailableReason(urls); }
 
 /* 特殊认证平台按「端点域名」匹配：默认认证头（Bearer / x-api-key）不被接受，
    需改用平台自定义头。publicModels 表示模型列表接口完全公开（不校验密钥），
@@ -167,6 +169,15 @@ function effectiveFetch(url, init) {
   }
   return fetch(url, init);
 }
+/* 没配代理时的提示：有代理就别提（那时超时不是代理的锅），没代理才说清楚怎么配。
+   代理来源见 config.resolveProxy：AKM_PROXY > HTTPS_PROXY/HTTP_PROXY > Windows 系统代理注册表。
+   抽成纯函数是为了能确定性地测 —— 测试机上到底有没有代理环境变量是不确定的。 */
+function proxyHintFor(proxyUrl) {
+  if (proxyUrl) return '';
+  return '（如果这个平台需要走代理：设环境变量 AKM_PROXY=http://127.0.0.1:7897 后重启服务，或打开系统代理开关）';
+}
+function proxyHint() { return proxyHintFor(PROXY_URL); }
+
 async function requestJson(url, headers, opts) {
   const f = (opts && opts.fetchImpl) || effectiveFetch;
   const timeoutMs = (opts && opts.timeoutMs) || 10000;
@@ -184,8 +195,8 @@ async function requestJson(url, headers, opts) {
     try { body = text ? JSON.parse(text) : null; } catch (e) { body = null; }
     return { status: res.status, ok: res.ok, body: body };
   } catch (e) {
-    if (ctrl.signal.aborted) throw fail(504, '请求超时（' + timeoutMs + 'ms），请检查网络或 Base URL', 'TIMEOUT');
-    throw fail(502, '网络请求失败：' + (e && e.message ? e.message : String(e)), 'NETWORK');
+    if (ctrl.signal.aborted) throw fail(504, '请求超时（' + timeoutMs + 'ms），请检查网络或 Base URL' + proxyHint(), 'TIMEOUT');
+    throw fail(502, '网络请求失败：' + (e && e.message ? e.message : String(e)) + proxyHint(), 'NETWORK');
   } finally {
     clearTimeout(timer);
   }
@@ -674,5 +685,8 @@ module.exports = {
   proxyFetch: proxyFetch,
   effectiveFetch: effectiveFetch,
   supportsBalanceUrl: supportsBalanceUrl,
-  supportsUsageUrl: supportsUsageUrl
+  supportsUsageUrl: supportsUsageUrl,
+  usageUnavailableReason: usageUnavailableReason,
+  balanceUnavailableReason: balanceUnavailableReason,
+  proxyHintFor: proxyHintFor
 };

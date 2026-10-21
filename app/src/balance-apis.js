@@ -620,11 +620,67 @@ function parseUsageBody(api, body) {
   return api.parse(body);
 }
 
-/* ================= 实测无公开接口的平台（不实现，写清楚免得下轮又试） =================
-   · 商汤日日新 SenseNova：/v1/user/info 与 /v1/usage 都是 404，额度只在控制台看。
-   · 美团 LongCat：/openai/v1/usage、/v1/usage、/openai/v1/user/usage、/openai/v1/user/info 全 404。
-   · 火山方舟：/api/v3/usage 存在，但真路径与假路径都回 401，无法用状态码区分，不接。
-   · OpenAI /v1/usage 与 xAI /v1/billing/credits：本机网络不可达（fetch failed），不接。 */
+/* ================= 查不到额度时，准确说清「为什么」 =================
+   上一版这里写的是「实测无公开接口的平台」，其中两条结论是错的，
+   2026-10-21 复核后改正（别再把旧结论当事实）：
+   · 火山方舟：**有**公开接口 —— GetInferenceUsage / ListModelRateLimit
+     （POST https://ark.cn-beijing.volcengineapi.com/?Action=…&Version=2024-01-01），
+     但官方写明「本接口仅支持 Access Key 鉴权」，我们存的是 ark- 开头的 API Key ⇒ 够不着。
+     之前记的「真路径与假路径都回 401」是查错了路径（当时打的是 /api/v3/usage），
+     不是接口不存在。
+   · OpenAI：/v1/usage 只对**组织管理员**开放（要 admin key），普通项目 key 查不到。
+     本机经代理访问 api.openai.com 一律 403 unsupported_country_region_territory
+     （代理出口在不支持地区，真路径与假路径同款报错 ⇒ 本机做不了存在性判定）。
+   · xAI：/v1/billing/credits 这个路径**不存在**（真路径与假路径都 404）。
+     真正的账单接口在 management-api.x.ai/v1/billing/teams/{team_id}/prepaid/balance，
+     要 **management key**（控制台 Settings → Management Keys 创建），sk- 推理 key 被拒
+     （实测原话：Please ensure you use a valid management key）。
+   · 商汤日日新 / 美团 LongCat：各路径全 404，额度只在控制台看（这条结论不变）。
+
+   ⇒ 统一口径：**接口存在但凭据类型不对** ≠ **平台压根没这个接口**。
+     前者要说明「缺哪种凭据」，后者才说「去控制台看」。混成一句话，用户会跑错地方。 */
+const UNAVAILABLE_REASONS = [
+  {
+    id: 'openai',
+    re: /(^|\.)openai\.com$/i,
+    usage: 'OpenAI 的用量接口只对组织管理员开放（需要 admin key），普通 API Key 查不到；额度与限额在控制台 Usage 页看',
+    balance: 'OpenAI 没有面向普通 API Key 的余额接口，额度与限额在控制台 Usage 页看'
+  },
+  {
+    id: 'xai',
+    re: /(^|\.)x\.ai$/i,
+    usage: 'xAI 的账单接口只认 management key（控制台 Settings → Management Keys 创建），普通 API Key 查不到；预付余额在控制台 Billing → Credits 看',
+    balance: 'xAI 的预付余额只对 management key 开放，普通 API Key 查不到；在控制台 Billing → Credits 看'
+  },
+  {
+    id: 'volcengine',
+    re: /(^|\.)volcengineapi\.com$|(^|\.)volces\.com$/i,
+    usage: '火山方舟的用量/限流接口（GetInferenceUsage、ListModelRateLimit）只认 Access Key 签名，API Key 查不到；额度在方舟控制台看',
+    balance: '火山方舟没有面向 API Key 的余额接口；它的用量/限流接口只认 Access Key 签名，额度在方舟控制台看'
+  }
+];
+
+const DEFAULT_USAGE_REASON = '这个平台没有公开的用量/限额接口，额度只能在厂商控制台看';
+const DEFAULT_BALANCE_REASON = '这个平台没有公开的余额接口，余额只能在厂商控制台看';
+
+/* 按端点域名找原因。端点可以是 URL 字符串，也可以是 { url } 对象，也可以是它们的数组
+   （一把密钥可能有多个端点，任一命中即可）。找不到就返回 null，让调用方决定默认文案。 */
+function reasonOf(urls, field) {
+  const list = Array.isArray(urls) ? urls : [urls];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const raw = (item && typeof item === 'object') ? item.url : item;
+    const h = hostOf(raw);
+    if (!h) continue;
+    for (let j = 0; j < UNAVAILABLE_REASONS.length; j++) {
+      if (UNAVAILABLE_REASONS[j].re.test(h)) return UNAVAILABLE_REASONS[j][field];
+    }
+  }
+  return null;
+}
+
+function usageUnavailableReason(urls) { return reasonOf(urls, 'usage') || DEFAULT_USAGE_REASON; }
+function balanceUnavailableReason(urls) { return reasonOf(urls, 'balance') || DEFAULT_BALANCE_REASON; }
 
 module.exports = {
   BALANCE_APIS: BALANCE_APIS,
@@ -637,5 +693,8 @@ module.exports = {
   parseUsageBody: parseUsageBody,
   extractWindows: extractWindows,
   humanWindowName: humanWindowName,
-  isAuthError: isAuthError
+  isAuthError: isAuthError,
+  usageUnavailableReason: usageUnavailableReason,
+  balanceUnavailableReason: balanceUnavailableReason,
+  UNAVAILABLE_REASONS: UNAVAILABLE_REASONS
 };
