@@ -14,7 +14,11 @@ const { createStore } = require('../src/storage');
 const FIELDS = {
   id: 'deepseek-chat', ctx: 131072, out: 8192, src: 'api',
   ctxSrc: 'api', outSrc: 'web', conflict: true, outGtCtx: null, // outGtCtx 读取时按 ctx/out 重算，false 不可表示（true 的情形钉在 model-write-path.test.js）
-  reasoning: true, modalitiesIn: ['text', 'image'], rpm: 2640, note: null
+  reasoning: true, modalitiesIn: ['text', 'image'], rpm: 2640, note: null,
+  /* 参考值的具体出处：第四级联网检索会查两个源（OpenRouter / models.dev），
+     第三级是内置国内模型表，同一把 Key 的 ctx 与 out 可能来自不同目录。
+     不登记进这张白名单，SQLite 后端就会把出处静默丢掉。 */
+  ctxFrom: 'builtin-cn', outFrom: 'openrouter'
 };
 
 function newDir() { return tmp.mk('aegis-mfield'); }

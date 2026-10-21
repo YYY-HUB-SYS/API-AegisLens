@@ -5,7 +5,11 @@ const { inferStyle } = require('./adapters');
 
 /* 按字段来源与能力位：JSON 后端直接挂在模型对象上，SQLite 后端存进 models.extra 一列。
    两边合并补丁时都按这张表逐字段处理，漏一处就会静默丢字段。 */
-const MODEL_EXTRA = ['ctxSrc', 'outSrc', 'conflict', 'outGtCtx', 'reasoning', 'modalitiesIn', 'rpm'];
+const MODEL_EXTRA = ['ctxSrc', 'outSrc', 'conflict', 'outGtCtx', 'reasoning', 'modalitiesIn', 'rpm',
+  /* ctxFrom/outFrom：参考值的具体出处（哪个公开目录给的）。
+     第四级联网检索会查两个源（OpenRouter / models.dev），第三级是内置国内模型表，
+     同一把 Key 的 ctx 与 out 可能来自不同目录——分字段记，用户才知道这个参考值该信几分。 */
+  'ctxFrom', 'outFrom'];
 
 function nowIso() { return new Date().toISOString(); }
 

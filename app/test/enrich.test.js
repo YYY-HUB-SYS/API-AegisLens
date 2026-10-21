@@ -71,10 +71,57 @@ test('lookupOnline：双源可用时 OpenRouter 优先，失败源自动跳过',
     return Promise.resolve(res({}, 404));
   };
   const r = await enrich.lookupOnline(['deepseek-v4-pro', 'deepseek-k2', 'nope-model'], { fetchImpl: f });
-  assert.deepStrictEqual(r.found['deepseek-v4-pro'], { ctx: 1048576, out: 384000 });
-  assert.deepStrictEqual(r.found['deepseek-k2'], { ctx: 262144, out: 16384 }, 'models.dev 命中的模型取自第二源');
+  /* 值不能变；但每条结果必须带上「这个值是哪一级给的」——
+     早先内置表命中也打 'web'，等于把本地数据谎报成联网检索来的。 */
+  assert.strictEqual(r.found['deepseek-v4-pro'].ctx, 1048576);
+  assert.strictEqual(r.found['deepseek-v4-pro'].out, 384000);
+  assert.strictEqual(r.found['deepseek-v4-pro'].ctxFrom, 'openrouter', '出处要记到具体目录');
+  assert.strictEqual(r.found['deepseek-v4-pro'].ctxKind, 'web', '联网目录属第四级');
+  assert.strictEqual(r.found['deepseek-k2'].ctx, 262144, 'models.dev 命中的模型取自第二源');
+  assert.strictEqual(r.found['deepseek-k2'].ctxFrom, 'modelsdev');
   assert.ok(!r.found['nope-model']);
   assert.strictEqual(r.error, null, '至少一个源可用时不算失败');
+});
+
+test('lookupOnline：内置表命中必须标 meta，不能谎报成 web（断网时尤其明显）', async () => {
+  enrich.resetCache();
+  /* 断网：只有内置表可用。数据明明来自本地 cn-models.js，
+     标签却写 'web'（联网检索）就是谎报——界面上「元数据库」与「联网检索」可信度不同。 */
+  const f = () => Promise.reject(new Error('network down'));
+  const r = await enrich.lookupOnline(['step-1o-turbo-vision'], { fetchImpl: f });
+  const hit = r.found['step-1o-turbo-vision'];
+  assert.ok(hit, '断网时内置表仍应能命中');
+  assert.strictEqual(hit.ctx, 32768);
+  assert.strictEqual(hit.ctxKind, 'meta', '内置表属第三级，不能标成联网');
+  assert.strictEqual(hit.ctxFrom, 'builtin-cn', '出处是内置国内模型表');
+  assert.strictEqual(hit.outKind, 'meta');
+
+  /* 走完整链路看最终落库的来源标签 */
+  const models = [{ id: 'step-1o-turbo-vision', ctx: null, out: null, src: 'unknown', note: null }];
+  const a = enrich.applyToModels(models, r.found);
+  assert.strictEqual(a.models[0].ctxSrc, 'meta', '落库的按字段来源必须是 meta');
+  assert.strictEqual(a.models[0].src, 'meta', '整条来源标签也应是 meta');
+  assert.strictEqual(a.models[0].ctxFrom, 'builtin-cn', '出处要留下来给界面说清');
+});
+
+test('lookupOnline：ctx 与 out 可以分别来自不同级别，各自记出处', async () => {
+  enrich.resetCache();
+  /* 用一个内置表里没有的模型名（否则会命中内置表，测的就不是「只有联网给 ctx」这件事了） */
+  const f = (url) => {
+    if (String(url).includes('openrouter')) {
+      /* OpenRouter 只给 ctx，不给 out */
+      return Promise.resolve(res({ data: [{ id: 'somevendor/only-ctx-model', context_length: 1048576 }] }));
+    }
+    return Promise.resolve(res({}, 404));
+  };
+  const r = await enrich.lookupOnline(['only-ctx-model'], { fetchImpl: f });
+  const hit = r.found['only-ctx-model'];
+  assert.ok(hit, '应命中 OpenRouter');
+  assert.strictEqual(hit.ctx, 1048576);
+  assert.strictEqual(hit.ctxKind, 'web');
+  assert.strictEqual(hit.out, null, 'OpenRouter 没给 out 就该是空，不能编');
+  assert.strictEqual(hit.outKind, null);
+  assert.strictEqual(hit.outFrom, null);
 });
 
 test('lookupOnline：全部源失败时返回错误且不抛出', async () => {

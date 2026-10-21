@@ -157,34 +157,52 @@ function getLocalIndex() {
   return _localIndex;
 }
 
+/* 四级兜底的第三、四级（内置元数据库 / 联网检索）都是**仅供参考**：
+   它们按「模型 id」跨平台查表，而模型限制其实是 (平台端点, 模型) 的二元事实
+   （实测：kimi-k2.6 在云知声 out=16000、intern-ai out=262144，差 16.4 倍）。
+   所以这两级只能填空、不能覆盖平台自报值，且**必须标清各自是哪一级来的**——
+   早先这里把内置表命中也打成 'web'，等于把本地数据谎报成联网检索来的。
+   ctxSrc/outSrc 记来源，ctxFrom/outFrom 记具体出处（哪个目录），两者不能混。 */
 async function lookupOnline(ids, opts) {
   const results = {};
   const errors = [];
   const catalogs = await Promise.all(PROVIDERS.map(function (p) {
     return fetchProvider(p, opts).catch(function (e) {
       errors.push(p.id + '：' + (e && e.message ? e.message : String(e)));
-      return null;
-    });
+        return null;
+      });
   }));
-  catalogs.push(getLocalIndex());
+  /* 每个目录连同它的来源标签一起走：联网源是 'web'，内置表是 'meta' */
+  const sources = catalogs.map(function (c, i) {
+    return { index: c, src: PROVIDERS[i].id, kind: 'web' };
+  });
+  sources.push({ index: getLocalIndex(), src: 'builtin-cn', kind: 'meta' });
   for (let i = 0; i < ids.length; i++) {
     const id = String(ids[i] || '').trim();
     if (!id) continue;
-    for (let j = 0; j < catalogs.length; j++) {
-      const hit = catalogs[j] ? matchModel(catalogs[j], id) : null;
+    for (let j = 0; j < sources.length; j++) {
+      const s = sources[j];
+      const hit = s.index ? matchModel(s.index, id) : null;
       if (!hit) continue;
-      const cur = results[id] || { ctx: null, out: null };
+      const cur = results[id] || { ctx: null, out: null, ctxFrom: null, outFrom: null };
+      /* 先到先得：联网源在前（PROVIDERS 顺序），内置表在后；
+         但同一级里 ctx 与 out 可以分别来自不同目录（如 ctx 来自 OpenRouter、out 来自 models.dev），
+         所以按字段各自记出处，不按整条记。 */
       results[id] = {
         ctx: cur.ctx != null ? cur.ctx : hit.ctx,
-        out: cur.out != null ? cur.out : hit.out
+        out: cur.out != null ? cur.out : hit.out,
+        ctxFrom: cur.ctx != null ? cur.ctxFrom : (hit.ctx != null ? s.src : null),
+        outFrom: cur.out != null ? cur.outFrom : (hit.out != null ? s.src : null),
+        ctxKind: cur.ctx != null ? cur.ctxKind : (hit.ctx != null ? s.kind : null),
+        outKind: cur.out != null ? cur.outKind : (hit.out != null ? s.kind : null)
       };
     }
   }
-  var onlineFailed = catalogs.slice(0, -1).every(function (c) { return !c; });
+  var onlineFailed = sources.slice(0, -1).every(function (s) { return !s.index; });
   var hasResults = Object.keys(results).length > 0;
   return {
     found: results,
-    error: onlineFailed && !hasResults && catalogs.length > 1
+    error: onlineFailed && !hasResults && sources.length > 1
       ? '联网检索失败（' + errors.join('；') + '）'
       : null
   };
@@ -203,10 +221,16 @@ function applyToModels(models, found) {
        重建会把它们连同 conflict / outGtCtx 标记一起丢掉 */
     const r = Object.assign({}, m);
     const fs = shape.fieldSrcs(m);
+    /* 来源按字段取真实出处：内置表命中是 'meta'，联网目录命中才是 'web'。
+       早先一律写 'web'，断网时命中内置表也谎报成联网检索——那是两回事，
+       界面上「元数据库」和「联网检索」是不同的可信度提示。 */
     r.ctx = ctx;
     r.out = outv;
-    r.ctxSrc = (m.ctx != null) ? fs.ctxSrc : (hit.ctx != null ? 'web' : fs.ctxSrc);
-    r.outSrc = (m.out != null) ? fs.outSrc : (hit.out != null ? 'web' : fs.outSrc);
+    r.ctxSrc = (m.ctx != null) ? fs.ctxSrc : (hit.ctx != null ? (hit.ctxKind || 'web') : fs.ctxSrc);
+    r.outSrc = (m.out != null) ? fs.outSrc : (hit.out != null ? (hit.outKind || 'web') : fs.outSrc);
+    /* 出处也记下来（哪个目录给的），界面上可以展开说清「这个值来自哪」 */
+    if (m.ctx == null && hit.ctx != null) r.ctxFrom = hit.ctxFrom || null;
+    if (m.out == null && hit.out != null) r.outFrom = hit.outFrom || null;
     r.src = (m.src === 'manual') ? 'manual' : shape.summarizeSrc(r.ctxSrc, r.outSrc);
     if (r.note == null) r.note = null;
     return r;

@@ -636,7 +636,6 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
   assert.ok(split.includes('上下文 · 接口') && split.includes('输出 · 联网'),
     'ctxSrc=api / outSrc=web 时要把两个出处分别标出来，实得：' + split);
   assert.ok(split.includes('m-tag api split') && split.includes('m-tag web split'), '拆分标签要各自带来源色');
-
   // 2) 两字段同源 -> 只留一条聚合标签，别每行挂两个重复标签
   const same = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'api', outSrc: 'api', src: 'api' });
   assert.strictEqual((same.match(/class="m-tag/g) || []).length, 1, '同源时只有一条标签：' + same);
@@ -693,6 +692,40 @@ test('模型能力位与按字段来源：七个已持久化字段都要有出�
     '数值胶囊必须 flex-shrink:0，否则能力位一多就轮到"上下文 1024K"被挤掉字');
   assert.ok(/\.m-extra\s*\{[^}]*flex-wrap:\s*wrap/.test(html), '.m-extra 要能整体换行');
   assert.ok(/\.m-cap\s*\{[^}]*border:/.test(html), '能力位用描边而不是实心底色，避免和来源标签抢层级');
+});
+
+test('四级的后两级是「参考值」：界面必须标出来，且说清来自哪个目录', () => {
+  const html = readHomepage();
+  const at = html.indexOf('var SRC_LABEL');
+  const src = html.slice(at, html.indexOf('function maskKey', at));
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const F = new Function('esc', src + '; return { srcChips: srcChips };')(esc);
+
+  // 1) 文案里必须带「参考」二字 —— 让用户一眼知道这不是这个端点的实测值
+  assert.ok(/meta:\s*'[^']*参考/.test(src), '内置表来源的文案要带「参考」');
+  assert.ok(/web:\s*'[^']*参考/.test(src), '联网检索来源的文案要带「参考」');
+
+  // 2) 参考值要挂 ref 类（虚线描边），与平台自报的实色区分
+  const refd = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'web', outSrc: 'web', src: 'web' });
+  assert.ok(refd.includes('ref'), '参考值要挂 ref 类：' + refd);
+  const api = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'api', outSrc: 'api', src: 'api' });
+  assert.ok(!api.includes('ref'), '平台自报的值不是参考值，不该挂 ref：' + api);
+
+  // 3) 出处要可见：联网命中哪个目录、内置表命中哪个表，都得说得出
+  const from = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'meta', outSrc: 'meta', src: 'meta', ctxFrom: 'builtin-cn' });
+  assert.ok(from.includes('内置国内模型表'), '要标出这个参考值来自哪个目录：' + from);
+  const from2 = F.srcChips({ ctx: 100, out: 200, ctxSrc: 'web', outSrc: 'web', src: 'web', ctxFrom: 'openrouter' });
+  assert.ok(from2.includes('OpenRouter'), '联网参考值要标出来源目录：' + from2);
+
+  // 4) 「以平台自报为准」这句必须出现在可见文字里，不能只活在 title
+  //    （非聚焦 span 的 title 键盘和触屏碰不到——5b 那条已经踩过一次）
+  const seen = h => h.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ');
+  assert.ok(/参考/.test(seen(from)), '「参考」要出现在可见文案里，不能只写在 title');
+
+  // 5) 悬停说明要说清这是跨平台查表、且以平台自报为准
+  assert.ok(/title="[^"]*参考值/.test(from), '悬停说明要点明这是参考值');
+  assert.ok(/以平台自报为准/.test(html), '悬停说明要点明以平台自报为准');
 });
 
 test('弹层与提示的键盘/读屏出口：焦点要进得去、出得来、Tab 出不去', () => {

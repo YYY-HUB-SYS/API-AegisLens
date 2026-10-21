@@ -315,6 +315,10 @@
   .m-tag.api { color: var(--api); background: var(--api-soft); }
   .m-tag.web { color: var(--web); background: var(--web-soft); }
   .m-tag.builtin { color: var(--warn); background: var(--warn-soft); }
+  /* 第三、四级（内置表 / 联网检索）都是跨平台查表得来的**参考值**：
+     模型限制是 (平台端点, 模型) 的二元事实，跨平台查表只能给参考。
+     视觉上要与「平台自报」明显区分——虚线边框 + 降饱和，别让它长得跟实测值一样可信。 */
+  .m-tag.ref { border: 1px dashed currentColor; padding: 1px 6px; }
   /* 参数没取到用虚线框表达"这里缺东西"，而不是给个实心底色假装正常 */
   .m-tag.unknown {
     color: var(--ink-3); background: transparent; border: 1px dashed var(--ink-3);
@@ -1499,14 +1503,19 @@
      等于把"我不知道"渲染成"我有内置元数据"。未识别值现在原样吐出来，
      宁可难看也不假装知道。 */
   var SRC_LABEL = {
-    api: '平台接口', meta: '元数据库', web: '联网检索',
+    api: '平台接口', meta: '元数据库（参考）', web: '联网检索（参考）',
     manual: '手动填写', builtin: '官方目录', unknown: '参数未取到'
   };
-  var SRC_CLS = { api: ' api', web: ' web', builtin: ' builtin', unknown: ' unknown' };
+  var SRC_CLS = { api: ' api', web: ' web', meta: ' meta', builtin: ' builtin', unknown: ' unknown' };
   /* 按字段拆来源时标签要短，否则一行塞不下两条 */
   var SRC_SPLIT_LABEL = {
-    api: '接口', meta: '内置表', web: '联网', manual: '手动',
+    api: '接口', meta: '内置表(参考)', web: '联网(参考)', manual: '手动',
     builtin: '官方目录', unknown: '未取到'
+  };
+  /* 第四级（联网检索）具体来自哪个公开目录。模型限制是 (平台端点, 模型) 的二元事实，
+     跨平台查表拿到的只能算参考值——说清出处，用户才知道该信几分。 */
+  var SRC_FROM_LABEL = {
+    openrouter: 'OpenRouter', modelsdev: 'models.dev', 'builtin-cn': '内置国内模型表'
   };
   var MODALITY_LABEL = { text: '文本', image: '图片', audio: '音频', video: '视频', file: '文件' };
 
@@ -1528,20 +1537,38 @@
 
   function srcChips(m) {
     var fs = fieldSrcs(m);
+    /* 参考值（内置表 / 联网检索）额外挂 ref 类：视觉上与「平台自报」区分开。
+       来源色类（api / web / meta）不动，ref 是叠加的一层。 */
+    function refCls(src) { return (src === 'web' || src === 'meta') ? ' ref' : ''; }
     if (fs.ctxSrc && fs.outSrc && fs.ctxSrc !== fs.outSrc) {
-      function one(field, src) {
+      function one(field, src, from) {
         var label = Object.prototype.hasOwnProperty.call(SRC_SPLIT_LABEL, src)
           ? SRC_SPLIT_LABEL[src] : String(src);
         var cls = (Object.prototype.hasOwnProperty.call(SRC_CLS, src) && SRC_CLS[src]) || '';
-        return '<span class="m-tag' + cls + ' split">' + field + ' · ' + esc(label) + '</span>';
+        var tip = srcTip(src, from);
+        return '<span class="m-tag' + cls + ' split' + refCls(src) + '"' + tip + '>' + field + ' · ' + esc(label) + '</span>';
       }
-      return one('上下文', fs.ctxSrc) + one('输出', fs.outSrc);
+      return one('上下文', fs.ctxSrc, m.ctxFrom) + one('输出', fs.outSrc, m.outFrom);
     }
     var hasSrc = Object.prototype.hasOwnProperty.call(SRC_LABEL, m.src);
     var srcLabel = hasSrc ? SRC_LABEL[m.src]
       : '未识别来源 ' + (m.src == null || m.src === '' ? '（空）' : m.src);
     var srcCls = (Object.prototype.hasOwnProperty.call(SRC_CLS, m.src) && SRC_CLS[m.src]) || '';
-    return '<span class="m-tag' + srcCls + '">' + srcLabel + '</span>';
+    /* 整条一个来源时，出处取两个字段里非空的那个（同一来源时它们一致） */
+    var from = m.ctxFrom || m.outFrom || null;
+    return '<span class="m-tag' + srcCls + refCls(m.src) + '"' + srcTip(m.src, from) + '>' + esc(srcLabel) + '</span>';
+  }
+
+  /* 参考值（内置表 / 联网检索）的悬停说明：说清这是跨平台查表来的参考，
+     以及具体来自哪个目录——用户才知道该信几分。 */
+  function srcTip(src, from) {
+    if (src !== 'web' && src !== 'meta') return '';
+    var where = from && Object.prototype.hasOwnProperty.call(SRC_FROM_LABEL, from)
+      ? SRC_FROM_LABEL[from] : (from ? String(from) : '');
+    var text = '参考值：按模型名跨平台查表得来的，不等于这个端点的实测上限'
+      + (where ? '（来源：' + where + '）' : '')
+      + '。以平台自报为准。';
+    return ' title="' + esc(text) + '"';
   }
 
   /* 能力位只在"有得说"时出现：纯文本输入是默认，不必每行都喊一遍 */
