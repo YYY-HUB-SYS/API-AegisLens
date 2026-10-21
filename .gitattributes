@@ -1,3 +1,12 @@
+# .bat 是 Windows 批处理，必须是 CRLF 行尾（cmd.exe 解析多行块时 LF 会错）。
+# 之前仓库里的 .bat 存的是 LF，靠开发机 core.autocrlf=true 在检出时变成 CRLF；
+# Linux runner 上 core.autocrlf=false，检出就是 LF，于是 start.bat / stop.bat /
+# workbench.bat 三条「全部使用 CRLF 行尾」断言在 CI 上必挂（2026-10-21 实证）。
+# 这行是根治：text 负责入库归一（blob 仍存 LF），eol=crlf 负责检出转 CRLF——
+# Windows 和 Linux 拿到的都是 CRLF，且不需要重写任何历史。
+# WSL 实测确认：Linux 上检出后 .bat 逐字节为 CRLF，blob 保持 LF。
+*.bat text eol=crlf
+
 # 这台机器 core.autocrlf=true，字体是压缩二进制，不能让 git 去猜它是不是文本
 *.woff2 binary
 *.woff binary

@@ -16,42 +16,77 @@ on:
 jobs:
   test:
     name: node ${{ matrix.node-version }}
-    runs-on: ubuntu-latest
+    # 固定在 ubuntu-24.04，不跟 ubuntu-latest 走。
+    # 2026-10-19 起 ubuntu-latest 正在往 Ubuntu 26.04 迁移（迁移期到 11-19），
+    # 见 https://github.com/actions/runner-images/issues/14748 。
+    # 门禁要的是可复现的绿灯，不是跟着 runner 镜像漂移。
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         node-version: [22, 24]
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: 装 Node ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
 
-      # 诊断与失败摘要都用 ::error:: 打出去 —— 它会变成 check annotation，
-      # 而 check-runs 的 annotations API **匿名可读**；日志接口要 admin 权限，
-      # 出了红只能看着 job 页面干瞪眼。
-      # 诊断特意放在跑测试**之前**：万一测试把整个 shell 打死，这些证据已经留下��。
+      # .bat 是 Windows 批处理，必须是 CRLF 行尾（cmd.exe 解析多行块会错）。
+      # 仓库根 .gitattributes 里的 `*.bat text eol=crlf` 已经在**检出时**把 .bat 转成 CRLF，
+      # 所以 Linux runner 拿到的就是 Windows 用户真正拿到的那份文件——
+      # 2026-10-21 在 WSL 上实测过这条属性（blob 存 LF，检出得 CRLF）。
+      #
+      # 这里只**核对**，不再用 sed 修补：
+      # 早先的版本在 CI 里跑 sed 把 .bat 强行转成 CRLF，那是在掩盖 checkout 的问题；
+      # 真正的根因是仓库没声明行尾策略。属性一旦被谁改坏，这里要立刻红掉，
+      # 而不是让 sed 悄悄把坏文件修好、让门禁失去意义。
+      - name: 校验 .bat 行尾是 CRLF
+        working-directory: app
+        run: |
+          set -e
+          for f in *.bat; do
+            cr=$(tr -cd '\r' < "$f" | wc -c)
+            lf=$(tr -cd '\n' < "$f" | wc -c)
+            echo "::notice::$f CR=$cr LF=$lf"
+            if [ "$cr" -ne "$lf" ]; then
+              echo "::error::$f 行尾不是纯 CRLF（CR=$cr LF=$lf）——仓库根 .gitattributes 的 '*.bat text eol=crlf' 被改坏了"
+              exit 1
+            fi
+          done
+
+      # 失败详情同时进两处：
+      #   1) ::error:: → check annotation，check-runs 的 annotations API **匿名可读**
+      #      （日志接口要 admin 权限，出了红只能看着 job 页面干瞪眼）；
+      #   2) GITHUB_STEP_SUMMARY → 网页上直接能看到，不用点进日志。
+      # 诊断特意放在跑测试**之前**：万一测试把整个 shell 打死，这些证据已经留下。
       - name: 跑全量测试
         working-directory: app
         run: |
           set +e
-          echo "::group::运行前诊断"
-          echo "node: $(node --version)"
-          echo "平台: $(uname -a)"
-          echo "核数: $(nproc)"
-          free -m
-          df -h . | tail -2
-          echo "glob 展开到的测试文件数: $(ls test/*.test.js 2>/dev/null | wc -l)"
-          echo "::endgroup::"
-          echo "::notice::node --test 开始，输出见本步日志"
-          node --test test/*.test.js > "$RUNNER_TEMP/test-output.txt" 2>&1
-          status=$?
-          echo "::group::测试输出"
-          cat "$RUNNER_TEMP/test-output.txt"
-          echo "::endgroup::"
+          {
+            echo '### 运行前诊断'
+            echo '```'
+            echo "node: $(node --version)"
+            echo "平台: $(uname -a)"
+            echo "核数: $(nproc)"
+            free -m
+            df -h . | tail -2
+            echo "glob 展开到的测试文件数: $(ls test/*.test.js 2>/dev/null | wc -l)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice::node $(node --version) / $(uname -sm) / 测试文件 $(ls test/*.test.js 2>/dev/null | wc -l) 个"
+          set -o pipefail
+          node --test test/*.test.js 2>&1 | tee "$RUNNER_TEMP/test-output.txt"
+          status=${PIPESTATUS[0]}
+          {
+            echo '### 全量测试输出'
+            echo '```'
+            cat "$RUNNER_TEMP/test-output.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           if [ "$status" -ne 0 ]; then
             echo "::error::node --test 退出码 $status"
             grep -E 'not ok|✖|Error|error:|AssertionError|ERR_' "$RUNNER_TEMP/test-output.txt" \
