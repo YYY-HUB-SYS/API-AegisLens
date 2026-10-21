@@ -78,7 +78,7 @@ Twelve lines, and every one of them has a button in the UI:
 - **Scoped consumer tokens** // 4 scopes + explicit resource lists + expiry + individual revocation; only the first 8 hex of an HMAC fingerprint is stored
 - **Observation history** // the last 1000 test and balance rows per key, split into "connectivity" and "balance" in the key detail panel
 - **Scheduler** // **off by default**; once on it runs one round per interval (test every key once + refresh balances in bulk), and you can also trigger a round by hand
-- **Zero dependencies** // standard library only, build-free frontend (5 static files), no CDN; the only binary in the repo is a vendored monospace font subset (OFL)
+- **Zero dependencies** // standard library only, build-free frontend (5 static files), no CDN; the only binary in the repo is a vendored monospace font subset (OFL). One optional dependency (`@napi-rs/keyring`) lets the master key live in the system credential store; without it everything still runs
 
 Every capability, endpoint, field limit and number lives in [API & limits](./docs/API_EN.md) — each path and each figure there is counted out of the source and re-checked against it by `app/test/docs.test.js`, so documenting an endpoint that does not exist turns the suite red.
 
@@ -148,7 +148,7 @@ flowchart LR
 Listed so that they never arrive as a surprise.
 
 - On a passphrase-free install a local process can still read keys one by one: neither `reveal` nor token minting needs a credential (the latter has its own rate-limit bucket and is audited by fingerprint only) — setting a passphrase is what tightens this
-- The DEK still lives next to the data by default; "copying the folder is not enough to decrypt" requires discarding the plaintext master key once (**irreversible**, and the server only allows it after a real passphrase unlock)
+- The DEK still lives next to the data by default (`master.key` is a plaintext file). To make "copying the folder is not enough to decrypt" true you have two routes: `npm install` the optional `@napi-rs/keyring` and then **move the master key into the system credential store** from "Credential vault → Plaintext key" (reversible; the key no longer sits in the data directory), or discard the plaintext master key once (**irreversible**, and the server only allows it after a real passphrase unlock)
 - Consumer tokens are not "boot-and-go": once a passphrase is set, somebody must unlock after a restart, and valid tokens get `423` until then
 - A token is not a gateway — this tool does not proxy requests. Forget the passphrase and the only way in is that 52-character recovery code; lose both and the vault is permanently unreadable. There is no backdoor. Resetting with the recovery code invalidates the tokens issued earlier (they have to be re-issued), but not one stored key, credential or pool is touched
 - Exported JSON **omits the `key` field entirely** by default; including plaintext needs an explicit opt-in and item-by-item retrieval. For backups, copy the data directory instead

@@ -92,6 +92,10 @@
     vaultInit: '/api/vault/passphrase',
     vaultLock: '/api/vault/lock',
     vaultDiscard: '/api/vault/discard-master-key',
+    /* 主密钥在「系统凭据管理器」与「数据目录的 master.key 文件」之间搬来搬去。
+       这是**可逆**操作：只改主密钥放在哪，不拆密文、不解密内容，所以界面上不要口令也不要勾选。
+       后端：POST /api/vault/master-key-location {target:'os'|'file'} */
+    vaultMasterKeyLocation: '/api/vault/master-key-location',
     // 主应用侧端点（平台打通用，best-effort：拿不到只是没有候选，不影响凭证 CRUD）
     platforms: '/api/platforms',
     keys: '/api/keys'
@@ -467,8 +471,16 @@
       /* 明文 DEK 副本（master.key）在不在，由 /api/vault/status 一处报，界面不猜 */
       securityOpen: false,
       rawKeyPresent: null,        // null = 还没读到
+      /* 主密钥现在放在哪：'os'（系统凭据管理器）/ 'file'（数据目录里的明文文件）/ null（还没有，或还没读到）。
+         这一位只能从 /api/vault/status 读，界面不猜——猜错一次就是「以为搬走了，其实还在盘上」。 */
+      masterKeySource: null,
+      /* 这台机器能不能用系统凭据管理器。false 时界面上就不该出现「搬过去」的入口：
+         给一个按不动的按钮是骗人。 */
+      keyringAvailable: null,
       discardBusy: false,
       discardErr: '',
+      moveBusy: false,
+      moveErr: '',
       list: [],
       listState: 'idle',          // idle|loading|ready|error
       listErr: null,
@@ -527,6 +539,8 @@
       api.get(endpoints.vaultStatus).then(function (r) {
         state.passphraseSet = !!(r.ok && r.data && r.data.passphraseSet);
         if (r.ok && r.data && typeof r.data.rawKeyPresent === 'boolean') state.rawKeyPresent = r.data.rawKeyPresent;
+        if (r.ok && r.data && (r.data.masterKeySource === 'os' || r.data.masterKeySource === 'file')) state.masterKeySource = r.data.masterKeySource;
+        if (r.ok && r.data && typeof r.data.keyringAvailable === 'boolean') state.keyringAvailable = r.data.keyringAvailable;
         state.sessionMode = (r.ok && r.data && r.data.mode) || null;
         if (r.ok && r.data && (r.data.needsSetup === true || r.data.setup === false)) state.status = 'setup';
         else if (r.ok && (r.data && r.data.unlocked === true)) { state.status = 'unlocked'; afterUnlock(); }
@@ -902,9 +916,10 @@
         case 'gen-copy': copyText(state.modal ? state.modal.gen.output : ''); break;
         case 'gen-apply': { if (state.modal) { state.modal.draft.password = state.modal.gen.output; state.modal.touchedPw = true; var pv = mountPoint.querySelector('#cv-f-pw'); if (pv) { pv.value = state.modal.gen.output; updatePwMeter(pv); } toast('生成口令已填入', 'ok'); } } break;
         case 'refresh-all': loadList(); if (state.activeTab === 'health') loadHealth(); toast('已刷新', 'ok'); break;
-        case 'security': { state.securityOpen = !state.securityOpen; state.discardErr = ''; render(); } break;
-        case 'security-close': { state.securityOpen = false; state.discardErr = ''; render(); } break;
+        case 'security': { state.securityOpen = !state.securityOpen; state.discardErr = ''; state.moveErr = ''; render(); } break;
+        case 'security-close': { state.securityOpen = false; state.discardErr = ''; state.moveErr = ''; render(); } break;
         case 'discard-key': discardRawKey(); break;
+        case 'move-master-key': moveMasterKey(t.getAttribute('data-target')); break;
         default: break;
       }
     }
@@ -1149,10 +1164,12 @@
         ? '<div class="cv-banner" data-kind="423" role="status"><div>口令已设置，但<strong>本次运行仍是免密的</strong>：重启服务后才会要求解锁。点「锁定」可立刻验证闸门是否真的落下。</div></div>'
         : '';
       /* 「拆除明文密钥」只在设过口令之后出现：免口令时删掉 master.key 就是整库永久解不开，
-         后端也会当场拒。放在这里而不是密钥页，是因为改口令、锁定这些保险库级动作都在这条栏上。 */
+         后端也会当场拒。放在这里而不是密钥页，是因为改口令、锁定这些保险库级动作都在这条栏上。
+         告警色只给「主密钥真的以明文躺在数据目录里」的那一态：主密钥在系统凭据管理器里时
+         盘上只剩一张占位纸条，再标成告警就是假警报。 */
       var securityBtn = (showTools && state.passphraseSet)
         ? '<button class="cv-btn ghost" data-act="security" type="button" aria-expanded="' +
-            (state.securityOpen ? 'true' : 'false') + '" data-warn="' + (state.rawKeyPresent ? '1' : '0') + '">' +
+            (state.securityOpen ? 'true' : 'false') + '" data-warn="' + (state.rawKeyPresent && state.masterKeySource !== 'os' ? '1' : '0') + '">' +
             IC.shield + '<span>明文密钥</span></button>'
         : '';
       return '<div class="cv-top">' +
@@ -1165,12 +1182,14 @@
         '</div>' + legacyRun + (state.securityOpen ? securityCard() : '');
     }
 
-    /* 这条卡片是整个安全模型里唯一「不可逆」的开关，所以文案先把代价说满，
-       再谈收益；确认方式是「口令 + 勾选」两个独立动作，不是一句「你确定吗」 */
+    /* 这张卡片讲的是「主密钥放在哪」，以及从那儿还能去哪儿——三态：
+       ① masterKeySource='os'（在系统凭据管理器里）：拷走数据目录拿不到钥匙，
+          代价是换台电脑 / 凭据被清理就读不到 ⇒ 整库解不开；
+       ② masterKeySource='file'（在数据目录的明文文件里）：拷走目录=拷走钥匙，
+          给两条路——一条**可逆**的「搬到凭据管理器」，一条**不可逆**的「拆除明文密钥」；
+       ③ keyringAvailable=false（这台机器用不了凭据管理器）：不给按不动的按钮，只说清怎么才能用上。
+       「搬」和「拆」的危险等级差得很远（一个只改位置，一个把钥匙销毁），界面上必须分得开。 */
     function securityCard() {
-      var err = state.discardErr
-        ? '<div class="cv-banner" data-kind="5xx" role="alert">' + IC.alert + '<span>' + escapeHtml(state.discardErr) + '</span></div>'
-        : '';
       if (state.rawKeyPresent === false) {
         return '<section class="cv-card cv-security" data-state="discarded">' +
           '<h2>明文密钥：已拆除</h2>' +
@@ -1180,13 +1199,60 @@
           '口令忘了、恢复码也没抄，那就是永久解不开，没有后门。</p>' +
           '<button class="cv-btn ghost" data-act="security-close" type="button">收起</button></section>';
       }
+      if (state.masterKeySource === 'os') return securityCardOs();
+      return securityCardFile();
+    }
+
+    /* 主密钥在系统凭据管理器里：盘上只剩一张占位纸条，拷走整个数据目录拿不到钥匙。
+       这一态没有「明文密钥」可拆——盘上那份本来就不含密钥，所以这里只给「移回文件」这一条可逆的路。 */
+    function securityCardOs() {
+      return '<section class="cv-card cv-security" data-state="os">' +
+        '<h2>主密钥：在系统凭据管理器里</h2>' +
+        '<p>主密钥已经不在数据目录里了——目录里那个 <code>master.key</code> 只剩一张占位纸条，' +
+        '<strong>拷走整个数据目录拿不到钥匙</strong>。</p>' +
+        '<p class="cv-hint">代价是：<strong>换一台电脑、或系统凭据被清理，这台机器就读不到它，' +
+        '整库就解不开</strong>（没有后门，也没有找回）。要在别的机器上打开，得先把这条凭据导过去。</p>' +
+        moveErrHtml() +
+        '<div class="cv-security-acts">' +
+        '<button class="cv-btn" data-act="move-master-key" data-target="file" type="button"' +
+        (state.moveBusy ? ' disabled' : '') + '>' + (state.moveBusy ? '正在移动…' : '移回数据目录文件') + '</button>' +
+        '<button class="cv-btn ghost" data-act="security-close" type="button">收起</button></div></section>';
+    }
+
+    /* 主密钥还在数据目录的明文文件里。两条出路，危险等级完全不同：
+       ① 「移到系统凭据管理器」——可逆，只改主密钥放在哪，不解密任何内容，**不要口令也不要勾选**；
+       ② 「拆除明文密钥」——不可逆，口令信封成为唯一入口，所以要口令 + 勾选两个独立动作。
+       凭据管理器用不了时只说清怎么才能用上，不给一个按不动的按钮。 */
+    function securityCardFile() {
+      var keyringOff = state.keyringAvailable === false;
+      var discardErrHtml = state.discardErr
+        ? '<div class="cv-banner" data-kind="5xx" role="alert">' + IC.alert + '<span>' + escapeHtml(state.discardErr) + '</span></div>'
+        : '';
+      var moveHint = keyringOff
+        ? '<p class="cv-hint">这台机器上用不了系统凭据管理器，所以「搬过去」这条路现在是关的：' +
+          '需要先装可选依赖 <code>@napi-rs/keyring</code>（在 <code>app/</code> 目录下执行 ' +
+          '<code>npm install @napi-rs/keyring</code>），或者这台机器根本没有可用的凭据服务' +
+          '（无头 Linux、容器内）。装好后重启服务，这里就会出现可点的入口。</p>'
+        : '<p class="cv-hint">把主密钥挪进系统凭据管理器（Windows 凭据管理器 / macOS 钥匙串）：' +
+          '<strong>这一步可逆</strong>，之后还能移回数据目录的文件。它只改变主密钥放在哪，' +
+          '不解密任何内容，<strong>不需要口令</strong>，也不像下面的「拆除」那样撤不回来。</p>';
+      var moveBtn = keyringOff
+        ? ''
+        : '<div class="cv-security-acts">' +
+          '<button class="cv-btn" data-act="move-master-key" data-target="os" type="button"' +
+          (state.moveBusy ? ' disabled' : '') + '>' + (state.moveBusy ? '正在移动…' : '移到系统凭据管理器') + '</button></div>';
       return '<section class="cv-card cv-security" data-state="present">' +
-        '<h2>明文密钥：还在原地</h2>' +
+        '<h2>主密钥：还在数据目录的明文文件里</h2>' +
         '<p>设口令只是把主密钥又包了一层，<code>master.key</code> 本身仍留在数据目录里。' +
         '只要它在，<strong>拷走整个数据目录就等于拷走了解开一切的钥匙</strong>——口令并没有改变这一点。</p>' +
+        '<div class="cv-security-block">' +
+        '<p><strong>换个地方放（可逆）</strong></p>' +
+        moveHint + moveErrHtml() + moveBtn +
+        '</div>' +
+        '<div class="cv-security-block">' +
         '<p class="cv-hint">拆除之后：口令成为唯一入口；忘记口令只能靠恢复码重置；这一步不可逆，' +
         '而且服务端会先用你输入的口令实际解一次，成功才允许删。</p>' +
-        err +
+        discardErrHtml +
         '<div class="cv-field"><label class="cv-label" for="cv-discard-pw">输入解锁口令</label>' +
         '<input class="cv-input mono" id="cv-discard-pw" type="password" autocomplete="off" ' +
         'autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="••••••••"></div>' +
@@ -1194,7 +1260,39 @@
         '<span class="cv-check-txt">我知道这一步不可逆<small>拆掉之后只能靠口令或恢复码进来，两者都没了就是数据没了</small></span></label>' +
         '<div class="cv-security-acts"><button class="cv-btn danger" data-act="discard-key" type="button"' +
         (state.discardBusy ? ' disabled' : '') + '>' + (state.discardBusy ? '正在拆除…' : '拆除明文密钥') + '</button>' +
-        '<button class="cv-btn ghost" data-act="security-close" type="button">取消</button></div></section>';
+        '<button class="cv-btn ghost" data-act="security-close" type="button">取消</button></div>' +
+        '</div></section>';
+    }
+
+    function moveErrHtml() {
+      return state.moveErr
+        ? '<div class="cv-banner" data-kind="5xx" role="alert">' + IC.alert + '<span>' + escapeHtml(state.moveErr) + '</span></div>'
+        : '';
+    }
+
+    /* 搬主密钥：可逆操作，只改主密钥放在哪——不解密任何内容，也不销毁任何东西。
+       所以它**不要口令也不要勾选**：那套校验属于「拆除」，搬过来就变成给可逆操作加不可逆的门槛。
+       搬完必须把状态改过来，否则界面还停在旧位置（说「还在盘上」而其实已经搬走了）。 */
+    function moveMasterKey(target) {
+      if (target !== 'os' && target !== 'file') return;
+      if (state.moveBusy) return;
+      state.moveBusy = true; state.moveErr = ''; render();
+      api.send('POST', endpoints.vaultMasterKeyLocation, { target: target }).then(function (r) {
+        state.moveBusy = false;
+        if (r.ok) {
+          var src = (r.data && r.data.source) || target;
+          state.masterKeySource = (src === 'os' || src === 'file') ? src : target;
+          /* 搬完盘上的 master.key 还在（'os' 态是占位纸条，'file' 态是明文），所以这一位仍是 true */
+          state.rawKeyPresent = true;
+          var changed = !!(r.data && r.data.changed);
+          toast(changed
+            ? (target === 'os' ? '主密钥已移到系统凭据管理器' : '主密钥已移回数据目录的 master.key 文件')
+            : '主密钥已经在那个位置了', 'ok');
+        } else {
+          state.moveErr = (r.data && r.data.error) || r.classify.message || '移动失败';
+        }
+        render();
+      });
     }
 
     function discardRawKey() {
@@ -1210,6 +1308,8 @@
         state.discardBusy = false;
         if (r.ok) {
           state.rawKeyPresent = false;
+          /* 拆完盘上既没有文件、凭据管理器里那条也被一并删了（后端 credentialRemoved） */
+          state.masterKeySource = null;
           toast('明文密钥已拆除', 'ok');
         } else {
           state.discardErr = (r.data && r.data.error) || r.classify.message || '拆除失败';
@@ -1648,6 +1748,9 @@
   var MOCK = (function () {
     var mode = 'normal';
     var setupDone = false, locked = true, pw = '';
+    /* 主密钥现在放在哪（跟真后端一个口径）：'os'（系统凭据管理器）/ 'file'（数据目录明文文件）/ null。
+       keyringAvailable=false 用来逼出「这台机器用不了凭据管理器」那一支——那一支没有可点的入口。 */
+    var masterKeySource = 'file', keyringAvailable = true, rawKeyPresent = true;
     var RECOVERY = '7QF2-KDM8-XPA1\n9ZR4-VTB6-LNE3\nHJK9-WQ2X-5M4C';
     var now = Date.now();
     function ago(days) { return new Date(now - days * 86400000).toISOString(); }
@@ -1667,10 +1770,28 @@
       if (mode === '5xx') return res(503, { error: '服务暂不可用' });
       if (mode === 'net') return Promise.reject(new Error('network down'));
       // 金库控制
-      if (u.indexOf('/api/vault/status') !== -1) return res(200, { needsSetup: !setupDone, unlocked: !locked });
+      if (u.indexOf('/api/vault/status') !== -1) return res(200, { needsSetup: !setupDone, unlocked: !locked, passphraseSet: setupDone, rawKeyPresent: rawKeyPresent, masterKeySource: masterKeySource, keyringAvailable: keyringAvailable });
       if (u.indexOf('/api/vault/passphrase') !== -1) { setupDone = true; locked = false; pw = (init.body ? JSON.parse(init.body).next : pw); return res(200, { ok: true, recoveryCode: RECOVERY }); }
       if (u.indexOf('/api/vault/unlock') !== -1) { if (!setupDone) return res(423, { error: '保险库未解锁' }); locked = false; return res(200, { ok: true }); }
       if (u.indexOf('/api/vault/lock') !== -1) { locked = true; return res(200, { ok: true }); }
+      /* 主密钥搬家：可逆操作，只改主密钥放在哪。字段与真后端一致（见 app/src/api.js） */
+      if (u.indexOf('/api/vault/master-key-location') !== -1) {
+        var mbody = init.body ? JSON.parse(init.body) : {};
+        var mtarget = mbody.target;
+        if (mtarget !== 'os' && mtarget !== 'file') return res(400, { error: "target 只能是 'os'（系统凭据管理器）或 'file'（数据目录文件）" });
+        if (masterKeySource === null) return res(409, { error: '这个数据目录还没有主密钥（既没有 master.key，也没有凭据管理器里的条目）' });
+        if (masterKeySource === mtarget) return res(200, { ok: true, changed: false, source: masterKeySource, note: '主密钥已经在那个位置了' });
+        if (mtarget === 'os' && !keyringAvailable) return res(400, { error: '这台机器上用不了系统凭据管理器' });
+        masterKeySource = mtarget; rawKeyPresent = true;
+        return res(200, { ok: true, changed: true, source: mtarget, note: mtarget === 'os' ? '主密钥已移入系统凭据管理器' : '主密钥已移回数据目录的 master.key 文件' });
+      }
+      /* 拆除明文密钥（不可逆）：mock 里也照真后端把凭据管理器里那条一并删掉 */
+      if (u.indexOf('/api/vault/discard-master-key') !== -1) {
+        var dbody = init.body ? JSON.parse(init.body) : {};
+        if (dbody.confirm !== true) return res(400, { error: '此操作不可逆，必须显式传 confirm: true' });
+        rawKeyPresent = false; masterKeySource = null;
+        return res(200, { ok: true, discarded: true, credentialRemoved: true, note: '口令成为唯一入口；恢复码仍可用来重置口令' });
+      }
       // 主应用侧：平台目录 + 已登记 Key（平台打通的候选来源）
       if (u.indexOf('/api/platforms') !== -1) return res(200, { platforms: [
         { id: 'openai', name: 'OpenAI', defaultBase: 'https://platform.openai.com' },
@@ -1715,7 +1836,13 @@
     }
     fetchMock.setMode = function (m) { mode = m; };
     fetchMock.reset = function () { mode = 'normal'; locked = true; };
-    fetchMock.getState = function () { return { mode: mode, locked: locked, setupDone: setupDone }; };
+    /* 手动验收用：把主密钥切到 'os' / 'file'，并模拟「这台机器没有凭据管理器」 */
+    fetchMock.setMasterKey = function (source, available) {
+      masterKeySource = (source === 'os' || source === 'file') ? source : null;
+      keyringAvailable = available !== false;
+      rawKeyPresent = masterKeySource !== null;
+    };
+    fetchMock.getState = function () { return { mode: mode, locked: locked, setupDone: setupDone, masterKeySource: masterKeySource, keyringAvailable: keyringAvailable, rawKeyPresent: rawKeyPresent }; };
     return fetchMock;
   })();
 

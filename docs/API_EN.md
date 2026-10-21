@@ -86,6 +86,7 @@ The TOTP seed may be bare Base32 or a whole `otpauth://` URI (in which case `per
 | `POST` | `/api/vault/passphrase` | Set / change the passphrase; changing requires `current` |
 | `POST` | `/api/vault/recover` | Reset the passphrase with the 52-character recovery code, rotating it at the same time  failures count toward their own rate-limit bucket  on success **every previously issued token is invalidated** (the issued-token records are cleared; the response carries `tokensRevoked`); keys, credentials and pools are untouched |
 | `POST` | `/api/vault/discard-master-key` | Remove the plaintext DEK copy. **Irreversible**; refused on a passphrase-free install |
+| `POST` | `/api/vault/master-key-location` | Move the master key between "plaintext file in the data directory" and "system credential store", body `{target:"os"|"file"}`. **Reversible**; after moving to `os` the data directory keeps only a placeholder file with no key in it. Needs an available system credential store (install the optional `@napi-rs/keyring`), otherwise 400 |
 
 ## Machine consumer tokens
 
@@ -143,8 +144,8 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 49 (method + path combinations; 39 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 72 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| Total routes | 50 (method + path combinations; 40 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
+| UI actions | 73 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |

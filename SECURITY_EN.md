@@ -26,9 +26,12 @@ complete step 4 below.
   that wraps the master key (DEK) into `vault.key`.
 - With only the vault file and no passphrase, an attacker is left with offline guessing; the scrypt parameters
   exist to make every attempt expensive.
-- **Precondition**: `master.key` must have been discarded (step 4). Until then the plaintext DEK sits in the same
-  directory, so copying the directory copies everything — the passphrase adds a layer, it does not remove the
-  original key.
+- **Precondition**: the plaintext DEK no longer sits in the data directory. Two routes (step 4):
+  ① install the optional `@napi-rs/keyring` dependency and **move the master key into the system credential store** —
+  the data directory keeps only a placeholder file with no key in it, so copying the directory gets you nothing
+  (reversible; move it back any time); ② or discard `master.key` (irreversible).
+  Until you do one of them the plaintext DEK is in the same directory, so copying the directory copies everything —
+  the passphrase adds a layer, it does not remove the original key.
 
 ### 2. Devices on the same network — absent by default, and gated when you enable it
 
@@ -96,6 +99,9 @@ that trips providers' geo/IP risk controls. See the [deployment guide](./DEPLOYM
 ## Supply chain and telemetry
 
 - **Zero dependencies**: `package.json` declares no dependencies, there is no `npm install` and no build step.
+  There is one **optionalDependencies** entry (`@napi-rs/keyring`, used only to put the master key into the system
+  credential store): installed it is used, absent it falls back to the file mode — **a failed or skipped `npm install`
+  never blocks startup**.
 - **At run time** exactly three third-party artefacts ship in the repository. Their licences and provenance live
   next to them and `vendor.test.js` fails if they go missing:
 

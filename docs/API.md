@@ -81,6 +81,7 @@ TOTP 种子可以是裸 Base32,也可以是整条 `otpauth://` URI(此时 `perio
 | `POST` | `/api/vault/passphrase` | 设 / 改口令。改时要验 `current` |
 | `POST` | `/api/vault/recover` | 用 52 位恢复码重置口令,同时轮换恢复码  失败计入自己的独立限流桶  成功后**作废所有旧令牌**(清空签发记录,响应带 `tokensRevoked`);密钥/凭证/账号池一条不动 |
 | `POST` | `/api/vault/discard-master-key` | 拆除明文 DEK 副本。**不可逆**;免口令安装下会被拒绝 |
+| `POST` | `/api/vault/master-key-location` | 主密钥在「数据目录明文文件」与「系统凭据管理器」之间搬动,body `{target:"os"|"file"}`。**可逆**;搬到 `os` 后数据目录里只剩不含密钥的占位文件,拷走目录拿不到钥匙。需系统凭据管理器可用(装可选依赖 `@napi-rs/keyring`),否则 400 |
 
 ## 机器消费者令牌
 
@@ -128,8 +129,8 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 49(方法+路径组合;去重后 39 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 72 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 路由总数 | 50(方法+路径组合;去重后 40 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
+| 界面动作 | 73 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |
