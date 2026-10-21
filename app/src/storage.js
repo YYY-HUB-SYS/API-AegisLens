@@ -165,6 +165,16 @@ function testHistoryOf(test) {
   };
 }
 
+/* 健康快照：连续失败次数 + 最近一次「有结论」的探测时间。
+   两个后端共用这一段实现——一边改了另一边没改，轮换在两个库上会挑出不同的密钥。
+   通过一次 ⇒ 连续失败清零；失败一次 ⇒ 加一；不是结论（既非 pass 也非 fail）⇒ 不动。 */
+function healthNext(prevFailCount, prevLastHealthAt, test, at) {
+  const failCount = Number(prevFailCount) || 0;
+  const t = test || {};
+  if (t.status === 'pass') return { failCount: 0, lastHealthAt: at };
+  if (t.status === 'fail') return { failCount: failCount + 1, lastHealthAt: at };
+  return { failCount: failCount, lastHealthAt: prevLastHealthAt || null };
+}
 function balanceHistoryOf(balance) {
   const b = balance || {};
   if (b.status === 'pending' || b.status === 'unsupported') return null;
@@ -389,28 +399,59 @@ function normAssigned(v) {
 /* ================= JSON 文件后端 ================= */
 
 /* 池成员：{keyId, role, sortIndex}。role='active' 是当前生效那把，
-   role='backup' 在备用队列里，sortIndex 决定排队顺序（0 起）。
-   一把池最多一把 active —— 这条靠代码守，不靠 SQL（单表约束要多一张表，不值）。
-   旧库里池成员是裸 keyIds 数组，normMembers 会把老数据补成 members 结构。 */
-function normMembers(keyIds) {
+   role='backup' 在备用队列里，sortIndex 决定排队顺序。
+
+   ★ 编号口径（两个后端必须一致）：active 固定占 0，backup 从 1 起连续编号。
+     0 是 active 的位置，备用不占 —— 看一个 sortIndex 就知道这把是不是当前生效的。
+
+   ★ 一把池最多一把 active：靠代码守，不靠 SQL（单表约束要多一张表，不值）。
+
+   ★ 两个后端（json / sqlite）必须给出同一份结果：同一个池建在哪个后端上，
+     成员角色与排队顺序都得一模一样 —— 不一致的话轮换挑出来的密钥会不同，
+     同一个池在两台机器上的界面长得也不一样。 */
+
+/* 池成员 id 名单：去重、只留整数。池成员是密钥 id，不是随便什么数。 */
+function poolIds(keyIds) {
   const ids = Array.isArray(keyIds) ? keyIds.filter(Number.isInteger) : [];
   const seen = new Set();
   const out = [];
   for (const id of ids) {
     if (seen.has(id)) continue;
     seen.add(id);
-    out.push({ keyId: id, role: 'backup', sortIndex: out.length });
+    out.push(id);
   }
   return out;
 }
 
-/* 重新编号：active 固定 0，backup 按 sortIndex 依次排下去（不连续也要拉平）。 */
-function reindexMembers(members) {
-  const act = members.filter(function (m) { return m.role === 'active'; });
-  const bak = members.filter(function (m) { return m.role !== 'active'; })
-    .sort(function (a, b) { return (a.sortIndex || 0) - (b.sortIndex || 0); });
-  act.forEach(function (m) { m.sortIndex = 0; });
-  bak.forEach(function (m, i) { m.sortIndex = i + 1; });
+/* 排一份成员表：active 一把（占 0），其余 backup 从 1 起编号。
+   keepActiveId 是「沿用原来的当前生效那把」；它不在名单里就由名单第一把顶上。 */
+function memberTable(ids, keepActiveId) {
+  const list = poolIds(ids);
+  if (!list.length) return [];
+  const keep = list.indexOf(keepActiveId) >= 0 ? keepActiveId : list[0];
+  const out = [{ keyId: keep, role: 'active', sortIndex: 0 }];
+  list.forEach(function (id) {
+    if (id === keep) return;
+    out.push({ keyId: id, role: 'backup', sortIndex: out.length });
+  });
+  return out;
+}
+
+/* 成员归一：给一份成员表，算出规范形态 ——
+   active 有且只有一把（占 0），其余 backup 从 1 起按原 sortIndex 排队。
+   一把 active 都没有时队首那把顶上：老安装一直是「队首就是当前在用的」这个口径，
+   不这么归一，老池轮换时会被当成「一把都没有」。 */
+function normalizeMembers(members) {
+  const list = Array.isArray(members) ? members : [];
+  if (!list.length) return [];
+  const act = list.filter(function (m) { return m.role === 'active'; })[0] || null;
+  const bak = list
+    .filter(function (m) { return !act || m.keyId !== act.keyId; })
+    .sort(function (a, b) { return (a.sortIndex || 0) - (b.sortIndex || 0) || a.keyId - b.keyId; });
+  const head = act ? [act] : bak.splice(0, 1);
+  const out = head.map(function (m) { return { keyId: m.keyId, role: 'active', sortIndex: 0 }; });
+  bak.forEach(function (m) { out.push({ keyId: m.keyId, role: 'backup', sortIndex: out.length }); });
+  return out;
 }
 
 function makeJsonStore(dataDir, masterKey) {
@@ -511,6 +552,8 @@ function makeJsonStore(dataDir, masterKey) {
       authNote: doc.authNote || '',
       balance: doc.balance || emptyBalance(),
       test: doc.test || null,
+      failCount: Number(doc.failCount) || 0,
+      lastHealthAt: doc.lastHealthAt || null,
       modelsFetched: !!doc.modelsFetched,
       models: (doc.models || []).map(deriveFlags),
       assigned: normAssigned(doc.assigned),
@@ -527,10 +570,10 @@ function makeJsonStore(dataDir, masterKey) {
       name: doc.name,
     /* 成员以 members 为准；老库只有裸 keyIds，normMembers 会补成 members 结构。
        keyIds 是派生字段（老调用方 api.js 的 poolWithKeys 还在用）。 */
-    members: (Array.isArray(doc.members) ? doc.members : normMembers(doc.keyIds)).map(function (m) {
+    members: (Array.isArray(doc.members) ? doc.members : memberTable(doc.keyIds, null)).map(function (m) {
       return { keyId: m.keyId, role: m.role || 'backup', sortIndex: m.sortIndex || 0 };
     }),
-      keyIds: (Array.isArray(doc.members) ? doc.members : normMembers(doc.keyIds)).map(function (m) { return m.keyId; }),
+      keyIds: (Array.isArray(doc.members) ? doc.members : memberTable(doc.keyIds, null)).map(function (m) { return m.keyId; }),
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -565,6 +608,8 @@ function makeJsonStore(dataDir, masterKey) {
         authNote: input.authNote || '',
         balance: emptyBalance(input.balanceStatus),
         test: null,
+        failCount: 0,
+        lastHealthAt: null,
         modelsFetched: false,
         models: [],
         assigned: [],
@@ -615,6 +660,10 @@ function makeJsonStore(dataDir, masterKey) {
       if (!d) return null;
       const at = nowIso();
       d.test = Object.assign({ at: at }, test);
+      /* 健康快照跟着测试结论走：通过 ⇒ 连续失败清零，失败 ⇒ 加一 */
+      const h = healthNext(d.failCount, d.lastHealthAt, test, at);
+      d.failCount = h.failCount;
+      d.lastHealthAt = h.lastHealthAt;
       pushHistory(id, testHistoryOf(test), at);
       persist();
       return toRec(d);
@@ -720,8 +769,9 @@ function makeJsonStore(dataDir, masterKey) {
       data.history = data.history.filter(function (r) { return r.keyId !== id; });
       /* 密钥删除后从所有账号池里摘除，避免池里残留指向已删密钥的 id */
       data.pools.forEach(function (p) {
+        if (!Array.isArray(p.members)) p.members = memberTable(p.keyIds, null);
         const idx = p.members.findIndex(function (m) { return m.keyId === id; });
-        if (idx >= 0) { p.members.splice(idx, 1); reindexMembers(p.members); }
+        if (idx >= 0) { p.members.splice(idx, 1); p.members = normalizeMembers(p.members); }
       });
       persist();
       return true;
@@ -740,7 +790,7 @@ function makeJsonStore(dataDir, masterKey) {
       const doc = {
         id: data.nextPoolId++,
         name: input.name,
-        members: normMembers(input.keyIds),
+        members: memberTable(input.keyIds, null),
         createdAt: nowIso(),
         updatedAt: nowIso()
       };
@@ -754,7 +804,14 @@ function makeJsonStore(dataDir, masterKey) {
       if (!d) return null;
       if (patch.name !== undefined) d.name = patch.name;
       if (patch.keyIds !== undefined) {
-        d.members = normMembers(patch.keyIds);
+        /* 改成员名单不换当前生效那把：原来那把还在名单里就还在，
+           不在了才让名单第一把顶上 */
+        if (!Array.isArray(d.members)) d.members = memberTable(d.keyIds, null);
+        const ids = poolIds(patch.keyIds);
+        const keep = d.members.filter(function (m) {
+          return m.role === 'active' && ids.indexOf(m.keyId) >= 0;
+        })[0];
+        d.members = memberTable(ids, keep ? keep.keyId : null);
       }
       d.updatedAt = nowIso();
       persist();
@@ -772,8 +829,13 @@ function makeJsonStore(dataDir, masterKey) {
     addPoolKey(poolId, keyId) {
       const d = data.pools.find(function (p) { return p.id === poolId; });
       if (!d) return null;
+      if (!Array.isArray(d.members)) d.members = memberTable(d.keyIds, null);
       if (d.members.some(function (m) { return m.keyId === keyId; })) return null;
-      d.members.push({ keyId: keyId, role: 'backup', sortIndex: d.members.length });
+      /* 池里已经有当前生效的那把 ⇒ 新来的排进备用队列队尾；
+         还没有（空池或老库池）⇒ 新来的就是当前生效那把 */
+      const hasActive = d.members.some(function (m) { return m.role === 'active'; });
+      d.members.push({ keyId: keyId, role: hasActive ? 'backup' : 'active', sortIndex: d.members.length });
+      d.members = normalizeMembers(d.members);
       d.updatedAt = nowIso();
       persist();
       return toPool(d);
@@ -782,10 +844,13 @@ function makeJsonStore(dataDir, masterKey) {
     removePoolKey(poolId, keyId) {
       const d = data.pools.find(function (p) { return p.id === poolId; });
       if (!d) return null;
+      if (!Array.isArray(d.members)) d.members = memberTable(d.keyIds, null);
       const idx = d.members.findIndex(function (m) { return m.keyId === keyId; });
       if (idx < 0) return null;
       d.members.splice(idx, 1);
-      reindexMembers(d.members);
+      /* 删掉的正好是当前生效那把 ⇒ 归一时把备用队首提上来，
+         否则池子会变成「一把都不能用」的状态 */
+      d.members = normalizeMembers(d.members);
       d.updatedAt = nowIso();
       persist();
       return toPool(d);
@@ -796,13 +861,18 @@ function makeJsonStore(dataDir, masterKey) {
     setPoolActive(poolId, keyId) {
       const d = data.pools.find(function (p) { return p.id === poolId; });
       if (!d) return null;
+      if (!Array.isArray(d.members)) d.members = memberTable(d.keyIds, null);
       const m = d.members.find(function (x) { return x.keyId === keyId; });
       if (!m) return null;
-      d.members.forEach(function (x) {
-        if (x.keyId === keyId) { x.role = 'active'; }
-        else if (x.role === 'active') { x.role = 'backup'; }
+      /* 新的当当前生效；旧的降级后排到备用队列末尾（它没坏，只是排到了后面） */
+      const oldActive = d.members.filter(function (x) { return x.role === 'active' && x.keyId !== keyId; });
+      const backups = d.members.filter(function (x) { return x.role !== 'active' && x.keyId !== keyId; })
+        .sort(function (a, b) { return (a.sortIndex || 0) - (b.sortIndex || 0); });
+      const out = [{ keyId: keyId, role: 'active', sortIndex: 0 }];
+      backups.concat(oldActive).forEach(function (x) {
+        out.push({ keyId: x.keyId, role: 'backup', sortIndex: out.length });
       });
-      reindexMembers(d.members);
+      d.members = out;
       d.updatedAt = nowIso();
       persist();
       return toPool(d);
@@ -811,13 +881,19 @@ function makeJsonStore(dataDir, masterKey) {
     setPoolBackupOrder(poolId, keyIds) {
       const d = data.pools.find(function (p) { return p.id === poolId; });
       if (!d) return null;
-      const want = Array.isArray(keyIds) ? keyIds.filter(Number.isInteger) : [];
-      d.members.forEach(function (x) {
-        if (x.role === 'active') return;
-        const i = want.indexOf(x.keyId);
-        x.sortIndex = i < 0 ? want.length : i;
-      });
-      reindexMembers(d.members);
+      if (!Array.isArray(d.members)) d.members = memberTable(d.keyIds, null);
+      const want = poolIds(keyIds);
+      const act = d.members.filter(function (x) { return x.role === 'active'; });
+      const backups = d.members.filter(function (x) { return x.role !== 'active'; })
+        .sort(function (a, b) { return (a.sortIndex || 0) - (b.sortIndex || 0); });
+      /* 按给定顺序排队；名单外的排最后 */
+      const ordered = want.map(function (id) {
+        return backups.filter(function (x) { return x.keyId === id; })[0];
+      }).filter(Boolean);
+      backups.forEach(function (x) { if (ordered.indexOf(x) < 0) ordered.push(x); });
+      const out = act.map(function (x) { return { keyId: x.keyId, role: 'active', sortIndex: 0 }; });
+      ordered.forEach(function (x) { out.push({ keyId: x.keyId, role: 'backup', sortIndex: out.length }); });
+      d.members = out;
       d.updatedAt = nowIso();
       persist();
       return toPool(d);
@@ -960,17 +1036,14 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  balance_status TEXT DEFAULT \'pending\',',
     '  balance_updated_at TEXT,',
     '  test_json TEXT,',
+    '  fail_count INTEGER DEFAULT 0,',
+    '  last_health_at TEXT,',
     '  models_fetched INTEGER DEFAULT 0,',
     '  created_at TEXT,',
     '  updated_at TEXT',
     ');',
     'CREATE TABLE IF NOT EXISTS models (',
     '  key_id INTEGER NOT NULL,',
-      /* 下面两列是「轮换」的地基：没有它们就分不清谁是当前生效、谁在备用队列里排队。
-         role: active=当前生效那把，backup=备用队列里的；一把池最多一把 active（靠代码守）。
-         sort_index: 备用队列的顺序（0 起），active 那把不参与排序。 */
-      '  role TEXT DEFAULT \'backup\',',
-      '  sort_index INTEGER DEFAULT 0,',
     '  id TEXT NOT NULL,',
     '  ctx INTEGER,',
     '  out INTEGER,',
@@ -1054,6 +1127,21 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   try {
     db.exec('ALTER TABLE keys ADD COLUMN auth_note TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
+
+  /* 健康快照两列：老库逐列补，抛错即列已存在 */
+  try { db.exec('ALTER TABLE keys ADD COLUMN fail_count INTEGER DEFAULT 0'); } catch (e) { /* 已有 */ }
+  try { db.exec('ALTER TABLE keys ADD COLUMN last_health_at TEXT'); } catch (e) { /* 已有 */ }
+  /* pool_keys 的 role/sort_index 是「轮换」的地基。老库（加这两列之前建的）没有它们：
+     不补的话，下面 prepare 这几条语句时就会 "no such column: role" 直接崩 ——
+     服务在老库上根本起不来，不是用到池子才出问题。 */
+  try { db.exec('ALTER TABLE pool_keys ADD COLUMN role TEXT DEFAULT \'backup\''); } catch (e) { /* 已有 */ }
+  try { db.exec('ALTER TABLE pool_keys ADD COLUMN sort_index INTEGER DEFAULT 0'); } catch (e) { /* 已有 */ }
+  /* models 表里不该有 role/sort_index —— 那是 pool_keys 的列，上一版插错了表。
+     新库已经不建这两列；老库上把多余的删掉（SQLite 3.35+ 才支持 DROP COLUMN，
+     版本不够就留着：没人写它们，留着也无害）。 */
+  ['role', 'sort_index'].forEach(function (col) {
+    try { db.exec('ALTER TABLE models DROP COLUMN ' + col); } catch (e) { /* 老版本 SQLite 不支持，留着无害 */ }
+  });
   try {
     db.exec('ALTER TABLE models ADD COLUMN extra TEXT');
   } catch (e) { /* 旧库已有该列或新库已含，忽略 */ }
@@ -1081,6 +1169,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, endpoints_json = ?, model = ?, reg = ?, exp = ?, auth_note = ?, updated_at = ? WHERE id = ?'),
     setBalance: db.prepare('UPDATE keys SET balance_value = ?, balance_status = ?, balance_updated_at = ? WHERE id = ?'),
     setTest: db.prepare('UPDATE keys SET test_json = ? WHERE id = ?'),
+    /* 健康快照：连续失败次数与最近一次有结论的探测时间 */
+    setKeyHealth: db.prepare('UPDATE keys SET fail_count = ?, last_health_at = ? WHERE id = ?'),
     setModelsFetched: db.prepare('UPDATE keys SET models_fetched = 1 WHERE id = ?'),
     touch: db.prepare('UPDATE keys SET updated_at = ? WHERE id = ?'),
     delKey: db.prepare('DELETE FROM keys WHERE id = ?'),
@@ -1113,13 +1203,11 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     delPool: db.prepare('DELETE FROM pools WHERE id = ?'),
     delPoolKeys: db.prepare('DELETE FROM pool_keys WHERE pool_id = ?'),
     delPoolKeyByKey: db.prepare('DELETE FROM pool_keys WHERE key_id = ?'),
-    selPoolKeys: db.prepare('SELECT key_id, role, sort_index FROM pool_keys WHERE pool_id = ? ORDER BY CASE role WHEN \'active\' THEN 0 ELSE 1 END, sort_index, rowid'),
+    /* rowid 也要带出来：并列时按插入顺序断（老库补列后所有成员 sort_index 都是 0） */
+    selPoolKeys: db.prepare('SELECT key_id, role, sort_index, rowid AS rid FROM pool_keys WHERE pool_id = ? ORDER BY CASE role WHEN \'active\' THEN 0 ELSE 1 END, sort_index, rowid'),
     insPoolKey: db.prepare('INSERT OR IGNORE INTO pool_keys (pool_id, key_id, role, sort_index) VALUES (?, ?, ?, ?)'),
     delPoolKey: db.prepare('DELETE FROM pool_keys WHERE pool_id = ? AND key_id = ?'),
-    /* 轮换用：把池内某把设成 active（先清掉旧的 active，保证一把池只有一把 active） */
-    setPoolKeyActive: db.prepare('UPDATE pool_keys SET role = \'active\', sort_index = 0 WHERE pool_id = ? AND key_id = ?'),
-    clearPoolKeyActive: db.prepare('UPDATE pool_keys SET role = \'backup\', sort_index = ? WHERE pool_id = ? AND key_id = ?'),
-    clearPoolActives: db.prepare('UPDATE pool_keys SET role = \'backup\' WHERE pool_id = ? AND role = \'active\''),
+    /* 池成员角色与排队顺序的统一写入口（归一与轮换都走它） */
     setPoolKeyRole: db.prepare('UPDATE pool_keys SET role = ?, sort_index = ? WHERE pool_id = ? AND key_id = ?'),
     touchPool: db.prepare('UPDATE pools SET updated_at = ? WHERE id = ?'),
     insToken: db.prepare('INSERT INTO tokens (tid, fingerprint, label, scopes_json, key_ids_json, cred_ids_json, iat, exp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
@@ -1130,6 +1218,27 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     countTokens: db.prepare('SELECT COUNT(*) AS n FROM tokens'),
     clearTokens: db.prepare('DELETE FROM tokens')
   };
+
+  /* 池成员归一：active 有且只有一把（占 0），其余 backup 从 1 起按原 sort_index 排队。
+     与 JSON 后端的 normalizeMembers 同一套口径 —— 两个后端必须给出同一份结果。
+     一把 active 都没有时队首那把顶上（老安装一直是「队首就是当前在用的」）。 */
+  function renumberPoolKeys(poolId) {
+    const rows = stmt.selPoolKeys.all(poolId);
+    if (!rows.length) return;
+    let act = rows.filter(function (r) { return r.role === 'active'; })[0] || null;
+    const bak = rows
+      .filter(function (r) { return !act || Number(r.key_id) !== Number(act.key_id); })
+      .sort(function (a, b) { return (a.sort_index || 0) - (b.sort_index || 0) || Number(a.rid) - Number(b.rid); });
+    if (!act && bak.length) act = bak.splice(0, 1)[0];
+    if (act) stmt.setPoolKeyRole.run('active', 0, poolId, Number(act.key_id));
+    bak.forEach(function (r, i) { stmt.setPoolKeyRole.run('backup', i + 1, poolId, Number(r.key_id)); });
+  }
+
+  /* 老库的 pool_keys 补上 role/sort_index 之后，每一行都是 backup、sort_index 都是 0
+     —— 一个池里一把 active 都没有。按老安装的口径（队首就是当前在用的）归一一次。 */
+  db.prepare('SELECT DISTINCT pool_id FROM pool_keys').all().forEach(function (p) {
+    renumberPoolKeys(Number(p.pool_id));
+  });
 
   /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
   function extraOf(m) {
@@ -1219,6 +1328,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         updatedAt: row.balance_updated_at || null
       },
       test: test,
+      failCount: Number(row.fail_count) || 0,
+      lastHealthAt: row.last_health_at || null,
       modelsFetched: !!row.models_fetched,
       models: loadModels(row.id),
       assigned: loadAssigned(row.id),
@@ -1360,6 +1471,9 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       const at = nowIso();
       stmt.setTest.run(JSON.stringify(Object.assign({ at: at }, test)), id);
+      /* 健康快照跟着测试结论走：通过 ⇒ 连续失败清零，失败 ⇒ 加一 */
+      const h = healthNext(cur.fail_count, cur.last_health_at, test, at);
+      stmt.setKeyHealth.run(h.failCount, h.lastHealthAt, id);
       pushHistory(id, testHistoryOf(test), at);
       return toRec(getRow(id));
     },
@@ -1465,7 +1579,11 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       stmt.delModels.run(id);
       stmt.delAssignedAll.run(id);
       stmt.delHistory.run(id);
+      /* 密钥被删 ⇒ 从所有池里摘掉，摘完把池成员重新归一
+         （删掉的正好是当前生效那把 ⇒ 备用队首提上来） */
+      const affected = db.prepare('SELECT DISTINCT pool_id FROM pool_keys WHERE key_id = ?').all(id);
       stmt.delPoolKeyByKey.run(id);
+      affected.forEach(function (p) { renumberPoolKeys(Number(p.pool_id)); });
       stmt.delKey.run(id);
       return true;
     },
@@ -1483,9 +1601,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       const now = nowIso();
       const r = stmt.insPool.run(input.name, now, now);
       const poolId = Number(r.lastInsertRowid);
-      const members = normMembers(input.keyIds);
-      members.forEach(function (m, i) {
-        stmt.insPoolKey.run(poolId, m.keyId, i === 0 ? 'active' : 'backup', i);
+      memberTable(input.keyIds, null).forEach(function (m) {
+        stmt.insPoolKey.run(poolId, m.keyId, m.role, m.sortIndex);
       });
       return toPool(stmt.selPool.get(poolId));
     },
@@ -1495,10 +1612,15 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       stmt.updPool.run(patch.name !== undefined ? patch.name : cur.name, nowIso(), id);
       if (patch.keyIds !== undefined) {
+        /* 改成员名单不换当前生效那把：原来那把还在名单里就还在，
+           不在了才让名单第一把顶上 */
+        const ids = poolIds(patch.keyIds);
+        const keep = stmt.selPoolKeys.all(id).filter(function (r) {
+          return r.role === 'active' && ids.indexOf(Number(r.key_id)) >= 0;
+        })[0];
         stmt.delPoolKeys.run(id);
-        const members = normMembers(patch.keyIds);
-        members.forEach(function (m, i) {
-          stmt.insPoolKey.run(id, m.keyId, i === 0 ? 'active' : 'backup', i);
+        memberTable(ids, keep ? Number(keep.key_id) : null).forEach(function (m) {
+          stmt.insPoolKey.run(id, m.keyId, m.role, m.sortIndex);
         });
       }
       return toPool(stmt.selPool.get(id));
@@ -1517,11 +1639,13 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       const existing = stmt.selPoolKeys.all(poolId);
       if (existing.some(function (r) { return Number(r.key_id) === Number(keyId); })) return null;
-      /* 池里还没有 active 时，新来的这把就是当前生效那把 */
+      /* 池里已经有当前生效的那把 ⇒ 新来的排进备用队列队尾；
+         还没有（空池或老库池）⇒ 新来的就是当前生效那把 */
       const hasActive = existing.some(function (r) { return r.role === 'active'; });
-      const nextIdx = existing.length + 1;
-      const r = stmt.insPoolKey.run(poolId, keyId, hasActive ? 'backup' : 'active', nextIdx);
+      const backups = existing.filter(function (r) { return r.role !== 'active'; });
+      const r = stmt.insPoolKey.run(poolId, keyId, hasActive ? 'backup' : 'active', hasActive ? backups.length + 1 : 0);
       if (r.changes === 0) return null;
+      renumberPoolKeys(poolId);
       stmt.touchPool.run(nowIso(), poolId);
       return toPool(stmt.selPool.get(poolId));
     },
@@ -1531,13 +1655,9 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       const r = stmt.delPoolKey.run(poolId, keyId);
       if (r.changes === 0) return null;
-      /* 删掉的正好是当前生效那把 ⇒ 把备用队列里排第一的提上来，
+      /* 删掉的正好是当前生效那把 ⇒ 归一时把备用队首提上来，
          否则池子会变成「一把都不能用」的状态 */
-      const after = stmt.selPoolKeys.all(poolId);
-      if (!after.some(function (x) { return x.role === 'active'; })) {
-        const next = after[0];
-        if (next) stmt.setPoolKeyActive.run(poolId, Number(next.key_id));
-      }
+      renumberPoolKeys(poolId);
       stmt.touchPool.run(nowIso(), poolId);
       return toPool(stmt.selPool.get(poolId));
     },
@@ -1549,11 +1669,15 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       const members = stmt.selPoolKeys.all(poolId);
       if (!members.some(function (r) { return Number(r.key_id) === Number(keyId); })) return null;
-      /* 先把旧的 active 降级，再把新的提上来 —— 一把池只有一把 active */
-      members.forEach(function (r) {
-        if (r.role === 'active') stmt.clearPoolKeyActive.run(0, poolId, Number(r.key_id));
+      /* 新的当当前生效；旧的降级后排到备用队列末尾（它没坏，只是排到了后面） */
+      const target = Number(keyId);
+      const oldActive = members.filter(function (r) { return r.role === 'active' && Number(r.key_id) !== target; });
+      const backups = members.filter(function (r) { return r.role !== 'active' && Number(r.key_id) !== target; })
+        .sort(function (a, b) { return (a.sort_index || 0) - (b.sort_index || 0); });
+      stmt.setPoolKeyRole.run('active', 0, poolId, target);
+      backups.concat(oldActive).forEach(function (r, i) {
+        stmt.setPoolKeyRole.run('backup', i + 1, poolId, Number(r.key_id));
       });
-      stmt.setPoolKeyActive.run(poolId, Number(keyId));
       stmt.touchPool.run(nowIso(), poolId);
       return toPool(stmt.selPool.get(poolId));
     },
@@ -1561,13 +1685,18 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     setPoolBackupOrder(poolId, keyIds) {
       const cur = stmt.selPool.get(poolId);
       if (!cur) return null;
-      const want = Array.isArray(keyIds) ? keyIds.filter(Number.isInteger) : [];
-      const members = stmt.selPoolKeys.all(poolId);
-      members.forEach(function (r) {
-        if (r.role === 'active') return;
-        const i = want.indexOf(Number(r.key_id));
-        stmt.setPoolKeyRole.run('backup', i < 0 ? want.length : i, poolId, Number(r.key_id));
-      });
+      const want = poolIds(keyIds);
+      const rows = stmt.selPoolKeys.all(poolId);
+      const act = rows.filter(function (r) { return r.role === 'active'; })[0] || null;
+      const backups = rows.filter(function (r) { return r.role !== 'active'; })
+        .sort(function (a, b) { return (a.sort_index || 0) - (b.sort_index || 0); });
+      /* 按给定顺序排队；名单外的排最后 */
+      const ordered = want.map(function (id) {
+        return backups.filter(function (r) { return Number(r.key_id) === id; })[0];
+      }).filter(Boolean);
+      backups.forEach(function (r) { if (ordered.indexOf(r) < 0) ordered.push(r); });
+      if (act) stmt.setPoolKeyRole.run('active', 0, poolId, Number(act.key_id));
+      ordered.forEach(function (r, i) { stmt.setPoolKeyRole.run('backup', i + 1, poolId, Number(r.key_id)); });
       stmt.touchPool.run(nowIso(), poolId);
       return toPool(stmt.selPool.get(poolId));
     },
