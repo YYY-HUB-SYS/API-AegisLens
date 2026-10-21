@@ -179,6 +179,10 @@ function createApp(opts) {
         /* 「立即跑一轮」的调用次数限流器（滑窗语义，不是 vault.js 那套失败计数）。
            没注入时 api 层会跳过限流——所以生产必须注入，见 server.js。 */
         scheduleThrottle: opts.scheduleThrottle || null,
+        /* 本地网关（/api/proxy/*）的两个注入点：代理限流单独一档、上游超时可调。
+           分发在 api.js 里做（路由表要能在那儿抽到），这两个值从这儿递过去。 */
+        proxyThrottle: opts.proxyThrottle || null,
+        proxyTimeoutMs: opts.proxyTimeoutMs || null,
         vault: vault,
         throttle: throttle,
         /* 解锁/锁定不只是改会话状态：store 的建与关归宿主（server.js）管，

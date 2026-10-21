@@ -1031,6 +1031,7 @@
       <button class="btn ghost" id="btn-pools">账号池</button>
       <button class="btn" id="btn-autorefresh" type="button" aria-pressed="true" title="当前开启自动刷新（每 10 秒拉一次密钥列表），点击关闭"><span id="autorefresh-label">自动刷新 · 开</span></button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
+      <button class="btn" id="btn-refresh-usage" type="button" title="批量刷新限额快照（用量/限流窗口）：与余额刷新是两回事，只查平台公开了接口的那些">刷新限额</button>
       <button class="btn" id="btn-schedule" type="button" aria-pressed="false" title="定时调度当前关闭（不会自动向厂商发请求），点击查看与设置"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-calendar-days"></use></svg><span id="schedule-label">定时调度 · 关</span></button>
       <button class="btn primary" id="btn-add">+ 新增密钥</button>
     </div>
@@ -1333,7 +1334,7 @@
   var SELF_HOST = '';
   var ui = {
     drawerOpen: {}, editingNote: {}, editingSupp: {}, collapsedGroup: {},
-    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {},
+    manualOpen: {}, assignedOpen: {}, testing: {}, usageBusy: {}, modelsLoading: {}, enriching: {}, authOpen: {},
     /* 观测历史：展开与否、当前按哪种 kind 筛、已取回的行、加载/出错、屏幕上画到第几条 */
     historyOpen: {}, historyKind: {}, historyRows: {}, historyLoading: {}, historyErr: {}, historyShown: {}
   };
@@ -1747,6 +1748,63 @@
     if (b.status === 'fail') return '查询失败';
     return (P(k.platform).currency === 'USD' ? '$' : '¥') + Number(b.value).toFixed(2);
   }
+
+  /* 限额快照（用量/限流窗口）：**账户级**的数据，与余额不是一回事。
+     界面上一律写「限额快照」而不是「剩余积分」—— 那个数下一秒就变了，
+     写成「还剩 300 次」是在骗人；快照必须带查询时间，让人知道它是哪一刻的读数。
+     三态要分得清：查到了 / 没查过 / 这个平台压根不公开接口。 */
+  function usageText(k) {
+    var u = (k && k.usage) || {};
+    if (u.status === 'fail') return '查询失败';
+    if (u.status === 'unsupported') return '该平台不提供';
+    var ws = u.windows || [];
+    if (!ws.length) return '未查询';
+    var w = ws[0];
+    var used = (w.used == null) ? '—' : String(Math.round(w.used));
+    var limit = (w.limit == null) ? '—' : String(Math.round(w.limit));
+    return w.name + ' ' + used + '/' + limit;
+  }
+  function usageTitle(k) {
+    var u = (k && k.usage) || {};
+    if (u.status === 'fail') return '查询失败：' + (u.msg || '原因未知');
+    var ws = u.windows || [];
+    if (!ws.length) return '还没查过限额快照。平台不公开接口时，额度只能在厂商控制台看。';
+    var at = u.updatedAt ? fmtTime(u.updatedAt) : '时间未知';
+    var lines = ws.map(function (w) {
+      return w.name + '：已用 ' + ((w.used == null) ? '—' : w.used)
+        + ' / 上限 ' + ((w.limit == null) ? '—' : w.limit)
+        + (w.resetAt ? '（重置 ' + fmtTime(w.resetAt) + '）' : '');
+    });
+    return '上次查询时的限额快照（' + at + '）—— 那一刻的读数，不是此刻的。\n' + lines.join('\n');
+  }
+  function fmtTime(d) {
+    var t = new Date(d);
+    if (isNaN(t.getTime())) return String(d);
+    return fmtDate(d) + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0');
+  }
+  /* 单把的限额快照。平台不公开接口时后端会明说「额度只能在厂商控制台看」，
+     那不是错误，是事实 —— 界面上照原话转达，不要笼统说「失败」。 */
+  function runUsage(k) {
+    if (ui.usageBusy[k.id]) return;
+    ui.usageBusy[k.id] = true;
+    rerenderCard(k.id);
+    api('POST', '/keys/' + k.id + '/usage').then(function (data) {
+      ui.usageBusy[k.id] = false;
+      var u = (data && data.usage) || {};
+      var ws = u.windows || [];
+      var msg = ws.length
+        ? ('限额快照已更新：' + ws[0].name + ' 已用 ' + ((ws[0].used == null) ? '—' : ws[0].used)
+          + '/' + ((ws[0].limit == null) ? '—' : ws[0].limit))
+        : '限额快照已更新';
+      toast(msg, 'ok');
+      loadBoard();
+    }).catch(function (e) {
+      ui.usageBusy[k.id] = false;
+      toast('查限额失败：' + e.message, 'warn');
+      loadBoard();
+    });
+  }
+
   function toast(msg, type) {
     var box = document.getElementById('toasts');
     var el = document.createElement('div');
@@ -2127,6 +2185,8 @@
       '<span class="kname">' + esc(platLabel(k)) + ' · ' + esc(sn) + '</span>' +
       '<span class="st ' + st + '">' + ST_LABEL[st] + '</span>' +
       '<span class="meta">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
+      /* 这里刻意不显示限额快照：它是**账户级**的（同一平台的多个 key 共享一份数据），
+         在池成员行逐把重复显示同一份账户限额，看着像每把 key 各有一份。 */
       (k.exp ? '<span class="meta">有效期至 <b>' + esc(k.exp) + '</b></span>' : '<span class="meta">长期有效</span>') +
       testChip +
       '<span class="pool-health ' + h.level + '" title="' + esc(h.detail) + '">' + esc(h.label) + '</span>' +
@@ -2347,12 +2407,16 @@
               (ui.testing[k.id]
                 ? '<button class="btn ghost small" disabled><span class="spin"></span> 测试中</button>'
                 : '<button class="btn ghost small" data-act="test" title="调用平台模型列表接口验证密钥可用性">' + (k.test ? '重新测试' : '测试') + '</button>') +
+              (ui.usageBusy[k.id]
+                ? '<button class="btn ghost small" disabled><span class="spin"></span> 查限额</button>'
+                : '<button class="btn ghost small" data-act="key-usage" title="查这个平台的限额快照（用量/限流窗口）：账户级数据，与余额不是一回事">查限额</button>') +
               '<button class="btn ghost small" data-act="edit">编辑</button>' +
               '<button class="btn ghost small danger" data-act="del">删除</button>' +
             '</span>' +
           '</div>' +
           '<div class="kc-meta">' +
             '<span class="m-item">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
+            '<span class="m-item" title="' + esc(usageTitle(k)) + '">限额快照 <b>' + esc(usageText(k)) + '</b></span>' +
             (k.exp ? '<span class="m-item st-' + st + '">有效期至 <b>' + esc(k.exp) + '</b></span>'
                    : '<span class="m-item">长期有效</span>') +
             (k.reg ? '<span class="m-item">注册于 <b>' + esc(k.reg) + '</b></span>' : '') +
@@ -2712,6 +2776,10 @@
     }
     if (act === 'test') {
       runTest(k);
+      return;
+    }
+    if (act === 'key-usage') {
+      runUsage(k);
       return;
     }
     if (act === 'toggle-auth') {
@@ -3448,6 +3516,27 @@
     }).finally(function () {
       btn.disabled = false;
       document.getElementById('refresh-spin').style.display = 'none';
+    });
+  });
+
+  /* ================= 限额快照刷新 =================
+     与余额刷新分开成一路：两者的口径、接口、刷新时机都不同，
+     混成一个「刷新」会让人以为刷完余额就知道还剩多少次调用。 */
+
+  document.getElementById('btn-refresh-usage').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    api('POST', '/refresh-usage').then(function (data) {
+      state.keys = data.keys;
+      render();
+      var msg = '限额快照刷新完成：更新 ' + data.updated + ' 个';
+      if (data.failed) msg += '，失败 ' + data.failed + ' 个';
+      if (data.skipped) msg += '，' + data.skipped + ' 个平台没有公开接口（额度在厂商控制台看）';
+      toast(msg, data.failed ? 'warn' : 'ok');
+    }).catch(function (e) {
+      toast(e.message, 'warn');
+    }).finally(function () {
+      btn.disabled = false;
     });
   });
 

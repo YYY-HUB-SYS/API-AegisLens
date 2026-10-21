@@ -6,6 +6,7 @@ const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCrea
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
+const proxyApi = require('./proxy-api');
 const { handleConsumerApi } = require('./consumer-api');
 
 /* 能力位字段清单（含各自的来源字段与出处）：从 enrich.js 取唯一一份，
@@ -295,9 +296,64 @@ async function refreshBalances(storage, opts) {
   return { keys: storage.listKeys().map(maskedKeyView), updated: updated, failed: failed };
 }
 
+/* 用量/限流窗口快照：账户级数据，挂在具体那把 key 上（谁查的记谁）。
+   与余额分开刷：两者的接口、刷新时机、口径都不同，
+   混在一个「刷新」里会让人以为刷完余额就知道还剩多少次调用。
+   「没查到」与「查了失败」要分开报：前者是这个平台压根没公开接口（额度在厂商控制台看），
+   后者是我们查了但没成（密钥无效之类），两者的下一步动作完全不同。 */
+async function refreshUsage(storage, opts) {
+  const fetchImpl = opts && opts.fetchImpl;
+  const keys = storage.listKeys();
+  let updated = 0;
+  let failed = 0;
+  let skipped = 0;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
+    if (!eps.some(function (e) { return adapters.supportsUsageUrl(e.url); })) {
+      skipped++;
+      continue;
+    }
+    try {
+      const snap = await adapters.fetchUsageForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
+      if (snap) {
+        storage.saveUsage(k.id, snap);
+        updated++;
+      } else {
+        skipped++;
+      }
+    } catch (e) {
+      storage.saveUsage(k.id, { status: 'fail', windows: [], kind: null, raw: null, msg: e.message });
+      failed++;
+    }
+  }
+  return {
+    keys: storage.listKeys().map(maskedKeyView),
+    updated: updated,
+    failed: failed,
+    skipped: skipped
+  };
+}
+
 /* 下限挡住「每秒朝全部厂商打一轮」，上限挡住配成一年一跑的定时器；调度器与接口共用这一对数 */
 const SCHEDULE_INTERVAL_MIN_MINUTES = 1;
 const SCHEDULE_INTERVAL_MAX_MINUTES = 7 * 24 * 60;
+
+/* 代理那一路要的 ctx：它自己会读 body（要 413 而不是 api.js 的 400），
+   所以这里不塞 readBody；限流与超时档位由 app.js 递下来，缺省就用它自己的常量。 */
+function proxyCtxOf(ctx) {
+  return {
+    storage: ctx.storage,
+    vault: ctx.vault,
+    fetchImpl: ctx.fetchImpl,
+    proxyThrottle: ctx.proxyThrottle || null,
+    proxyTimeoutMs: ctx.proxyTimeoutMs || null,
+    json: json,
+    bad: function (res2, status, message, extra) {
+      return json(res2, status, Object.assign({ error: message }, extra || {}));
+    }
+  };
+}
 
 async function routeApi(req, res, ctx) {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -867,6 +923,31 @@ async function routeApi(req, res, ctx) {
     return json(res, 200, await refreshBalances(storage, { fetchImpl: fetchImpl }));
   }
 
+  /* 批量刷限额快照：与余额刷新分开成一条路（口径不同、接口不同） */
+  if (req.method === 'POST' && path === '/api/refresh-usage') {
+    return json(res, 200, await refreshUsage(storage, { fetchImpl: fetchImpl }));
+  }
+
+  /* 单把的限额快照。接口返回的是**账户级**数据，但快照挂在这把 key 上（谁查的记谁）。
+     三种结果要分得清：查到了 / 这个平台压根没公开接口 / 查了但没成（密钥无效之类）。 */
+  if (req.method === 'POST' && (m = /^\/api\/keys\/(\d+)\/usage$/.exec(path))) {
+    const k = requireKey(m[1]);
+    const eps = (k.endpoints && k.endpoints.length) ? k.endpoints : [adapters.primaryEndpoint(k)];
+    if (!eps.some(function (e) { return adapters.supportsUsageUrl(e.url); })) {
+      throw bad(400, '这个平台没有公开的用量/限额接口，额度只能在厂商控制台看');
+    }
+    let snap = null;
+    try {
+      snap = await adapters.fetchUsageForKey(k.platform, eps, k.key, { fetchImpl: fetchImpl });
+    } catch (e) {
+      storage.saveUsage(k.id, { status: 'fail', windows: [], kind: null, raw: null, msg: e.message });
+      throw bad(502, e.message);
+    }
+    if (!snap) throw bad(404, '这个平台没有公开的用量/限额接口，额度只能在厂商控制台看');
+    const rec = storage.saveUsage(k.id, snap);
+    return json(res, 200, { usage: rec.usage });
+  }
+
   if (req.method === 'GET' && (m = /^\/api\/keys\/(\d+)\/history$/.exec(path))) {
     const k = requireKey(m[1]);
     const kind = str(url.searchParams.get('kind'));
@@ -1183,6 +1264,19 @@ async function routeApi(req, res, ctx) {
     return json(res, 404, { error: '接口不存在' });
   }
 
+  /* 本地网关的数据面（/api/proxy/*）：别的 OpenAI 兼容客户端拿一把消费者令牌，
+     就能调用本机账号池里的厂商密钥。整块归 proxy-api 自己管——鉴权、选 key、
+     故障切换、限流、审计都在那边；它不 require 本文件（否则绕回循环依赖），
+     需要的东西由这里注入。
+     放在 api.js 而不是 app.js：接口一览的路由表是从这儿抽的，
+     分流放在别处的话这两条路由统计不到、文档也写不出来。 */
+  if (req.method === 'POST' && path === '/api/proxy/v1/chat/completions') {
+    return proxyApi.handleProxyApi(req, res, proxyCtxOf(ctx));
+  }
+  if (req.method === 'GET' && path === '/api/proxy/v1/models') {
+    return proxyApi.handleProxyApi(req, res, proxyCtxOf(ctx));
+  }
+
   /* 凭证子模块own自己的应答，返回 false 才落到下面的 404。
      它的 bad 是「响应器」而不是我这边的「造 Error」，所以在这里适配一层，
      不去改它的文件；限流单独用 credential 那一档，不和 Key 的 reveal 共用额度。 */
@@ -1243,6 +1337,7 @@ async function apiRouter(req, res, ctx) {
 module.exports = {
   apiRouter: apiRouter,
   refreshBalances: refreshBalances,
+  refreshUsage: refreshUsage,
   testKeyAt: testKeyAt,
   isEngineFault: isEngineFault,
   SCHEDULE_INTERVAL_MIN_MINUTES: SCHEDULE_INTERVAL_MIN_MINUTES,

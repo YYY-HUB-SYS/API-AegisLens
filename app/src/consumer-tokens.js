@@ -25,16 +25,26 @@ const TOKEN_VERSION = 'v1';
 const TEK_INFO = 'aegis:consumer-token:v1';
 const SIGN_PREFIX = TOKEN_VERSION + ':';
 
-/* 白名单：能出现在令牌里的能力就这四项，多一个字符都算 malformed。
-   新增能力必须同时改这张表和 api 层的映射，避免「签了但没人校验」的空头作用域。 */
-const SCOPES = Object.freeze(['key:read', 'key:test', 'cred:read', 'balance:read']);
+/* 白名单：能出现在令牌里的能力就这五项，多一个字符都算 malformed。
+   新增能力必须同时改这张表和 api 层的映射，避免「签了但没人校验」的空头作用域。
+   ★ 顺序有讲究：新能力一律**追加**在末尾。同一个 scope 集合编码出来的字节必须不变，
+     否则老令牌（已签发的那批）会因为 scopes 数组的顺序变了而验签失败——
+     payload 的内容是签名的输入，改顺序等于改老令牌的签名。 */
+const SCOPES = Object.freeze(['key:read', 'key:test', 'cred:read', 'balance:read', 'proxy:invoke']);
 
-/* 每个 scope 绑到哪份资源清单：balance 是按 key 计的，所以也落 keyIds。 */
+/* 每个 scope 绑到哪份资源清单：balance 是按 key 计的，所以也落 keyIds。
+   proxy:invoke（本地网关）同样落 keyIds：**不新增 payload 字段**。
+   理由：payload 的键集合是签名的输入，加一个 poolIds 字段会让**所有已签发的
+   老令牌全部验签失败**，与本项目「老令牌照旧能用」的原则直接冲突。
+   所以代理能力的资源口径就是既有的 keyIds 白名单：
+   令牌列了哪些 keyId，代理就只能用这些 key；一把都没列时才回退到
+   「池里当前生效的那把」（这条回退口径写在 proxy-api.js 里，是代理专属的）。 */
 const SCOPE_RESOURCE_FIELD = Object.freeze({
   'key:read': 'keyIds',
   'key:test': 'keyIds',
   'balance:read': 'keyIds',
-  'cred:read': 'credIds'
+  'cred:read': 'credIds',
+  'proxy:invoke': 'keyIds'
 });
 
 /* 调用方据此映射 HTTP 状态：malformed/bad-signature → 401，scope → 403，expired → 401（可带重试提示）。

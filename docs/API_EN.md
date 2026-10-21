@@ -22,8 +22,40 @@
 | `POST` | `/api/keys/{id}/test` | Connectivity test; `endpointIndex` picks which base URL |
 | `GET` | `/api/keys/{id}/history?kind=test\|balance` | Observation history: last 1000 rows per key, 200 returned by default. **No UI entry point** |
 | `POST` | `/api/refresh-balances` | Batch balance refresh |
+| `POST` | `/api/keys/{id}/usage` | Fetch this key's **limit snapshot** (usage / rate-limit windows). **Account-level** data, stored against the key that was queried |
+| `POST` | `/api/refresh-usage` | Batch refresh of limit snapshots. Responds `{keys, updated, failed, skipped}`; `skipped` counts platforms with no public endpoint |
 | `GET` | `/api/platforms` | Built-in platform catalogue (13 + custom) |
 | `GET` | `/api/meta` | Version, meta-models date, storage backend, data directory, hostname, shadow store |
+
+### Balance vs limit snapshot: two different readings
+
+These are **different things** and must not both be called "quota":
+
+| | What it is | Granularity | How the UI shows it |
+|---|---|---|---|
+| **Balance** | How much money is left on the account | Per key | `余额 ￥12.34` + `· 10-21 13:05 查到` |
+| **Limit snapshot** | The platform's window limits (calls left in 5 hours, 30-day quota) | **Per account** | `限额快照 · 5 小时窗口已用 1200/1500` + `· 10-21 13:05 查到` |
+
+- A limit snapshot must say **"snapshot"** and carry its timestamp: it is a reading
+  taken at the **last query**, not the current state. Writing "300 credits left"
+  is dishonest — that number changes the next second.
+- Three states must stay distinguishable: `snapshot found` / `never queried` /
+  `this platform publishes no such endpoint`. "Never tested" is not "unlimited"
+  and not "no data".
+- When a platform publishes no endpoint (SenseNova, LongCat), the quota is only
+  visible in the vendor console — say so plainly instead of reporting a generic
+  "query failed".
+- An authentication failure and a parse failure are different things: Zhipu
+  (`body.code`) and MiniMax (`body.base_resp.status_code`) wrap authentication
+  failures in **HTTP 200**. Without checking the platform error code first, an
+  invalid key gets reported as "the platform returned balance data but the amount
+  could not be parsed".
+
+Platforms with a balance endpoint wired up: DeepSeek, Moonshot·Kimi, Zhipu,
+StepFun, SiliconFlow, MiniMax, OpenRouter, Novita.
+Platforms with a limit endpoint wired up: Zhipu (`{origin}/monitor/usage/quota/limit`, where `{origin}` is the vendor's API root),
+MiniMax (`/v1/token_plan/remains`), Anthropic (`/v1/organizations/usage/costs`,
+**requires an organization admin key** — a normal project key gets 403).
 
 ### Endpoints (models)
 
@@ -149,7 +181,7 @@ Machine side (Bearer token):
 | `GET` | `/api/consumer/keys/{id}/balance` | `balance:read` |
 | `GET` | `/api/consumer/credentials/{id}` | `cred:read` |
 
-There are 4 scopes; resource lists are **enumerations** — an empty list grants nothing rather than
+There are 5 scopes; resource lists are **enumerations** — an empty list grants nothing rather than
 everything. The server stores the payload exactly as requested: check a scope but pick no resources
 and you get a token that can read nothing (**an empty resource list means zero readable**, not
 "everything readable"). The browser's minting form blocks that case; a script calling the API
@@ -164,6 +196,37 @@ A token has two gates: the signature (derived from the DEK) and the **issued-tok
 `tokens` table in the store). Resetting the passphrase with the recovery code takes the second gate:
 the DEK does not change and not one ciphertext is rewritten, but the issued-token records are wiped,
 so old tokens answer `401` (`reason: unknown`) and have to be re-issued.
+
+## Local gateway (data plane)
+
+Any OpenAI-compatible client (Dify / n8n / Claude Code / Cherry Studio) can call the
+vendor keys inside this machine's account pools by holding one **consumer token**:
+the client only ever sees its own token, the vendor key is fetched server-side from
+the pool.
+
+| Method | Path | Required scope |
+|---|---|---|
+| `POST` | `/api/proxy/v1/chat/completions` | `proxy:invoke` |
+| `GET` | `/api/proxy/v1/models` | `proxy:invoke` |
+
+- **`proxy:invoke` binds to the existing `keyIds` resource list**: the gateway
+  only uses the keys the token lists, and falls back to the pool's active key when
+  the list is empty. The **payload shape is unchanged** — adding a field would
+  invalidate every token already issued.
+- Key order: the pool's `role=active` key first, then the backup queue;
+  keys with **2 or more consecutive failures are skipped** (never tested is not broken).
+- A vendor 401 / 429 / 5xx or a timeout **switches to the next key automatically**;
+  if every key fails the answer is `502` and it says how many were tried and why —
+  never a fake success. A key switch is audited.
+- **Never in a response**: vendor key plaintext, request bodies (prompt / messages).
+  The audit record holds metadata only (token fingerprint, pool id, model, how many
+  switches, HTTP status, token usage).
+- Its own rate-limit bucket: **60 requests / 60 s per token**; upstream timeout
+  120 s per attempt with a 5-minute budget for the whole request; request bodies
+  capped at 1 MiB (`413` beyond that).
+- Streaming is **not supported** in this version (`stream:true` answers `400`
+  explicitly rather than silently degrading).
+- Cross-origin write requests are rejected with `403`.
 
 ## Scheduler
 
@@ -186,8 +249,8 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 52 (method + path combinations; 41 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 75 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| Total routes | 56 (method + path combinations; 45 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js`, `proxy-api.js` |
+| UI actions | 76 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |

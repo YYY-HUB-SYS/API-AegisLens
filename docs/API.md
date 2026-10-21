@@ -19,8 +19,33 @@
 | `POST` | `/api/keys/{id}/test` | 连通性测试,可带 `endpointIndex` 指定测第几条端点 |
 | `GET` | `/api/keys/{id}/history?kind=test\|balance` | 观测历史。每把 Key 保留最近 1000 条,默认读回 200 条。**界面上暂无入口** |
 | `POST` | `/api/refresh-balances` | 批量刷余额 |
+| `POST` | `/api/keys/{id}/usage` | 查这把 Key 的**限额快照**(用量/限流窗口)。**账户级**数据,快照挂在查询的这把 key 上 |
+| `POST` | `/api/refresh-usage` | 批量刷限额快照。响应 `{keys, updated, failed, skipped}`;`skipped` 是没有公开接口的平台数 |
 | `GET` | `/api/platforms` | 内置平台目录(13 家 + custom) |
 | `GET` | `/api/meta` | 版本、元数据库日期、存储后端、数据目录、本机名、影子库 |
+
+### 余额与限额快照:两套口径,不要混
+
+界面上这两格是**不同的东西**,不能都叫「配额」:
+
+| | 是什么 | 粒度 | 界面上怎么写 |
+|---|---|---|---|
+| **余额** | 账户里还剩多少钱 | Key 级 | `余额 ￥12.34` + `· 10-21 13:05 查到` |
+| **限额快照** | 平台报的窗口限额(5 小时还剩几次、30 天配额) | **账户级** | `限额快照 · 5 小时窗口已用 1200/1500` + `· 10-21 13:05 查到` |
+
+- 限额快照必须写「**快照**」并带时间:那是**上次查询时**的读数,不是此刻的。
+  写成「剩余积分 300 次」是骗人 —— 那个数下一秒就变了。
+- 三态要分得清:`查到了快照` / `没查过` / `该平台不提供公开接口`。
+  「没测过」≠「无限」≠「没有数据」。
+- 平台不公开接口时(如商汤日日新、美团 LongCat),额度只能在厂商控制台看 ——
+  这种情况**如实说**,不要笼统报「查询失败」。
+- 认证失败与解析失败是两回事:智谱(`body.code`)与 MiniMax(`body.base_resp.status_code`)
+  把认证失败包在 **HTTP 200** 里,不先判平台错误码就会把「密钥无效」报成
+  「平台返回了余额数据但没解析出金额」。
+
+已接余额接口的平台:DeepSeek、Moonshot·Kimi、智谱、阶跃星辰、硅基流动、MiniMax、OpenRouter、Novita。
+已接限额接口的平台:智谱(`{origin}/monitor/usage/quota/limit`,`{origin}` 即该厂商的 API 根地址)、MiniMax(`/v1/token_plan/remains`)、
+Anthropic(`/v1/organizations/usage/costs`,**要组织管理员密钥**,普通项目密钥会 403)。
 
 ### 端点(models)
 
@@ -141,12 +166,36 @@ TOTP 种子可以是裸 Base32,也可以是整条 `otpauth://` URI(此时 `perio
 | `GET` | `/api/consumer/keys/{id}/balance` | `balance:read` |
 | `GET` | `/api/consumer/credentials/{id}` | `cred:read` |
 
-scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不到,不是"全部"。
+scope 共 5 个;资源清单是**枚举**——清单为空就是什么都拿不到,不是"全部"。
 签发时服务端按请求原样存 payload:勾了 scope 却不选资源,签出来的是一把读不到东西的令牌(**空资源清单 = 零把可读**,不是"全部可读")。浏览器的签发表单会拦这种情况,脚本直调 API 不会。
 上限:label 40 字符、资源 id 合计 64、有效期 60 秒 ~ 90 天(默认 30 天)。
 状态码:`423` 保险库锁着(不告诉你令牌对不对)、`401` 令牌缺失/无效/过期/已吊销、`403` scope 不够、`429` 过于频繁(带 `retryAfterMs`)。
 吊销检查排在 scope 检查**之后**:已吊销的令牌若用错 scope 的端点访问,拿到的是 `403` scope 而不是 `401` revoked——要确认一把令牌是否被吊销,得用一把 scope 匹配的令牌去调。
 令牌的有效性有两道闸:验签(DEK 派生)与**签发记录**(库里那张 tokens 表)。用恢复码重置口令走的是第二道闸——DEK 没换、密文一条没动,但签发记录被整张清空,旧令牌一律 `401`(`reason: unknown`),要重新签发。
+
+## 本地网关(数据面)
+
+别的 OpenAI 兼容客户端(Dify / n8n / Claude Code / Cherry Studio)拿一把**消费者令牌**
+就能调用本机账号池里的厂商密钥:客户端只看到自己的令牌,厂商密钥由服务端从池里取。
+
+| 方法 | 路径 | 需要的 scope |
+|---|---|---|
+| `POST` | `/api/proxy/v1/chat/completions` | `proxy:invoke` |
+| `GET` | `/api/proxy/v1/models` | `proxy:invoke` |
+
+- **`proxy:invoke` 绑现有的 `keyIds` 资源清单**:令牌列了哪些 key,代理就只用这些;
+  没列时才回退到「池里当前生效的那把」。
+  **payload 的形状没动** —— 加一个字段会让所有已签发的老令牌全部验签失败。
+- 选 key 的顺序:池内 `role=active` 的当前生效那把排最前,其余按备用队列顺序;
+  **连续失败 ≥2 次的跳过**(没测过的不算坏)。
+- 厂商返回 401 / 429 / 5xx 或超时时,**自动换下一把重试**;全失败返回 `502`,
+  并说清试了几把、每把什么原因 —— 绝不装成成功。换过 key 记进审计。
+- **绝不出现在响应里的东西**:厂商密钥的明文、请求体(prompt / messages)。
+  审计只记元数据(令牌指纹、池 id、模型、换了几把、HTTP 状态、token 用量)。
+- 限流单独一档:**每把令牌 60 次 / 60 秒**;上游超时 120 秒 / 一次尝试,
+  整条请求 5 分钟总预算;请求体上限 1 MiB(超限 `413`)。
+- 本版本**不支持流式**(`stream:true` 明确回 `400`,不静默降级)。
+- 跨源写请求一律 `403`。
 
 ## 定时调度
 
@@ -168,8 +217,8 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 52(方法+路径组合;去重后 41 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 75 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 路由总数 | 56(方法+路径组合;去重后 45 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js`、`proxy-api.js` |
+| 界面动作 | 76 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |

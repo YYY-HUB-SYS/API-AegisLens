@@ -44,13 +44,14 @@
   };
 
   /* 与 consumer-tokens.js 的 SCOPES 白名单一字不差；多一个字符服务端判 malformed */
-  var SCOPES = ['key:read', 'key:test', 'balance:read', 'cred:read'];
-  var SCOPE_FIELD = { 'key:read': 'key', 'key:test': 'key', 'balance:read': 'key', 'cred:read': 'cred' };
+  var SCOPES = ['key:read', 'key:test', 'balance:read', 'cred:read', 'proxy:invoke'];
+  var SCOPE_FIELD = { 'key:read': 'key', 'key:test': 'key', 'balance:read': 'key', 'cred:read': 'cred', 'proxy:invoke': 'key' };
   var SCOPE_HELP = {
     'key:read': '读取所选密钥的记录与配置，清单外的密钥拿不到东西。',
     'key:test': '对所选密钥发起连通测试，同样只覆盖清单内的密钥。',
     'balance:read': '读取所选密钥的余额，按密钥计，不含其它资源。',
-    'cred:read': '取用所选凭证记录，清单外的凭证取不到。'
+    'cred:read': '取用所选凭证记录，清单外的凭证取不到。',
+    'proxy:invoke': '把这把令牌当 OpenAI 兼容客户端的凭据，请求由本机账号池里的密钥转发出去。只覆盖清单内的密钥；令牌本体不会出现在转发请求里。'
   };
 
   var MAX_LABEL = 40;             // consumer-tokens.js: MAX_LABEL_LEN
@@ -236,12 +237,24 @@
   function curlExampleLines(meta, base, limit) {
     var token = str(meta && meta.token);
     var paths = [];
-    ids(meta && meta.keyIds).forEach(function (id) { paths.push('/api/consumer/keys/' + id); });
-    ids(meta && meta.credIds).forEach(function (id) { paths.push('/api/consumer/credentials/' + id); });
+    ids(meta && meta.keyIds).forEach(function (id) { paths.push({ m: 'GET', p: '/api/consumer/keys/' + id }); });
+    ids(meta && meta.credIds).forEach(function (id) { paths.push({ m: 'GET', p: '/api/consumer/credentials/' + id }); });
+    /* 代理那条是 POST：只给个路径的话用户照抄会拿到 405，方法与请求体都得在样例里 */
+    if (ids(meta && meta.scopes).indexOf('proxy:invoke') !== -1) {
+      paths.push({
+        m: 'POST', p: '/api/proxy/v1/chat/completions',
+        body: '{"model":"gpt-4o-mini","messages":[{"role":"user","content":"你好"}]}'
+      });
+    }
     var total = paths.length;
     var cap = Math.max(1, num(limit) || EXAMPLE_LIMIT_DEFAULT);
-    var lines = paths.slice(0, cap).map(function (p) {
-      return 'curl -H "Authorization: Bearer ' + token + '" ' + str(base || FALLBACK_BASE) + p;
+    var lines = paths.slice(0, cap).map(function (x) {
+      /* GET 那几条的输出逐字不变，别为了统一格式去改已有的样板 */
+      if (x.m === 'GET') {
+        return 'curl -H "Authorization: Bearer ' + token + '" ' + str(base || FALLBACK_BASE) + x.p;
+      }
+      return 'curl -X ' + x.m + ' -H "Authorization: Bearer ' + token + '"'
+        + ' -H "Content-Type: application/json" -d \'' + x.body + '\' ' + str(base || FALLBACK_BASE) + x.p;
     });
     return { lines: lines, total: total, hidden: Math.max(0, total - lines.length) };
   }
