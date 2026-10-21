@@ -157,8 +157,32 @@ function sanitizeImportedModel(m) {
   return r;
 }
 
+/* 缺哪项就查哪项 —— 不只是上下文。
+   早先只挑 ctx == null 的模型去查，于是**上下文已知但缺能力位**（附件 / 工具调用 /
+   输出模态）的模型永远查不到：models.dev 明明有这些信息，却因为 ctx 已有值就被跳过了。
+   现在改成「缺 ctx 或 out 或任何能力位」都算未知，要查就去查；
+   applyToModels 只填空缺项，平台自报的值不受影响。 */
+function modelMissingSomething(m) {
+  if (!m) return false;
+  if (m.ctx == null || m.out == null) return true;
+  /* 能力位只由**联网目录**提供（models.dev）。内置表 cn-models.js 压根没有能力位数据，
+     所以「内置表命中但能力位为空」是常态，不是「缺了没查到」——
+     若把它算成缺失，这类模型每次都会被送去联网查（查了内置表也补不上），白跑网络。
+     判据：ctx/out 的来源是 meta（内置表）时，能力位不算缺失。 */
+  const fromMeta = m.ctxSrc === 'meta' || m.outSrc === 'meta';
+  if (fromMeta) return false;
+  if (m.reasoning == null) return true;
+  if (m.attachment == null) return true;
+  if (m.toolCall == null) return true;
+  /* 模态：只认「数组」。空数组是合法的「就是纯文本」。
+     modalitiesOut 在库里可能是 null —— 那是「输出只有文本，剔掉默认的 text 后没东西可存」，
+     不是「没查到」。所以它不参与「缺不缺」的判定。 */
+  if (!Array.isArray(m.modalitiesIn)) return true;
+  return false;
+}
+
 async function enrichUnknowns(models, fetchImpl) {
-  const unknowns = (models || []).filter(function (m) { return m.ctx == null; });
+  const unknowns = (models || []).filter(function (m) { return modelMissingSomething(m); });
   if (!unknowns.length) return { enriched: 0, notFound: [], error: null };
   let found = {};
   let error = null;
@@ -170,8 +194,13 @@ async function enrichUnknowns(models, fetchImpl) {
     error = e.message;
   }
   const applied = enrich.applyToModels(models, found);
+  /* notFound = **联网目录里完全查不到**的模型（界面上显示「未找到：…（可手动补充）」）。
+     「查到了但仍缺某几项」不算 notFound —— 那是「部分补上」，不是「没找到」：
+     早先把两者混在一起，界面会说「未找到 deepseek-chat」，可它明明刚补上部分能力位。
+     判据是「目录里有没有这条」，不是「还缺不缺」——后者会连带把「补了一半」的也算进去。 */
   const stillUnknown = applied.models.filter(function (m) {
-    return m.ctx == null;
+    if (m.ctx != null || m.out != null) return false;
+    return !found[m.id];
   }).map(function (m) { return m.id; });
   return { enriched: applied.changed.length, notFound: stillUnknown, error: error, models: applied.models };
 }
@@ -648,7 +677,7 @@ async function routeApi(req, res, ctx) {
     /* 「拉模型」默认只打平台自己的 /models。原先一见到 ctx 缺失就自动联网检索，
        等于用户点一下按钮就未经确认往外发请求（用户 10-10 指出）。联网补全现在只走两条显式路径：
        这里带 enrich:true，或界面上的「联网补全」按钮（/models/enrich）。 */
-    if (fb.enrich === true && merged.some(function (mm) { return mm.ctx == null; })) {
+    if (fb.enrich === true && merged.some(function (mm) { return modelMissingSomething(mm); })) {
       enrichInfo = await enrichUnknowns(merged, fetchImpl);
       if (enrichInfo.models) merged = enrichInfo.models;
     }
@@ -665,7 +694,9 @@ async function routeApi(req, res, ctx) {
     const k = requireKey(m[1]);
     const b = await readBody(req).catch(function () { return {}; });
     const onlyId = str(b.modelId);
-    let targets = (k.models || []).filter(function (mm) { return mm.ctx == null; });
+    /* 与 enrichUnknowns 同一把尺子：缺任何一项都算未知（只挑 ctx 缺失的早先版本
+       会让「上下文已知、只缺能力位」的模型查不到）。 */
+    let targets = (k.models || []).filter(function (mm) { return modelMissingSomething(mm); });
     if (onlyId) targets = targets.filter(function (mm) { return mm.id === onlyId; });
     if (!targets.length) {
       return json(res, 200, {

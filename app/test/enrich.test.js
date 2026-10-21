@@ -281,9 +281,18 @@ test('API 集成：拉取默认不联网、enrich:true 才联网 + enrich 端点
 
     r = await call(base, 'POST', '/api/keys/' + id + '/models/enrich');
     assert.strictEqual(r.status, 200);
-    assert.strictEqual(r.data.summary.checked, 1, '仅剩 1 个未知模型');
+    /* checked 从 1 变 2 是**行为变宽**的必然结果，不是回归：
+       早先只挑 ctx==null 的模型去查，于是「上下文已知、只缺能力位」的模型永远查不到
+       （models.dev 明明有这些信息）。现在缺任何一项都算未知、要查就查。
+       - deepseek-v4-flash：走 OpenRouter（web），能力位确实没给 ⇒ 该查
+       - totally-unknown：完全查不到 ⇒ 该查
+       而 deepseek-chat 命中的是**内置表**（meta），内置表压根不提供能力位，
+       那是常态不是「缺了没查到」，所以不算进来（否则它每次都会被送去联网白跑）。
+       它的 notFound 也不该出现 —— 「未找到」是给界面显示「可手动补充」用的。 */
+    assert.strictEqual(r.data.summary.checked, 2, '缺能力位的模型也要送去联网查');
     assert.strictEqual(r.data.summary.enriched, 0);
-    assert.deepStrictEqual(r.data.summary.notFound, ['totally-unknown']);
+    assert.deepStrictEqual(r.data.summary.notFound, ['totally-unknown'],
+      'notFound 只报「完全查不到」的，内置表命中但能力位为空的不算');
 
     r = await call(base, 'PATCH', '/api/keys/' + id + '/models/' + encodeURIComponent('totally-unknown'), { ctx: 65536, out: 8192 });
     assert.strictEqual(r.status, 200);
