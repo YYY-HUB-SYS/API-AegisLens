@@ -2,11 +2,23 @@ const os = require('node:os');
 const adapters = require('./adapters');
 const enrich = require('./enrich');
 const META_MODELS = require('./meta-models.json');
-const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek, hasRawMasterKey } = require('./crypto');
+const { vaultMode, unlockDek, enablePassphraseWith, changePassphrase, loadOrCreateMasterKey, zeroSecret, discardRawDek, hasRawMasterKey, masterKeySource, migrateMasterKeyToKeyring, migrateMasterKeyToFile, keystore } = require('./crypto');
 const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openRecoveryEnvelope, readRecoveryEnvelope, formatRecoveryKey } = require('./recovery');
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
 const { handleConsumerApi } = require('./consumer-api');
+
+/* 能力位字段清单（含各自的来源字段与出处）：从 enrich.js 取唯一一份，
+   落库时按这张表逐字段带过去。两处各写一份清单必然会漂移。 */
+const CAP_MODEL_FIELDS = (function () {
+  const out = [];
+  for (const f of enrich.CAP_FIELDS) {
+    out.push(f);
+    if (enrich.CAP_SRC[f]) out.push(enrich.CAP_SRC[f]);
+  }
+  out.push('capsFrom');
+  return out;
+})();
 
 function bad(status, message) {
   const e = new Error(message);
@@ -259,6 +271,12 @@ async function routeApi(req, res, ctx) {
       /* 「拷走整个目录就能解」这件事到底还成不成立，看这一位：它说的是明文 DEK 副本在不在，
          不是口令设没设——设了口令但没拆 master.key，两者同时为真 */
       rawKeyPresent: hasRawMasterKey(storage.dataDir),
+      /* 主密钥现在放在哪：'os'（系统凭据管理器）/ 'file'（数据目录里的明文文件）/ null（还没有）。
+         前端据此显示「主密钥在系统凭据管理器里 / 仍在数据目录里」，并给出搬动入口。 */
+      masterKeySource: masterKeySource(storage.dataDir),
+      /* 这台机器能不能用系统凭据管理器（装了没装、能不能访问都算）。
+         false 时界面上就不该出现「搬到凭据管理器」的入口——给一个按不动的按钮是骗人。 */
+      keyringAvailable: keystore.isAvailable(storage.dataDir),
       /* 视图靠这个字段决定进「设置口令」还是「解锁」屏。凭证库强制要口令：
          给网站密码开免密，就是我们要改掉的那个毛病 */
       needsSetup: vaultMode(storage.dataDir) !== 'envelope',
@@ -411,19 +429,52 @@ async function routeApi(req, res, ctx) {
     });
   }
 
+  /* 把主密钥在「盘上明文文件」与「系统凭据管理器」之间搬来搬去。
+     老库默认**不动**（改用户的信任根不能由代码替他决定），界面上给一条明确入口。
+     搬进凭据管理器后：拷走整个数据目录不再等于拷走全部密钥（那台机器的凭据管理器里没有这条）。 */
+  if (req.method === 'POST' && path === '/api/vault/master-key-location') {
+    const b = await readBody(req);
+    const target = str(b.target);
+    if (target !== 'os' && target !== 'file') {
+      return json(res, 400, { error: "target 只能是 'os'（系统凭据管理器）或 'file'（数据目录文件）" });
+    }
+    const from = masterKeySource(storage.dataDir);
+    if (from === null) {
+      return json(res, 409, { error: '这个数据目录还没有主密钥（既没有 master.key，也没有凭据管理器里的条目）' });
+    }
+    if (from === target) {
+      return json(res, 200, { ok: true, changed: false, source: from, note: '主密钥已经在那个位置了' });
+    }
+    const r = target === 'os'
+      ? migrateMasterKeyToKeyring(storage.dataDir)
+      : migrateMasterKeyToFile(storage.dataDir);
+    if (!r.migrated) {
+      vault.audit.push({ kind: 'masterkey', status: 'fail', detail: String(r.reason).slice(0, 60) });
+      return json(res, 400, { error: r.reason });
+    }
+    vault.audit.push({ kind: 'masterkey', status: 'ok', detail: 'moved to ' + target });
+    return json(res, 200, { ok: true, changed: true, source: target, note: r.reason });
+  }
+
   /* 拆掉明文 master.key 是整条链上唯一不可逆的动作：不删它，「拷走目录也解不开」
      就只是说说而已。所以要求显式 confirm，并且先用口令解一次验证通过。 */
   if (req.method === 'POST' && path === '/api/vault/discard-master-key') {
     const b = await readBody(req);
     if (b.confirm !== true) return json(res, 400, { error: '此操作不可逆，必须显式传 confirm: true' });
+    let discarded;
     try {
-      discardRawDek(storage.dataDir, str(b.passphrase), { confirm: true });
+      discarded = discardRawDek(storage.dataDir, str(b.passphrase), { confirm: true });
     } catch (e) {
       vault.audit.push({ kind: 'discard', status: 'fail', detail: String(e.message).slice(0, 60) });
       return json(res, /解锁口令不正确/.test(String(e.message)) ? 403 : 400, { error: e.message });
     }
     vault.audit.push({ kind: 'discard', status: 'ok', detail: 'master.key removed' });
-    return json(res, 200, { ok: true, discarded: true, note: '口令成为唯一入口；恢复码仍可用来重置口令' });
+    return json(res, 200, {
+      ok: true,
+      discarded: true,
+      credentialRemoved: !!discarded.credentialRemoved,
+      note: '口令成为唯一入口；恢复码仍可用来重置口令'
+    });
   }
 
   /* 明文唯一出口。审计只记 id，绝不记口令本身 */
@@ -641,6 +692,15 @@ async function routeApi(req, res, ctx) {
           ctx: mm.ctx != null ? mm.ctx : prev.ctx,
           out: mm.out != null ? mm.out : prev.out,
           src: mm.src
+        });
+        /* ★ 能力位也要一起落库。
+           早先这里只带 id/ctx/out/src 四个字段，于是「联网补全」按钮这条路：
+           内存里能力位已经应用上（applyToModels 做了），但 upsertModels 收到的记录里
+           这些字段是 undefined —— 落库时被丢掉，刷新一下就全没了。
+           upsertModels 按 MODEL_EXTRA 逐字段拷，所以这里把能力位原样带过去即可。
+           取 mm（应用后）而不是 prev（应用前）：应用后的值才是要存的那个。 */
+        CAP_MODEL_FIELDS.forEach(function (f) {
+          if (mm[f] !== undefined) changedModels[changedModels.length - 1][f] = mm[f];
         });
       }
     });

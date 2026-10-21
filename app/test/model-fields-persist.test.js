@@ -18,7 +18,14 @@ const FIELDS = {
   /* 参考值的具体出处：第四级联网检索会查两个源（OpenRouter / models.dev），
      第三级是内置国内模型表，同一把 Key 的 ctx 与 out 可能来自不同目录。
      不登记进这张白名单，SQLite 后端就会把出处静默丢掉。 */
-  ctxFrom: 'builtin-cn', outFrom: 'openrouter'
+  ctxFrom: 'builtin-cn', outFrom: 'openrouter',
+  /* 第四级联网检索（models.dev）带回来的能力位：附件、工具调用、输出模态。
+     值与来源分开记——<字段> 是值，<字段>Src 是这一项的来源标签（api/web/meta）。
+     attachment 故意存 false：false 是「不支持」，跟「没这个字段」不是一回事，
+     往返时不能被当成空值丢掉。 */
+  attachment: false, toolCall: true, modalitiesOut: ['image'],
+  reasoningSrc: 'web', modalitiesInSrc: 'web', attachmentSrc: 'web',
+  toolCallSrc: 'web', modalitiesOutSrc: 'web', capsFrom: 'modelsdev'
 };
 
 function newDir() { return tmp.mk('aegis-mfield'); }
