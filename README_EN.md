@@ -65,17 +65,19 @@ Pure Node.js standard library — after `git clone` you do **not** need `npm ins
 
 ## What it does
 
-Ten lines, and every one of them has a button in the UI:
+Twelve lines, and every one of them has a button in the UI:
 
 - **Field-level encryption** // keys, website passwords, secrets, TOTP seeds and notes are each an AES-256-GCM ciphertext; list endpoints return only the last 4 characters, plaintext requires a single-item `reveal`
 - **Unlock passphrase + 52-character recovery code** // scrypt(N=32768, r=8, p=1) derives a KEK that wraps the DEK; the passphrase is never written to any local file, the recovery code is shown exactly once
 - **Idle auto-lock** // 5 minutes without real reads/writes locks the vault (`AKM_IDLE_LOCK_MINUTES`); the read-only endpoints the page polls do not count as usage
 - **Connectivity test** // endpoints with `/models` use the list, the rest fall back to an auth probe on the chat endpoint; each base URL can be tested on its own and the badge says **which endpoint** passed
-- **Four-tier model metadata fallback** // platform-reported first, then a built-in catalogue, then a public-directory web lookup, then manual; provenance is tracked per field, so values you edited survive a re-fetch
+- **Four-tier model metadata fallback** // platform-reported first, then a built-in catalogue, then a public-directory web lookup, then manual; provenance is tracked per field, so values you edited survive a re-fetch. The **last two tiers are reference values** (they look up by model id across providers, while a model's limits are really a fact about "endpoint × model"), so the UI marks them as reference and names the directory they came from
 - **One-click config snippets** // Dify / n8n / Claude Code / `.env` templates; when the endpoint style does not match the target tool it warns instead of quietly emitting a broken config
 - **Credential vault** // website passwords, API secrets and live TOTP codes; plaintext stays in memory for 30 seconds and is dropped immediately when the tab loses focus
 - **Account pools** // group several keys and watch member health, through the same masked view — a locked vault answers `423` here too
 - **Scoped consumer tokens** // 4 scopes + explicit resource lists + expiry + individual revocation; only the first 8 hex of an HMAC fingerprint is stored
+- **Observation history** // the last 1000 test and balance rows per key, split into "connectivity" and "balance" in the key detail panel
+- **Scheduler** // **off by default**; once on it runs one round per interval (test every key once + refresh balances in bulk), and you can also trigger a round by hand
 - **Zero dependencies** // standard library only, build-free frontend (5 static files), no CDN; the only binary in the repo is a vendored monospace font subset (OFL)
 
 Every capability, endpoint, field limit and number lives in [API & limits](./docs/API_EN.md) — each path and each figure there is counted out of the source and re-checked against it by `app/test/docs.test.js`, so documenting an endpoint that does not exist turns the suite red.
@@ -154,7 +156,7 @@ Listed so that they never arrive as a surprise.
 - Endpoints whose style is neither `openai` nor `anthropic` are not auto-tested, and web-filled metadata is a guess too: the same model id has different limits at different providers, so platform-reported values win and anything from the web is labelled `web`
 - The `type` field of an import file is validated in the frontend only; `POST /api/import` accepts any `keys` array (closing this properly needs both sides, see the deployment guide note)
 - There is no countdown before the auto-lock. The door used to show one, but it was dead code: it read `idleRemainingMs`, which is always `0` while **locked**, and the door only appears while locked — so it never rendered, and it has been removed
-- Three capabilities have endpoints but no UI entry: observation history (last 1000 rows per key), the scheduler toggle, and `/api/meta` detail. They are listed here so endpoints are not sold as features
+- The scheduler is **off by default** (`AKM_SCHEDULE_ENABLED=1`, or switch it on in the UI): while off it never sends a request to a vendor on its own. Once on, it runs one round per interval (test every key once + refresh balances in bulk) and keeps the last 1000 observation rows per key, visible in the key detail panel
 
 ---
 
