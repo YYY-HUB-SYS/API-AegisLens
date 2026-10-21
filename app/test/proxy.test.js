@@ -1,4 +1,6 @@
 const { test } = require('node:test');
+/* 端口兜底（listen(0) 可能分到 fetch 禁用的端口）在这个公共出口里装 */
+const tmp = require('./tmp.js');
 const assert = require('node:assert');
 const http = require('node:http');
 const net = require('node:net');
