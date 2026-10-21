@@ -153,5 +153,6 @@ explicit checkbox, which then reveals items one by one.
 | Idle auto-lock | 5 minutes by default | `AKM_IDLE_LOCK_MINUTES` |
 | Rate limits (failures / 5-minute window) | unlock 5, **recovery code 5 (own bucket)**, key reveal 30 (**bucketed per key id**), credential 20, token mint 20, passphrase change 5 | `server.js` |
 | Rate limits (requests / 60-second sliding window) | consumer data plane **120** (bucketed per token; 401/403/404/423 do not count) | `consumer-api.js` |
+| Rate limits (requests / 60-minute sliding window) | manual "run one round" **5** (bucketed per source IP; it really does send requests to the vendors) | `server.js` |
 | Plaintext auto-retract | 30 seconds; immediate when the tab loses focus | `credentials-view.js` |
 | Observation history | 1000 rows per key, 200 returned by default | `storage.js` |
