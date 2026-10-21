@@ -65,6 +65,18 @@ function isRetryableStatus(status) {
   return status === 401 || status === 429 || (status >= 500 && status <= 599);
 }
 
+/* 把这次转发的结果记进这把 key 的健康快照。
+   401 = 厂商拒了这把 key ⇒ 连续失败 +1（下次代理会跳过它）；
+   成功 ⇒ 连续失败清零（它又活了）。
+   429 / 5xx 不动：那是平台侧的限流与故障，与这把 key 无关，
+   记成「这把 key 坏了」会让好 key 被误伤跳过。
+   早先代理只读健康快照、从不写 —— 厂商明明拒了这把 key，
+   下次代理还是先试它（连续失败两次才跳过，而那两次永远攒不出来）。 */
+function markKeyHealthOf(ctx, keyId, ok) {
+  if (!ctx.storage || typeof ctx.storage.markKeyHealth !== 'function') return;
+  try { ctx.storage.markKeyHealth(keyId, ok); } catch (e) { /* 记账失败不许把主流程带崩 */ }
+}
+
 /* ---------- 小工具 ---------- */
 
 function proxyError(status, message) {
@@ -660,6 +672,8 @@ async function handleChat(ctx, req, res) {
       continue;
     }
     if (isRetryableStatus(r.status)) {
+      /* 401 是「这把 key 被拒」⇒ 记一次失败；429/5xx 是平台侧的事，不记到 key 头上 */
+      if (r.status === 401) markKeyHealthOf(ctx, cand.key.id, false);
       attempts.push({
         keyId: cand.key.id,
         status: r.status,
@@ -681,6 +695,8 @@ async function handleChat(ctx, req, res) {
       outType = 'application/json; charset=utf-8';
     }
     const usage = usageOf(parsed);
+    /* 转发成功 = 这把 key 又活了 ⇒ 连续失败清零 */
+    markKeyHealthOf(ctx, cand.key.id, true);
     attempts.push({ keyId: cand.key.id, status: r.status, reason: 'HTTP ' + r.status });
     audit(ctx, {
       kind: 'proxy', target: target, status: 'ok',

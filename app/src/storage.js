@@ -722,6 +722,20 @@ function makeJsonStore(dataDir, masterKey) {
       return toRec(d);
     },
 
+    /* 只更新健康快照，不写 test、不写观测历史。
+       给「代理转发」用：厂商拒了这把 key 就是一次失败，它该被记下来
+       （不然下次代理还是先试它），但它不是用户发起的连通测试，
+       不该混进「最近观测」里 —— 那个面板是给人看自己的操作记录的。 */
+    markKeyHealth(id, ok) {
+      const d = find(id);
+      if (!d) return null;
+      const at = nowIso();
+      d.failCount = ok ? 0 : (Number(d.failCount) || 0) + 1;
+      d.lastHealthAt = at;
+      persist();
+      return toRec(d);
+    },
+
     listHistory(id, opts) {
       const o = opts || {};
       let rows = data.history.filter(function (r) { return r.keyId === id; });
@@ -1570,6 +1584,16 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       const h = healthNext(cur.fail_count, cur.last_health_at, test, at);
       stmt.setKeyHealth.run(h.failCount, h.lastHealthAt, id);
       pushHistory(id, testHistoryOf(test), at);
+      return toRec(getRow(id));
+    },
+
+    /* 与 JSON 后端同名同语义：只动健康快照，不写 test、不写观测历史 */
+    markKeyHealth(id, ok) {
+      const cur = getRow(id);
+      if (!cur) return null;
+      const at = nowIso();
+      const failCount = ok ? 0 : (Number(cur.fail_count) || 0) + 1;
+      stmt.setKeyHealth.run(failCount, at, id);
       return toRec(getRow(id));
     },
 
