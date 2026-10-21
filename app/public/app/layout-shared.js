@@ -577,6 +577,14 @@
   /* 限额快照的两个原子：值与说明都从 ctx.api（AegisUI）取。
      共享层的规矩是「行为不重写」—— 自己复刻一份就会与真实行为分叉；
      ctx.api 缺位时（index.html 的导出块没跑到）退回空串，不显示这格。 */
+  /* 余额的「这是什么时候的数」：同样从 ctx.api（AegisUI）取，不复刻。 */
+  function balanceTitleOf(ctx, k) {
+    var api = ctx && ctx.api;
+    if (api && typeof api.balanceTitle === 'function') {
+      try { return String(api.balanceTitle(k) || ''); } catch (e) { return ''; }
+    }
+    return '';
+  }
   function usageTextOf(ctx, k) {
     var api = ctx && ctx.api;
     if (api && typeof api.usageText === 'function') {
@@ -627,7 +635,7 @@
       '<div class="lm-kv-grid">' +
         '<div class="lm-kv"><span class="lbl2">平台</span><span>' + escOf(ctx, platLabel(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">状态</span><span>' + statusBadgeOf(ctx, k) + '</span></div>' +
-        '<div class="lm-kv"><span class="lbl2">余额</span><span>' + escOf(ctx, balanceTextOf(ctx, k)) + '</span></div>' +
+        '<div class="lm-kv"><span class="lbl2">余额</span><span title="' + escOf(ctx, balanceTitleOf(ctx, k)) + '">' + escOf(ctx, balanceTextOf(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">限额快照</span><span title="' + escOf(ctx, usageTitleOf(ctx, k)) + '">' + escOf(ctx, usageTextOf(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">有效期</span><span>' + escOf(ctx, expiryTextOf(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">注册时间</span><span>' + escOf(ctx, k.reg || '未记录') + '</span></div>' +

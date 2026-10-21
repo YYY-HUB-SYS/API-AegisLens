@@ -59,6 +59,7 @@ function fakeCtx(usageText, usageTitle) {
       esc: esc,
       usageText: usageText,
       usageTitle: usageTitle,
+      balanceTitle: function () { return '上次查询时的余额（2026-10-21 13:05）'; },
       renderCard: null,
       platLabel: function () { return 'DeepSeek'; },
       balanceText: function () { return '¥12.34'; },
@@ -102,11 +103,20 @@ test('layout 层在 ctx.api 缺这两个原子时不会炸（退回空串，不�
   assert.ok(out.indexOf('限额快照') > -1, '格位还在，只是值为空（这是刻意的：不猜）');
 });
 
+test('余额那一格也标出数据新鲜度（余额同样是快照，不标时间看着像实时的）', () => {
+  const L = loadShared();
+  const ctx = fakeCtx(function () { return '5 小时 1200/1500'; }, function () { return '快照说明'; });
+  const out = L.detail(ctx, KEY);
+  assert.ok(out.indexOf('上次查询时的余额') > -1, '余额格没有带快照时间');
+});
+
 test('AegisUI 暴露了 usageText / usageTitle —— 不暴露 layout 层那格永远是空的', () => {
   assert.ok(/get usageText\(\)\s*\{\s*return usageText;\s*\}/.test(html),
     'AegisUI 里没有暴露 usageText');
   assert.ok(/get usageTitle\(\)\s*\{\s*return usageTitle;\s*\}/.test(html),
     'AegisUI 里没有暴露 usageTitle');
+  assert.ok(/get balanceTitle\(\)\s*\{\s*return balanceTitle;\s*\}/.test(html),
+    'AegisUI 里没有暴露 balanceTitle（余额格的新鲜度会一直是空的）');
 });
 
 test('单卡重绘那条路（index.html 的 renderCard）也有这两样', () => {

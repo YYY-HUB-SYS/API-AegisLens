@@ -1399,6 +1399,7 @@
   /* 限额快照的两个原子：布局层（layout-shared.js）画详情面板时从这里取，
      不自己复刻一份 —— 复刻就会与真实行为分叉（共享层的硬规矩之一）。 */
   get usageText() { return usageText; },
+  get balanceTitle() { return balanceTitle; },
   get usageTitle() { return usageTitle; },
     get platLabel() { return platLabel; },
     get shortName() { return shortName; },
@@ -1751,6 +1752,17 @@
     if (b.status === 'unsupported') return '暂不支持';
     if (b.status === 'fail') return '查询失败';
     return (P(k.platform).currency === 'USD' ? '$' : '¥') + Number(b.value).toFixed(2);
+  }
+
+  /* 余额那一格也要标出「这是什么时候的数」：
+     余额同样是快照，不标时间的余额看着像实时的。
+     口径见调研总纲 §5.3：余额与限额快照都要带数据新鲜度。 */
+  function balanceTitle(k) {
+    var b = (k && k.balance) || {};
+    if (b.status === 'pending') return '还没查过余额：点「刷新余额」查一次';
+    if (b.status === 'unsupported') return '这个平台没有公开的余额接口，余额只能在厂商控制台看';
+    if (b.status === 'fail') return '上次查余额没成功';
+    return '上次查询时的余额（' + (b.updatedAt ? fmtTime(b.updatedAt) : '时间未知') + '）—— 那一刻的读数，不是此刻的。';
   }
 
   /* 限额快照（用量/限流窗口）：**账户级**的数据，与余额不是一回事。
@@ -2421,7 +2433,7 @@
             '</span>' +
           '</div>' +
           '<div class="kc-meta">' +
-            '<span class="m-item">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
+            '<span class="m-item" title="' + esc(balanceTitle(k)) + '">余额 <b>' + esc(balanceText(k)) + '</b></span>' +
             '<span class="m-item" title="' + esc(usageTitle(k)) + '">限额快照 <b>' + esc(usageText(k)) + '</b></span>' +
             (k.exp ? '<span class="m-item st-' + st + '">有效期至 <b>' + esc(k.exp) + '</b></span>'
                    : '<span class="m-item">长期有效</span>') +
