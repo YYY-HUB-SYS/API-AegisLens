@@ -1032,6 +1032,7 @@
       <button class="btn" id="btn-autorefresh" type="button" aria-pressed="true" title="当前开启自动刷新（每 10 秒拉一次密钥列表），点击关闭"><span id="autorefresh-label">自动刷新 · 开</span></button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
       <button class="btn" id="btn-refresh-usage" type="button" title="批量刷新限额快照（用量/限流窗口）：与余额刷新是两回事，只查平台公开了接口的那些">刷新限额</button>
+      <button class="btn ghost" id="btn-local-usage" type="button" title="看本机几个 AI 编程 agent 自己记的 token 用量：只出数字与模型名，不读对话内容">本机用量</button>
       <button class="btn" id="btn-schedule" type="button" aria-pressed="false" title="定时调度当前关闭（不会自动向厂商发请求），点击查看与设置"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-calendar-days"></use></svg><span id="schedule-label">定时调度 · 关</span></button>
       <button class="btn primary" id="btn-add">+ 新增密钥</button>
     </div>
@@ -1286,6 +1287,21 @@
     <div class="btn-row">
       <button class="btn" data-close="overlay-pool">取消</button>
       <button class="btn primary" id="btn-pool-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 本机用量 -->
+<div class="overlay" id="overlay-local-usage">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="local-usage-title" tabindex="-1">
+    <h3 id="local-usage-title">本机用量</h3>
+    <p class="sub">本机几个 AI 编程 agent 自己记的账。服务端现读它们各自的本地数据库（<b>只读</b>），<b>只出数字与模型名</b>——不读对话内容，不带出任何会话标题，也不出这台机器的路径。</p>
+    <div id="local-usage-body">
+      <p class="meta hist-note">点「本机用量」开始采集。</p>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btn-local-usage-refresh" type="button" data-act="local-usage-refresh">重新采集</button>
+      <button class="btn" data-close="overlay-local-usage">关闭</button>
     </div>
   </div>
 </div>
@@ -2602,16 +2618,17 @@
   var HISTORY_KINDS = [
     { id: 'all', label: '全部' },
     { id: 'test', label: '连通测试' },
-    { id: 'balance', label: '余额' }
+    { id: 'balance', label: '余额' },
+    { id: 'usage', label: '限额' }
   ];
 
   function historyKindOf(k) {
     var cur = ui.historyKind[k.id];
-    return (cur === 'test' || cur === 'balance') ? cur : 'all';
+    return (cur === 'test' || cur === 'balance' || cur === 'usage') ? cur : 'all';
   }
   function historyQuery(kind) {
-    /* 「全部」不带 kind 参数：后端只认 test / balance */
-    return (kind === 'test' || kind === 'balance')
+    /* 「全部」不带 kind 参数：后端只认 test / balance / usage */
+    return (kind === 'test' || kind === 'balance' || kind === 'usage')
       ? '?kind=' + kind + '&limit=' + HISTORY_LIMIT
       : '?limit=' + HISTORY_LIMIT;
   }
@@ -2623,8 +2640,13 @@
       p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds());
   }
   function historyResult(h) {
-    /* 结果词按 kind 分：连通测试说通 / 不通，余额说正常 / 查询失败 */
+    /* 结果词按 kind 分：连通测试说通 / 不通，余额说正常 / 查询失败，限额说已记录 / 查询失败 */
     var st = String(h.status == null ? '' : h.status);
+    if (h.kind === 'usage') {
+      if (st === 'ok') return { text: '已记录', cls: 'ok' };
+      if (st === 'fail') return { text: '查询失败', cls: 'bad' };
+      return { text: st || '未知', cls: '' };
+    }
     if (h.kind === 'balance') {
       if (st === 'ok') return { text: '正常', cls: 'ok' };
       if (st === 'fail') return { text: '查询失败', cls: 'bad' };
@@ -2634,8 +2656,22 @@
     if (st === 'fail') return { text: '不通', cls: 'bad' };
     return { text: st || '未知', cls: '' };
   }
-  function historyRowKind(h) { return h.kind === 'balance' ? '余额' : '连通'; }
+  function historyRowKind(h) {
+    if (h.kind === 'usage') return '限额';
+    return h.kind === 'balance' ? '余额' : '连通';
+  }
+  /* 限额行的 value 是该窗口的「已用」，窗口名/上限/单位在 detail 里（JSON）。
+     直接把 JSON 甩给用户看不懂，这里解析成人话。 */
   function historyValue(k, h) {
+    if (h.kind === 'usage') {
+      if (h.value == null) return '—';
+      var d = null;
+      try { d = JSON.parse(h.detail || '{}'); } catch (e) { d = null; }
+      var unit = (d && d.unit) || '';
+      var out = (d && d.name ? d.name + ' ' : '') + luTok(h.value) + unit;
+      if (d && d.limit != null) out += ' / ' + luTok(d.limit) + unit;
+      return out;
+    }
     if (h.kind === 'balance') {
       if (h.value == null) return '—';
       return (P(k.platform).currency === 'USD' ? '$' : '¥') + Number(h.value).toFixed(2);
@@ -2680,7 +2716,7 @@
           '<span class="hist-kindtag">' + esc(historyRowKind(h)) + '</span>' +
           '<span class="hist-res ' + res.cls + '">' + esc(res.text) + '</span>' +
           '<span class="hist-val">' + esc(historyValue(k, h)) + '</span>' +
-          (h.detail ? '<span class="hist-detail">' + esc(h.detail) + '</span>' : '') +
+          (h.detail && h.kind !== 'usage' ? '<span class="hist-detail">' + esc(h.detail) + '</span>' : '') +
         '</div>';
       }).join('') + '</div>';
       if (all.length > shown) {
@@ -3561,6 +3597,7 @@
   /* ================= 顶部操作 ================= */
 
   document.getElementById('btn-add').addEventListener('click', function () { openForm(null); });
+  document.getElementById('btn-local-usage').addEventListener('click', function () { openLocalUsageModal(); });
 
   /* ================= 账号池 ================= */
 
@@ -4071,6 +4108,104 @@
   function scheduleSetErr(msg) {
     var el = scheduleEl('schedule-err');
     if (el) el.textContent = msg || '';
+  }
+
+  /* ================= 本机用量 =================
+     服务端现读本机几个 AI 编程 agent 自己记的账（MiniMax Code / cc-switch / WorkBuddy）。
+     **只出数字与模型名**：不读对话内容、不带出任何会话标题，也不出这台机器的路径。
+     口径分两套，界面上也分开：消耗（token 与花费）与上下文占用（当前窗口占了多少）。 */
+  function openLocalUsageModal() {
+    openOverlay('overlay-local-usage');
+    renderLocalUsage(null);
+    api('GET', '/local-usage?days=30&sources=1').then(function (d) {
+      renderLocalUsage(d);
+    }).catch(function (e) {
+      renderLocalUsage({ error: (e && e.message) || '采集失败' });
+    });
+  }
+
+  function luNum(n) {
+    var v = Number(n);
+    if (!isFinite(v)) return '—';
+    return v.toLocaleString('en-US');
+  }
+  function luTok(n) {
+    var v = Number(n);
+    if (!isFinite(v) || v === 0) return '0';
+    if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+    return String(v);
+  }
+  function luCost(n) {
+    var v = Number(n);
+    if (!isFinite(v)) return '—';
+    return '$' + v.toFixed(4);
+  }
+  function luRow(label, value) {
+    return '<div class="hist-row">' +
+      '<span class="hist-kindtag">' + esc(label) + '</span>' +
+      '<span class="hist-val">' + esc(value) + '</span>' +
+    '</div>';
+  }
+  function luRows(title, rows, labelKey) {
+    if (!rows || !rows.length) return '';
+    return '<div class="hist-head"><span class="hist-title">' + esc(title) + '</span></div>' +
+      '<div class="hist-list">' + rows.map(function (r) {
+        return luRow(String(r[labelKey] == null ? '（未记录）' : r[labelKey]),
+          luTok(r.totalTokens) + ' tokens · ' + luCost(r.costUsd));
+      }).join('') + '</div>';
+  }
+  function renderLocalUsage(d) {
+    var box = document.getElementById('local-usage-body');
+    if (!box) return;
+    if (!d) {
+      box.innerHTML = '<p class="meta hist-note"><span class="spin"></span> 正在采集本机用量…</p>';
+      return;
+    }
+    if (d.error) {
+      box.innerHTML = '<p class="meta hist-note">采集失败：' + esc(d.error) + '</p>';
+      return;
+    }
+    var t = d.totals || {};
+    var c = d.context || {};
+    var html = '';
+    if (d.degraded) {
+      html += '<p class="meta hist-note">部分数据源没能读到：' + esc(d.error || '原因未知') + '</p>';
+    }
+    html += '<div class="hist-head"><span class="hist-title">消耗合计</span></div>';
+    html += '<div class="hist-list">' +
+      luRow('请求次数', luNum(t.requests)) +
+      luRow('输入 token', luTok(t.inputTokens)) +
+      luRow('输出 token', luTok(t.outputTokens)) +
+      luRow('推理 token', luTok(t.reasoningTokens)) +
+      luRow('缓存读 / 写', luTok(t.cacheReadTokens) + ' / ' + luTok(t.cacheWriteTokens)) +
+      luRow('合计 token', luTok(t.totalTokens)) +
+      luRow('花费', luCost(t.costUsd)) +
+    '</div>';
+    /* 上下文占用是另一套口径，不能跟消耗混在一格里说 */
+    html += '<div class="hist-head"><span class="hist-title">上下文占用（与消耗不是一回事）</span></div>';
+    html += '<div class="hist-list">' +
+      (c.available
+        ? luRow('会话数', luNum(c.conversations)) +
+          luRow('已占', luTok(c.used)) +
+          luRow('窗口大小', luTok(c.size)) +
+          luRow('还剩', luTok(c.remaining))
+        : luRow('状态', '本机没有可用的上下文占用数据源')) +
+    '</div>';
+    html += luRows('按天', d.byDay, 'date');
+    html += luRows('按模型', d.byModel, 'model');
+    html += luRows('按 agent', d.byAgent, 'agent');
+    /* 数据源状态：哪些读到了、哪些没有（没装 / 没启用 / 格式变了） */
+    if (d.sources && d.sources.length) {
+      html += '<div class="hist-head"><span class="hist-title">数据源</span></div>';
+      html += '<div class="hist-list">' + d.sources.map(function (s) {
+        return luRow(String(s.name || s.id), s.available
+          ? (s.reason || '可用')
+          : ('不可用：' + (s.reason || '原因未知')));
+      }).join('') + '</div>';
+    }
+    box.innerHTML = html;
   }
 
   function openScheduleModal() {

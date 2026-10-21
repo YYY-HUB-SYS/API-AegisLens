@@ -7,6 +7,7 @@ const { createRecoveryKey, createRecoveryEnvelope, rotateRecoveryEnvelope, openR
 const { maskedKeyView } = require('./vault');
 const { handleCredentialsApi } = require('./credentials-api');
 const proxyApi = require('./proxy-api');
+const { createLocalUsageApi } = require('./local-usage-api');
 const { handleConsumerApi } = require('./consumer-api');
 
 /* 能力位字段清单（含各自的来源字段与出处）：从 enrich.js 取唯一一份，
@@ -951,7 +952,10 @@ async function routeApi(req, res, ctx) {
   if (req.method === 'GET' && (m = /^\/api\/keys\/(\d+)\/history$/.exec(path))) {
     const k = requireKey(m[1]);
     const kind = str(url.searchParams.get('kind'));
-    if (kind && kind !== 'test' && kind !== 'balance') throw bad(400, 'kind 只支持 test 或 balance');
+    /* usage 是限额快照的历史：一个窗口一行，value 是该窗口的 used（画曲线靠它） */
+    if (kind && kind !== 'test' && kind !== 'balance' && kind !== 'usage') {
+      throw bad(400, 'kind 只支持 test、balance 或 usage');
+    }
     return json(res, 200, {
       history: storage.listHistory(k.id, { kind: kind, limit: url.searchParams.get('limit') })
     });
@@ -1263,6 +1267,18 @@ async function routeApi(req, res, ctx) {
     })) return;
     return json(res, 404, { error: '接口不存在' });
   }
+
+  /* 本机 token 计量（GET /api/local-usage）：本机几个 AI 编程 agent 自己记的账。
+     实例由 app.js 建（它拿得到注入点：假采集器、假数据根、限流器、缓存时长），
+     这里只分发 —— 路由要登记在这儿，接口一览的路由表是从 api.js 抽的。
+     它有自己的鉴权（锁着 423）、限流与缓存语义，整块归它自己管。 */
+  if (req.method === 'GET' && path === '/api/local-usage') {
+    if (ctx.localUsage && ctx.localUsage.handle(req, res)) return;
+  }
+  /* 同一个路径的**其它方法**也要交给它答 405（这是个只读接口）。
+     上面那行只在 GET 分支里接，POST 之类会落成 404 ——
+     「这个接口只支持 GET」这句话就没地方说了。 */
+  if (path === '/api/local-usage' && ctx.localUsage && ctx.localUsage.handle(req, res)) return;
 
   /* 本地网关的数据面（/api/proxy/*）：别的 OpenAI 兼容客户端拿一把消费者令牌，
      就能调用本机账号池里的厂商密钥。整块归 proxy-api 自己管——鉴权、选 key、

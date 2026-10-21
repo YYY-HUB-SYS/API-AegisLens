@@ -20,7 +20,7 @@
 | `DELETE` | `/api/keys/{id}` | Delete |
 | `POST` | `/api/keys/{id}/reveal` | Plaintext of one key; needs an unlocked session, its own rate-limit bucket, audited |
 | `POST` | `/api/keys/{id}/test` | Connectivity test; `endpointIndex` picks which base URL |
-| `GET` | `/api/keys/{id}/history?kind=test\|balance` | Observation history: last 1000 rows per key, 200 returned by default. **No UI entry point** |
+| `GET` | `/api/keys/{id}/history?kind=test\|balance\|usage` | Observation history: last 1000 rows per key, 200 returned by default. **No UI entry point** |
 | `POST` | `/api/refresh-balances` | Batch balance refresh |
 | `POST` | `/api/keys/{id}/usage` | Fetch this key's **limit snapshot** (usage / rate-limit windows). **Account-level** data, stored against the key that was queried |
 | `POST` | `/api/refresh-usage` | Batch refresh of limit snapshots. Responds `{keys, updated, failed, skipped}`; `skipped` counts platforms with no public endpoint |
@@ -228,6 +228,28 @@ the pool.
   explicitly rather than silently degrading).
 - Cross-origin write requests are rejected with `403`.
 
+## Local usage
+
+`GET /api/local-usage?days=30&sources=1`
+
+Reads the usage logs that the local AI coding agents (MiniMax Code / cc-switch / WorkBuddy AI) keep for themselves, and aggregates them by day, by model and by agent.
+
+- **Numbers and model names only**: no conversation content is read, no session title is carried over, and no path from this machine is exposed. Collection opens the other application's sqlite database **read-only** and closes it right after; a changed source format or an unreadable source degrades to an empty result instead of a 500.
+- **Two separate readings**: consumption (token counts, cost) and context occupancy (how much of the window is in use) are **not the same thing** — they come back as `totals` and `context` respectively. Don't merge them.
+- `423` while the vault is locked; rate limit 60 requests / 60 s; results cached in-process for 5 seconds.
+- UI entry point: "本机用量" in the top bar.
+
+## Local usage
+
+`GET /api/local-usage?days=30&sources=1`
+
+Reads the usage logs that the local AI coding agents (MiniMax Code / cc-switch / WorkBuddy AI) keep for themselves, and aggregates them by day, by model and by agent.
+
+- **Numbers and model names only**: no conversation content is read, no session title is carried over, and no path from this machine is exposed. Collection opens the other application's sqlite database **read-only** and closes it right after; a changed source format or an unreadable source degrades to an empty result instead of a 500.
+- **Two separate readings**: consumption (token counts, cost) and context occupancy (how much of the window is in use) are **not the same thing** — they come back as `totals` and `context` respectively. Don't merge them.
+- `423` while the vault is locked; rate limit 60 requests / 60 s; results cached in-process for 5 seconds.
+- UI entry point: "本机用量" in the top bar.
+
 ## Scheduler
 
 | Method | Path | Notes |
@@ -249,8 +271,8 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 56 (method + path combinations; 45 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js`, `proxy-api.js` |
-| UI actions | 76 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| Total routes | 57 (method + path combinations; 46 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js`, `proxy-api.js` |
+| UI actions | 77 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |

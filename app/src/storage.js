@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { encryptField, decryptField } = require('./crypto');
 const { inferStyle } = require('./adapters');
+const { usageHistoryEntries } = require('./usage-history');
 
 /* 按字段来源与能力位：JSON 后端直接挂在模型对象上，SQLite 后端存进 models.extra 一列。
    两边合并补丁时都按这张表逐字段处理，漏一处就会静默丢字段。 */
@@ -704,6 +705,9 @@ function makeJsonStore(dataDir, masterKey) {
       if (!d) return null;
       const at = nowIso();
       d.usage = normUsage(Object.assign({}, usage, { updatedAt: at }));
+      /* 快照只留最新一份，曲线要靠历史：每次查询都是一个时间点，
+         一个窗口写一行（拆分的口径见 usage-history.js） */
+      usageHistoryEntries(d.usage).forEach(function (e) { pushHistory(id, e, at); });
       persist();
       return toRec(d);
     },
@@ -1572,6 +1576,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         JSON.stringify({ windows: u.windows, kind: u.kind, raw: u.raw }),
         u.status, u.msg, at, id
       );
+      /* 与 JSON 后端同一段拆法：快照之外，每个窗口另存一行历史 */
+      usageHistoryEntries(u).forEach(function (e) { pushHistory(id, e, at); });
       return toRec(getRow(id));
     },
 

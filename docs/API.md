@@ -17,7 +17,7 @@
 | `DELETE` | `/api/keys/{id}` | 删除 |
 | `POST` | `/api/keys/{id}/reveal` | 取该把 Key 的明文;需已解锁会话,单独限流并记审计 |
 | `POST` | `/api/keys/{id}/test` | 连通性测试,可带 `endpointIndex` 指定测第几条端点 |
-| `GET` | `/api/keys/{id}/history?kind=test\|balance` | 观测历史。每把 Key 保留最近 1000 条,默认读回 200 条。**界面上暂无入口** |
+| `GET` | `/api/keys/{id}/history?kind=test\|balance\|usage` | 观测历史。每把 Key 保留最近 1000 条,默认读回 200 条。`usage` 是限额快照的历史（一个窗口一行） |
 | `POST` | `/api/refresh-balances` | 批量刷余额 |
 | `POST` | `/api/keys/{id}/usage` | 查这把 Key 的**限额快照**(用量/限流窗口)。**账户级**数据,快照挂在查询的这把 key 上 |
 | `POST` | `/api/refresh-usage` | 批量刷限额快照。响应 `{keys, updated, failed, skipped}`;`skipped` 是没有公开接口的平台数 |
@@ -197,6 +197,32 @@ scope 共 5 个;资源清单是**枚举**——清单为空就是什么都拿不
 - 本版本**不支持流式**(`stream:true` 明确回 `400`,不静默降级)。
 - 跨源写请求一律 `403`。
 
+## 本机用量
+
+`GET /api/local-usage?days=30&sources=1`
+
+读本机几个 AI 编程 agent（MiniMax Code / cc-switch / WorkBuddy AI）**自己记的账**，汇总成按天 / 按模型 / 按 agent 的用量。
+
+- **只出数字与模型名**：不读对话内容、不带出任何会话标题，也不出这台机器的路径。
+  采集是**只读**打开对方的 sqlite 库、用完就关；源格式变了或读不到就降级成空结果，不会 500。
+- **两套口径分开**：消耗（token 数、花费）与上下文占用（当前窗口占了多少）**不是一回事**，
+  响应里分别是 `totals` 与 `context`，别混着说。
+- 保险库锁着时 `423`；限流 60 次 / 60 秒；结果在进程内缓存 5 秒。
+- 界面入口：顶栏「本机用量」。
+
+## 本机用量
+
+`GET /api/local-usage?days=30&sources=1`
+
+读本机几个 AI 编程 agent（MiniMax Code / cc-switch / WorkBuddy AI）**自己记的账**，汇总成按天 / 按模型 / 按 agent 的用量。
+
+- **只出数字与模型名**：不读对话内容、不带出任何会话标题，也不出这台机器的路径。
+  采集是**只读**打开对方的 sqlite 库、用完就关；源格式变了或读不到就降级成空结果，不会 500。
+- **两套口径分开**：消耗（token 数、花费）与上下文占用（当前窗口占了多少）**不是一回事**，
+  响应里分别是 `totals` 与 `context`，别混着说。
+- 保险库锁着时 `423`；限流 60 次 / 60 秒；结果在进程内缓存 5 秒。
+- 界面入口：顶栏「本机用量」。
+
 ## 定时调度
 
 | 方法 | 路径 | 说明 |
@@ -217,8 +243,8 @@ scope 共 5 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 56(方法+路径组合;去重后 45 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js`、`proxy-api.js` |
-| 界面动作 | 76 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 路由总数 | 57(方法+路径组合;去重后 46 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js`、`proxy-api.js` |
+| 界面动作 | 77 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |

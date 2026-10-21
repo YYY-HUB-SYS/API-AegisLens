@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { apiRouter } = require('./api');
 const { createVaultSession, createThrottle } = require('./vault');
+const { createLocalUsageApi } = require('./local-usage-api');
 
 /* 只放行这几种后缀：不在表里的扩展名一律 404，避免 /vendor/ 变成任意文件读取口 */
 const VENDOR_TYPES = {
@@ -68,6 +69,19 @@ function createApp(opts) {
      就是这么把「消费者和凭证页互相抵押限流额度」藏了好几天的：链子看着像兜底，其实是静默改语义。 */
   ['credential', 'token', 'passphrase'].forEach(function (k) {
     if (!throttle[k]) throttle[k] = createThrottle({ maxFails: k === 'credential' || k === 'token' ? 20 : 5 });
+  });
+
+  /* 本机 token 计量的读接口（GET /api/local-usage）：
+     采集与聚合全在 token-usage.js 里（只读打开 sqlite、用完 close），这里只挂路由。
+     单独挂在 app.js 而不是 api.js：api.js 由总控统一接线，这一块不跟它抢。
+     几个注入点是给测试用的——假数据根目录、假采集器、限流器与缓存时长，
+     真机上那份运行时库有 1 GB 且正在被写，测试绝不能去碰它。 */
+  const localUsage = createLocalUsageApi({
+    vault: vault,
+    collect: opts.localUsageCollector || null,
+    root: opts.localUsageRoot || null,
+    throttle: opts.localUsageThrottle || null,
+    cacheTtlMs: opts.localUsageCacheTtlMs
   });
 
   /* 闲置自动锁的驱动。不 unref 的话测试里 createApp 之后进程会挂住不退出；
@@ -179,6 +193,10 @@ function createApp(opts) {
         /* 「立即跑一轮」的调用次数限流器（滑窗语义，不是 vault.js 那套失败计数）。
            没注入时 api 层会跳过限流——所以生产必须注入，见 server.js。 */
         scheduleThrottle: opts.scheduleThrottle || null,
+        /* 本机 token 计量的读接口：实例在这儿建（注入点在这儿），
+           但**分发**在 api.js —— 接口一览的路由表是从 api.js 抽的，
+           挂在这儿文档就写不出这条路由。 */
+        localUsage: localUsage,
         /* 本地网关（/api/proxy/*）的两个注入点：代理限流单独一档、上游超时可调。
            分发在 api.js 里做（路由表要能在那儿抽到），这两个值从这儿递过去。 */
         proxyThrottle: opts.proxyThrottle || null,
