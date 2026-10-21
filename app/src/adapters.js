@@ -1,5 +1,8 @@
 const META_MODELS = require('./meta-models.json');
 const shape = require('./model-shape.js');
+/* 能力位字段清单与各自的来源字段：从 enrich.js 取唯一一份（它那边也在用）。
+   两处各写一份必然漂移 —— 而漂移的后果是「联网补来的能力位在重拉模型时被悄悄抹掉」。 */
+const { CAP_FIELDS: CAP_FIELDS, CAP_SRC: CAP_SRC } = require('./enrich.js');
 const http = require('node:http');
 const https = require('node:https');
 const tls = require('node:tls');
@@ -574,7 +577,7 @@ function mergeModels(prev, fetched) {
       const no = shape.fieldSrcs(old);
       const ctxSrc = f.ctx != null ? nf.ctxSrc : no.ctxSrc;
       const outSrc = f.out != null ? nf.outSrc : no.outSrc;
-      return Object.assign({}, f, {
+      const merged = Object.assign({}, f, {
         ctx: f.ctx != null ? f.ctx : old.ctx,
         out: f.out != null ? f.out : old.out,
         ctxSrc: ctxSrc,
@@ -582,6 +585,24 @@ function mergeModels(prev, fetched) {
         src: shape.summarizeSrc(ctxSrc, outSrc),
         note: old.note || null
       });
+      /* ★ 能力位也要带过来。
+         平台重新拉一次通常只报 id 和它自己知道的项，它不知道「这个模型支不支持附件」。
+         早先这里只保留 ctx/out/src/note，于是**用户点一次「拉模型」，
+         联网补来的能力位（附件/工具调用/输出模态）就被抹掉** ——
+         补全的成果在一次无关的刷新里蒸发。
+         平台自己报过的项以平台为准（f 里有就用 f 的），
+         平台没报的（f 里没有、old 里有）保留 old 的，并带上原来的来源标记。 */
+      CAP_FIELDS.forEach(function (k) {
+        if (merged[k] === undefined && old[k] !== undefined) {
+          merged[k] = old[k];
+          const srcField = CAP_SRC[k];
+          if (srcField && merged[srcField] === undefined && old[srcField] !== undefined) {
+            merged[srcField] = old[srcField];
+          }
+        }
+      });
+      if (merged.capsFrom === undefined && old.capsFrom !== undefined) merged.capsFrom = old.capsFrom;
+      return merged;
     }
     return f;
   });

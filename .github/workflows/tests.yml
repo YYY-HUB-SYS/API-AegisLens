@@ -95,3 +95,21 @@ jobs:
             head -120 "$RUNNER_TEMP/test-output.txt" | sed 's/^/::error::/'
           fi
           exit $status
+
+      # README 里的测试数必须与实跑一致。
+      # 它是**给人看的对外口径**（顶部徽章 + 正文一句话），漂了没人会发现 ——
+      # docs.test.js 盯的是路由数与 data-act 数，不盯这个。
+      # 为什么是独立 step 而不是一条测试：在 `node --test` 内部再 spawn 一个
+      # `node --test`，内层在部分平台根本跑不起来（实测外层 115ms 就返回 status=null）。
+      # 这条 step 跑在测试进程外面，才拿得到真实总数。
+      - name: 核对 README 的测试数
+        working-directory: app
+        run: |
+          set +e
+          node scripts/check-readme-count.js 2>&1 | tee "$RUNNER_TEMP/readme-count.txt"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::README 的测试数与实跑对不上（详见下面）"
+            sed 's/^/::error::/' "$RUNNER_TEMP/readme-count.txt"
+          fi
+          exit $rc
