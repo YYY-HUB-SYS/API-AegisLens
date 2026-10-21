@@ -218,8 +218,10 @@ test('老 SQLite 库：models 表里多插的 role/sort_index 会被清掉', () 
 
   const mk2 = loadOrCreateMasterKey(dir);
   const store2 = createStore(dir, mk2, { backend: 'sqlite' });
-  const cols = new DatabaseSync(path.join(dir, 'keys.db'))
-    .prepare('PRAGMA table_info(models)').all().map(function (c) { return c.name; });
+  /* 句柄不关 ⇒ Windows 上目录删不掉，%TEMP% 里每次跑都攒一批残留 */
+  const db2 = new DatabaseSync(path.join(dir, 'keys.db'));
+  const cols = db2.prepare('PRAGMA table_info(models)').all().map(function (c) { return c.name; });
+  db2.close();
   assert.ok(cols.indexOf('role') < 0, 'models 表里不该有 role 列：' + cols.join(','));
   assert.ok(cols.indexOf('sort_index') < 0, 'models 表里不该有 sort_index 列：' + cols.join(','));
   store2.close();
