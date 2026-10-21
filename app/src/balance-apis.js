@@ -124,6 +124,45 @@ function pickStr(obj, keys) {
 }
 
 /* 本层 + 一层嵌套里找：MiniMax 这类把余量裹在 data 里的形状用得上 */
+/* 按**前缀**找字段：MiniMax 国际版的窗口字段带后缀
+   （remaining_percent_5h / remaining_percent_weekly / reset_time_5h …），
+   按确切名找一个都找不到。返回 { key, value }，key 留着推窗口名。 */
+function pickNumByPrefixDeep(obj, prefixes) {
+  if (!obj || typeof obj !== 'object') return null;
+  const keys = Object.keys(obj);
+  for (let i = 0; i < prefixes.length; i++) {
+    const p = prefixes[i];
+    for (let j = 0; j < keys.length; j++) {
+      if (keys[j].indexOf(p) !== 0) continue;
+      const v = num(obj[keys[j]]);
+      if (v != null) return { key: keys[j], value: v };
+    }
+  }
+  /* 再往下一层找（data 下一层） */
+  for (let j = 0; j < keys.length; j++) {
+    const child = obj[keys[j]];
+    if (!child || typeof child !== 'object' || Array.isArray(child)) continue;
+    const hit = pickNumByPrefixDeep(child, prefixes);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/* 窗口名从字段后缀推：remaining_percent_5h ⇒ 5 小时；_weekly ⇒ 每周 */
+function percentWindowName(fieldKey) {
+  const s = String(fieldKey || '');
+  const m = s.match(/_(5h|weekly|week|monthly|month|daily|day|\d+h)$/i);
+  if (!m) return null;
+  const t = m[1].toLowerCase();
+  if (t === '5h') return '5 小时';
+  if (t === 'weekly' || t === 'week') return '每周';
+  if (t === 'monthly' || t === 'month') return '每月';
+  if (t === 'daily' || t === 'day') return '每天';
+  const h = t.match(/^(\d+)h$/);
+  if (h) return h[1] + ' 小时';
+  return null;
+}
+
 function pickNumDeep(obj, keys) {
   const direct = pickNum(obj, keys);
   if (direct != null) return direct;
@@ -215,22 +254,6 @@ const BALANCE_APIS = [
     }
   },
   {
-    id: 'minimax',
-    re: /(^|\.)minimaxi\.com$|(^|\.)minimax\.(chat|io)$/i,
-    path: '/v1/token_plan/remains',
-    error: minimaxError,
-    /* 套餐余量。成功响应的具体字段名没有公开文档（实测只拿到认证失败的
-       base_resp），这里按「remain 类字段 + data 下一层」容错取值。
-       单位以平台为准（可能是积分/token 数），只如实转达数值。 */
-    parse: function (body) {
-      const v = pickNumDeep(body, ['remain', 'remaining', 'remain_amount', 'remain_balance',
-        'remain_quota', 'remain_tokens', 'remain_point', 'total_remain', 'current_remain',
-        'balance', 'total_balance']);
-      if (v == null) throw parseFailBalance();
-      return { value: v, status: 'ok' };
-    }
-  },
-  {
     id: 'openrouter',
     re: /(^|\.)openrouter\.ai$/i,
     path: '/api/v1/credits',
@@ -278,13 +301,156 @@ const USAGE_APIS = [
     path: '/api/monitor/usage/quota/limit',
     kind: 'quota',
     error: zhipuError,
-    /* 认证失败实测：HTTP 200 + {code:401, msg:"令牌已过期或验证不正确", success:false}。
-       成功响应的字段名没有公开文档（这是控制台内部接口，公开 OpenAPI 规范里没有），
-       所以下面按形状寻址：数组里每条能同时读出「已用/上限」的就算一个窗口。 */
+    /* 监控接口的认证头是**裸 token**（不带 Bearer 前缀）—— 三处独立来源一致：
+       智谱 Coding Plan 的 monitor 接口文档、cc-switch 的用量脚本示例、DSH 的
+       glm.js 实现，三家都写「Authorization: {apiKey}」不加 Bearer。
+       余额接口（/api/biz/…）用 Bearer，那条实测通过，两者不要混。 */
+    auth: 'raw',
+    /* 附加接口：智谱「近 24 小时用了多少次、调了多少 token」—— 用户要的三格里
+       就有「调用次数」。它与限额窗口是**同域名的两个接口**，而用户的平台端点 URL
+       （/api/paas/v4）跟它们的路径都对不上 ⇒ 只能按条目内部区分，不能靠域名。
+       形状（GitHub wiki 与 opencode-mystatus 文档两处一致）：
+       { totalTokens:7477320, totalCalls:135,
+         models:[ {modelCode:"glm-4-flash", tokenCount:5234100, callCount:78, ...} ] }
+       时间窗是 24 小时滚动，查询参数按「昨天此刻 → 今天此刻」算。
+       查不到不影响主接口（少一行，不是整次查询失败）。 */
+    also: [{
+      path: '/api/monitor/usage/model-usage',
+      kind: 'usage',
+      error: zhipuError,
+      auth: 'raw',
+      query: function () {
+        const pad = function (n) { return String(n).padStart(2, '0'); };
+        const fmt = function (d) {
+          return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+            + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        };
+        const end = new Date();
+        const start = new Date(end.getTime() - 24 * 3600 * 1000);
+        return '?startTime=' + encodeURIComponent(fmt(start)) + '&endTime=' + encodeURIComponent(fmt(end));
+      },
+      parse: function (body) {
+        const b = body || {};
+        const calls = num(b.totalCalls);
+        const tokens = num(b.totalTokens);
+        if (calls == null && tokens == null) throw parseFailUsage();
+        return {
+          windows: [{
+            name: '近 24 小时',
+            used: calls,
+            limit: null,
+            resetAt: null,
+            unit: '次'
+          }],
+          kind: 'usage',
+          raw: body
+        };
+      }
+    }],
+    /* 成功响应的真实形状（2026-10-21 查到，GitHub wiki / cc-switch issue / DSH 插件
+       三处一致，不是猜的）：
+       { code:200, msg:"操作成功", success:true,
+         data:{ limits:[ {type:"TOKENS_LIMIT", unit:3, number:5, percentage:40.5, nextResetTime:1737651600000},
+                        {type:"TOKENS_LIMIT", unit:6, number:1, percentage:52.0,  nextResetTime:1737910800000},
+                        {type:"TIME_LIMIT",  unit:5, number:1, usage:1000, currentValue:123, remaining:877,
+                         percentage:12.3, nextResetTime:1738256400000} ],
+               level:"pro" } }
+       窗口身份靠 type + unit + number 三件套：
+         TOKENS_LIMIT + unit=3（小时）+ number=5 ⇒ 5 小时 token 限额
+         TOKENS_LIMIT + unit=6（周）  + number=1 ⇒ 每周 token 限额
+         TIME_LIMIT  + unit=5（月）  + number=1 ⇒ 每月 MCP 工具调用额度
+       单位 unit：3=小时 5=月 6=周。
+       额度值：TOKENS_LIMIT 只给**百分比**（percentage 0-100，没有绝对数）；
+               TIME_LIMIT 给绝对数（usage 总额 / currentValue 已用 / remaining 剩余）。 */
     parse: function (body) {
-      const windows = extractWindows(body);
+      const d = (body && body.data) || {};
+      const limits = Array.isArray(d.limits) ? d.limits : [];
+      /* 认不出 limits[] 就退回通用形状寻址：平台改字段名时不至于立刻瞎掉
+         （通用寻址那套仍在，windowOf/extractWindows 就是干这个的）。 */
+      if (!limits.length) {
+        const fallback = extractWindows(body);
+        if (!fallback.length) throw parseFailUsage();
+        return { windows: fallback, kind: 'quota', raw: body };
+      }
+      const windows = limits.map(function (x) {
+        const type = String(x.type || '');
+        const isTokens = type === 'TOKENS_LIMIT';
+        const pct = num(x.percentage);
+        const used = isTokens ? pct : num(x.currentValue);
+        const limit = isTokens ? (pct == null ? null : 100) : num(x.usage);
+        const at = num(x.nextResetTime);
+        return {
+          name: zhipuWindowName(type, num(x.unit), num(x.number)),
+          used: used,
+          limit: limit,
+          resetAt: at != null ? new Date(at).toISOString() : null,
+          unit: isTokens ? '%' : '次'
+        };
+      }).filter(function (w) { return w.used != null; });
       if (!windows.length) throw parseFailUsage();
       return { windows: windows, kind: 'quota', raw: body };
+    }
+  },
+  {
+    id: 'minimax',
+    re: /(^|\.)minimaxi\.com$|(^|\.)minimax\.(chat|io)$/i,
+    path: '/v1/token_plan/remains',
+    kind: 'quota',
+    error: minimaxError,
+    /* 成功响应的形状（2026-10-21 查到，cc-minimax-status 与 minimax-usage 两处一致）：
+       国内版 /v1/api/openplatform/coding_plan/remains 返回
+       { model_remains:[ { model_name:"general", remaining:431, total:600, remains_time:720046 } ] }
+       —— remaining 是本窗口**剩余次数**，total 是窗口总限额，remains_time 是距重置的毫秒数。
+       国际版 /v1/token_plan/remains 给的是**百分比** + 重置时间。
+       两种都认：先找 model_remains，找不到再按百分比容错。
+       ⚠ 要用 **Token Plan 专属 Key**（sk-cp-…）；普通 API Key 会被回
+       base_resp={2062,"no active token plan"} —— 那是「没买套餐」，不是认证错。 */
+    parse: function (body) {
+      const b = body || {};
+      const list = Array.isArray(b.model_remains) ? b.model_remains
+        : (b.data && Array.isArray(b.data.model_remains) ? b.data.model_remains : []);
+      if (list.length) {
+        const now = Date.now();
+        const windows = list.map(function (m) {
+          const total = num(m.total);
+          const remaining = num(m.remaining);
+          const used = (total != null && remaining != null) ? total - remaining : null;
+          const ms = num(m.remains_time);
+          return {
+            name: humanWindowName(m.model_name, 0),
+            used: used,
+            limit: total,
+            resetAt: ms != null ? new Date(now + ms).toISOString() : null,
+            unit: '次'
+          };
+        }).filter(function (w) { return w.used != null; });
+        if (windows.length) return { windows: windows, kind: 'quota', raw: body };
+      }
+      /* 百分比形状：字段名来自**二手来源**（cc-minimax-status 的脚本说明），未实测 ——
+         所以「确切名」与「前缀」两种都认，解析不出就走 parseFailUsage
+         （错误文案会说清「这个平台没返回能认的窗口」）。 */
+      let pct = null;
+      let pctKey = null;
+      const exact = pickNumDeep(b, ['remaining_percent', 'remain_percent', 'used_percent',
+        'remaining_percentage', 'used_percentage', 'percentage']);
+      if (exact != null) { pct = exact; pctKey = 'remaining_percent'; } else {
+        const hit = pickNumByPrefixDeep(b, ['remaining_percent', 'used_percent',
+          'remaining_pct', 'used_pct']);
+        if (hit) { pct = hit.value; pctKey = hit.key; }
+      }
+      if (pct == null) throw parseFailUsage();
+      const at = pickNumDeep(b, ['reset_time', 'reset_at', 'next_reset', 'resetTime']);
+      return {
+        windows: [{
+          name: percentWindowName(pctKey) || '5 小时',
+          used: pct,
+          limit: 100,
+          resetAt: at != null ? new Date(at).toISOString() : null,
+          unit: '%'
+        }],
+        kind: 'quota',
+        raw: body
+      };
     }
   },
   {
@@ -345,6 +511,22 @@ function humanWindowName(raw, index) {
   return '额度 ' + String((index || 0) + 1);
 }
 
+/* 智谱的窗口身份是 type + unit + number 三件套，平台不给现成名字。
+   unit：3=小时 5=月 6=周（这是平台自己的单位码，不是猜的）。 */
+function zhipuWindowName(type, unit, number) {
+  const u = num(unit);
+  const n = num(number);
+  /* 「1 周」→「每周」、「1 月」→「每月」：界面上的窗口名要读得顺，
+     数字为 1 时不重复说「1」。 */
+  const span = (u === 3) ? (n == null || n === 1 ? '每小时' : n + ' 小时')
+    : (u === 6) ? (n == null || n === 1 ? '每周' : n + ' 周')
+      : (u === 5) ? (n == null || n === 1 ? '每月' : n + ' 月')
+        : null;
+  if (type === 'TOKENS_LIMIT') return span ? span + ' token 限额' : 'token 限额';
+  if (type === 'TIME_LIMIT') return span ? span + ' 工具调用' : '工具调用';
+  return '额度';
+}
+
 function windowOf(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
   const used = pickNum(obj, WINDOW_USED_KEYS);
@@ -358,7 +540,9 @@ function windowOf(obj) {
     name: humanWindowName(rawName, 0),
     used: used,
     limit: limit,
-    resetAt: resetAt
+    resetAt: resetAt,
+    /* 计量单位：平台给了就带（%/次），没给就是 null（界面只显示数字，不编单位） */
+    unit: null
   };
 }
 
@@ -393,7 +577,8 @@ function extractWindows(body) {
       name: /^额度 \d+$/.test(w.name) ? '额度 ' + String(i + 1) : w.name,
       used: w.used,
       limit: w.limit,
-      resetAt: w.resetAt
+      resetAt: w.resetAt,
+      unit: w.unit === undefined ? null : w.unit
     };
   });
 }

@@ -55,8 +55,12 @@ const ROUTES = {
     flat: { status: 200, body: { balance: '5.25' } },
     bad: { status: 401, body: { error: { message: 'Token is invalid', code: '401' } } }
   },
+  /* MiniMax Token Plan（真实形状，2026-10-21 查 cc-minimax-status / minimax-usage 两处一致）：
+     model_remains[] 里 remaining 是**剩余**、total 是**总额**、remains_time 是距重置的毫秒数。 */
   '/v1/token_plan/remains': {
-    ok: { status: 200, body: { base_resp: { status_code: 0, status_msg: 'success' }, data: { remain: 1200, total: 2000 } } },
+    ok: { status: 200, body: { model_remains: [
+      { model_name: 'general', remaining: 431, total: 600, remains_time: 720046 }
+    ] } },
     bad: { status: 200, body: { base_resp: { status_code: 1004, status_msg: "login fail: Please carry the API secret key in the 'Authorization' field of the request header" } } }
   },
   '/api/v1/credits': {
@@ -67,14 +71,28 @@ const ROUTES = {
     ok: { status: 200, body: { data: { balance: 42.5 } } },
     bad: { status: 403, body: { error: { message: 'Invalid API key', code: 403 } } }
   },
+  /* 智谱 Coding Plan 的 monitor 接口（真实形状，2026-10-21 查到，
+     GitHub wiki / cc-switch issue #1588 / DSH 插件三处独立来源一致）：
+     窗口身份是 type + unit + number 三件套（unit 3=小时 5=月 6=周），
+     TOKENS_LIMIT 只给**百分比**（percentage 0-100），TIME_LIMIT 给绝对次数。 */
   '/api/monitor/usage/quota/limit': {
-    ok: { status: 200, body: { code: 200, msg: 'success', data: { list: [
-      { name: '5小时积分', used: 1200, limit: 12000, resetAt: '2026-10-21T20:00:00+08:00' },
-      { name: '每周积分', used: 8000, limit: 60000, resetAt: '2026-10-28T00:00:00+08:00' }
+    ok: { status: 200, body: { code: 200, msg: '操作成功', success: true, data: { limits: [
+      { type: 'TOKENS_LIMIT', unit: 3, number: 5, percentage: 40.5, nextResetTime: 1737651600000 },
+      { type: 'TOKENS_LIMIT', unit: 6, number: 1, percentage: 52.0, nextResetTime: 1737910800000 },
+      { type: 'TIME_LIMIT', unit: 5, number: 1, usage: 1000, currentValue: 123, remaining: 877, percentage: 12.3, nextResetTime: 1738256400000 }
+    ], level: 'pro' } } },
+    /* 平台改字段名时的样子：认不出 limits[] 会退回通用形状寻址，窗口照样认得出 */
+    flat: { status: 200, body: { code: 200, msg: 'success', data: { list: [
+      { name: '5小时积分', used: 1200, limit: 12000, resetAt: '2026-10-21T20:00:00+08:00' }
     ] } } },
-    flat: { status: 200, body: { code: 200, msg: 'success', data: { quota_limit: [
-      { period: '5h', used: 100, total: 2000, reset_time: '2026-10-21T18:00:00Z' }
-    ] } } },
+    bad: { status: 200, body: { code: 401, msg: '令牌已过期或验证不正确', success: false } }
+  },
+  /* 智谱「近 24 小时用了多少次」—— 与限额窗口同域名的另一个接口，
+     带 24 小时时间窗参数（用户要的三格里的「调用次数」）。 */
+  '/api/monitor/usage/model-usage': {
+    ok: { status: 200, body: { totalTokens: 7477320, totalCalls: 135, models: [
+      { modelCode: 'glm-4-flash', tokenCount: 5234100, callCount: 78, successCount: 76, errorCount: 2 }
+    ] } },
     bad: { status: 200, body: { code: 401, msg: '令牌已过期或验证不正确', success: false } }
   },
   '/v1/organizations/usage/costs': {
@@ -157,7 +175,6 @@ test('余额：各平台按实测响应形状解析出金额', async () => {
       { ep: { url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }, path: '/api/biz/account/query-customer-account-report', value: 99.2273858 },
       { ep: { url: 'https://api.stepfun.com/v1', style: 'openai' }, path: '/v1/accounts', value: 26 },
       { ep: { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, path: '/v1/user/info', value: 18.5 },
-      { ep: { url: 'https://api.minimaxi.com/v1', style: 'openai' }, path: '/v1/token_plan/remains', value: 1200 },
       { ep: { url: 'https://openrouter.ai/api/v1', style: 'openai' }, path: '/api/v1/credits', value: 75 },
       { ep: { url: 'https://api.novita.ai/v3', style: 'openai' }, path: '/v3/user/balance', value: 42.5 }
     ];
@@ -199,11 +216,24 @@ test('用量：智谱的限流窗口解析出 name/used/limit/resetAt', async ()
     const u = await adapters.fetchUsage('zhipu', { url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }, GOOD, { fetchImpl: s.fetchImpl });
     assert.ok(u, '智谱用量接口应可查');
     assert.strictEqual(u.kind, 'quota');
+    /* 真实形状：窗口身份靠 type+unit+number；TOKENS_LIMIT 给百分比、TIME_LIMIT 给次数 */
     assert.deepStrictEqual(u.windows, [
-      { name: '5 小时', used: 1200, limit: 12000, resetAt: '2026-10-21T20:00:00+08:00' },
-      { name: '7 天', used: 8000, limit: 60000, resetAt: '2026-10-28T00:00:00+08:00' }
-    ], '窗口名要说人话，数值与重置时间要原样对上');
+      { name: '5 小时 token 限额', used: 40.5, limit: 100, resetAt: '2025-01-23T17:00:00.000Z', unit: '%' },
+      { name: '每周 token 限额', used: 52, limit: 100, resetAt: '2025-01-26T17:00:00.000Z', unit: '%' },
+      { name: '每月 工具调用', used: 123, limit: 1000, resetAt: '2025-01-30T17:00:00.000Z', unit: '次' },
+      { name: '近 24 小时', used: 135, limit: null, resetAt: null, unit: '次' }
+    ], '窗口名要说人话，数值与重置时间要原样对上（含附加接口的调用次数）');
     assert.ok(s.seen.some(function (r) { return r.path === '/api/monitor/usage/quota/limit'; }));
+    /* 监控接口的认证是裸 token：Authorization 里没有 Bearer 前缀 */
+    const req = s.seen.filter(function (r) { return r.path === '/api/monitor/usage/quota/limit'; })[0];
+    assert.strictEqual(req.headers.authorization, GOOD, '智谱 monitor 接口应当用裸 token');
+    assert.strictEqual(String(req.headers.authorization).indexOf('Bearer '), -1, '不该带 Bearer 前缀');
+    /* 附加接口（近 24 小时调用次数）也要查，且带 24 小时时间窗参数 */
+    const extra = s.seen.filter(function (r) { return String(r.path).indexOf('/api/monitor/usage/model-usage') === 0; })[0];
+    assert.ok(extra, '应当同时查「近 24 小时调用次数」那个接口');
+    assert.ok(/startTime=/.test(extra.path) && /endTime=/.test(extra.path), '该接口要带时间窗参数');
+    assert.ok(u.windows.some(function (w) { return w.name === '近 24 小时' && w.used === 135; }),
+      '调用次数没进窗口');
   } finally {
     await stopServer(s.server);
   }
@@ -212,9 +242,10 @@ test('用量：智谱的限流窗口解析出 name/used/limit/resetAt', async ()
 test('用量：换个字段名也要认得出窗口（按形状寻址，不按平台写死字段）', async () => {
   const s = await startServer();
   try {
+    /* 平台改了字段名（认不出 limits[]）时，退回通用形状寻址，窗口照样认得出 */
     const u = await adapters.fetchUsage('zhipu', { url: 'https://open.bigmodel.cn/api/paas/v4', style: 'openai' }, FLAT, { fetchImpl: s.fetchImpl });
     assert.deepStrictEqual(u.windows, [
-      { name: '5 小时', used: 100, limit: 2000, resetAt: '2026-10-21T18:00:00Z' }
+      { name: '5 小时', used: 1200, limit: 12000, resetAt: '2026-10-21T20:00:00+08:00', unit: null }
     ]);
   } finally {
     await stopServer(s.server);
@@ -270,9 +301,10 @@ test('认证失败（HTTP 200 里裹着错误码）：文案说密钥无效，�
         return true;
       }
     );
-    /* MiniMax 余额：HTTP 200 + {base_resp:{status_code:1004}} */
+    /* MiniMax 限额：HTTP 200 + {base_resp:{status_code:1004}}
+       （MiniMax 是限额接口不是余额接口 —— 它的余额在网页控制台，没有公开 API） */
     await assert.rejects(
-      () => adapters.fetchBalance('minimax', { url: 'https://api.minimaxi.com/v1', style: 'openai' }, BAD, { fetchImpl: s.fetchImpl }),
+      () => adapters.fetchUsage('minimax', { url: 'https://api.minimaxi.com/v1', style: 'openai' }, BAD, { fetchImpl: s.fetchImpl }),
       function (e) {
         assertAuthMessage(e);
         assert.strictEqual(e.code, 'AUTH');

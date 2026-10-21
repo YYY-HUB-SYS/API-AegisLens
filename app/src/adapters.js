@@ -218,13 +218,20 @@ function toolUaFor(url) {
   return (h && PUBLIC_CATALOG_HOSTS.test(h)) ? null : TOOL_UA;
 }
 
-function authHeaders(style, key, url) {
+/* authMode='raw' 时不带 Bearer 前缀，直接把 key 放进 Authorization。
+   智谱 Coding Plan 的 monitor 接口（quota/limit、model-usage）三家独立来源都这么写：
+   「Authorization: {apiKey}」不加 Bearer。余额接口（/api/biz/…）用 Bearer，那条实测通过。 */
+function authHeaders(style, key, url, authMode) {
   const ua = toolUaFor(url);
   const h = ua ? { 'User-Agent': ua } : {};
   const override = url ? authOverrideOf(url) : null;
   if (override) {
     h[override.header] = key;
     if (style === 'anthropic') h['anthropic-version'] = '2023-06-01';
+    return h;
+  }
+  if (authMode === 'raw') {
+    h['Authorization'] = key;
     return h;
   }
   if (style === 'anthropic') {
@@ -531,14 +538,38 @@ async function fetchUsage(platform, ep, key, opts) {
   if (!api) return null;
   let origin;
   try { origin = new URL(url).origin; } catch (e) { return null; }
-  const res = await requestJson(origin + api.path, authHeaders(style, key, url), opts);
+  const res = await requestJson(
+    origin + api.path + (api.query ? api.query() : ''),
+    authHeaders(style, key, url, api.auth),
+    opts
+  );
   if (!res.ok) {
     /* 平台对权限有额外要求时（Anthropic 用量要组织管理员密钥）说清楚，
        别让用户拿普通 key 反复试 */
     const custom = api.httpError ? api.httpError(res.status) : null;
     throw fail(502, custom || platformError(res.status), String(res.status));
   }
-  return balanceApis.parseUsageBody(api, res.body);
+  const out = balanceApis.parseUsageBody(api, res.body);
+  /* 附加接口：同域名的另一个接口（智谱的「近 24 小时调用次数」与「限额窗口」是两个接口，
+     而用户的平台端点 URL 跟它们的路径都对不上，只能按条目内部区分）。
+     附加接口查不到**不拖累**主接口 —— 它拿不到就少一行，不是整次查询失败。 */
+  const also = api.also || [];
+  for (let i = 0; i < also.length; i++) {
+    const extra = also[i];
+    try {
+      const r2 = await requestJson(
+        origin + extra.path + (extra.query ? extra.query() : ''),
+        authHeaders(style, key, url, extra.auth || api.auth),
+        opts
+      );
+      if (!r2.ok) continue;
+      const snap = balanceApis.parseUsageBody(extra, r2.body);
+      if (!snap || !snap.windows || !snap.windows.length) continue;
+      out.windows = (out.windows || []).concat(snap.windows);
+      out.raw = { main: out.raw, also: (out.raw && out.raw.also) || snap.raw };
+    } catch (e) { /* 附加接口失败不影响主接口 */ }
+  }
+  return out;
 }
 
 /* 遍历密钥全部端点，用首个命中已知用量域名的端点查询；
