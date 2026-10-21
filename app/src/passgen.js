@@ -10,9 +10,12 @@ const POOL_LOWER = 'abcdefghijklmnopqrstuvwxyz';
 const POOL_DIGIT = '0123456789';
 const POOL_SYMBOL = '!@#$%^&*()-_=+[]{};:,.<>?/';
 
-/* 易混字符：默认剔除 I/O/0/1/l（用户点定的五个）。密钥要在纸上抄一遍、或者在手机上找一个，
-   看不清就得重来，这类字符留在池子里只制造工单。 */
-const AMBIGUOUS_CHARS = 'IO01l';
+/* 易混字符：默认剔除 I/l/1/O/0/o 六个。密钥要在纸上抄一遍、或者在手机上找一个，
+   看不清就得重来，这类字符留在池子里只制造工单。
+   这六个必须与前端 app/public/credentials-view.js 的 AMBIGUOUS_CHARS、以及界面上
+   「排除易混字符 Il1O0o」那句文案完全一致：开关是给用户看的承诺，承诺排除什么就得真排除什么。
+   （只排这六个具体字符，不按大小写牵连——小写 i 仍然可用，其余字母不受影响。） */
+const AMBIGUOUS_CHARS = 'Il1O0o';
 
 const MAX_LENGTH = 256;
 

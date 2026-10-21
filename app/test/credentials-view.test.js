@@ -319,3 +319,162 @@ test('金库端点表要对准后端真实路径：没有 /api/vault/init', () =
   assert.ok(/vault\/passphrase'\)[\s\S]{0,240}?\.next/.test(js),
     'CV_MOCK 的设口令分支应当走 /api/vault/passphrase 并读 next 字段');
 });
+
+/* ── 易混字符：界面承诺 / 字符池 / 后端必须是同一套 ──────────────────── */
+/* 迷你 DOM：只支持这个用例要用的几件事——
+   1) 记住渲染出来的标记（innerHTML）；
+   2) querySelector 按标记里的类名/id 找元素：标记里根本没有就返回 null
+      （免得"往一个根本不存在的元素里写值"也被判成通过）；
+   3) 找到的元素是可写的桩：style / textContent / value 都能记下来。 */
+function miniEl() {
+  const stubs = new Map();
+  let html = '';
+  const el = {
+    className: '', children: [], listeners: [], attrs: {},
+    get innerHTML() { return html; },
+    set innerHTML(v) { html = String(v); stubs.clear(); },
+    appendChild(c) { el.children.push(c); return c; },
+    removeChild() {},
+    setAttribute(k, v) { el.attrs[k] = v; },
+    getAttribute(k) { return k in el.attrs ? el.attrs[k] : null; },
+    removeAttribute(k) { delete el.attrs[k]; },
+    addEventListener(t, fn) { el.listeners.push([t, fn]); },
+    removeEventListener(t, fn) {
+      const i = el.listeners.findIndex(x => x[0] === t && x[1] === fn);
+      if (i >= 0) el.listeners.splice(i, 1);
+    },
+    focus() {}, select() {}, closest() { return null; },
+    classList: { add() {}, remove() {}, contains() { return false; } },
+    querySelectorAll() { return []; },
+    querySelector(sel) {
+      if (!htmlHas(html, sel)) return null;
+      let s = stubs.get(sel);
+      if (!s) {
+        s = {
+          style: {}, textContent: '', value: '', innerHTML: '', disabled: false, attrs: {},
+          setAttribute(k, v) { s.attrs[k] = v; },
+          getAttribute(k) { return k in s.attrs ? s.attrs[k] : null; },
+          removeAttribute(k) { delete s.attrs[k]; },
+          focus() {}, select() {}, closest() { return null; },
+          classList: { contains() { return false; } },
+          querySelector() { return null; }, querySelectorAll() { return []; }
+        };
+        stubs.set(sel, s);
+      }
+      return s;
+    }
+  };
+  return el;
+}
+/* 选择器 → 标记里该出现的那个类名/id（它在不在，决定这个元素存不存在） */
+function htmlHas(html, sel) {
+  const m = /^[.#]([A-Za-z0-9_-]+)/.exec(sel);
+  if (!m) return true; // 认不出来的选择器不制造假阴性
+  return html.indexOf(m[1]) >= 0;
+}
+function miniDocument(mount) {
+  let created = 0;
+  return {
+    activeElement: null, hidden: false, body: null,
+    createElement() { created++; return created === 1 ? mount : miniEl(); },
+    addEventListener() {}, removeEventListener() {}
+  };
+}
+/* 把前端的随机源钉成确定序列并记录调用次数：
+   用来断言"打开弹层只生成了一次口令"（补强度提示不该顺带再生成一次），
+   以及"关掉开关后这六个字符立刻可选"（确定判断，不靠概率）。 */
+function seedCrypto() {
+  const real = globalThis.crypto.getRandomValues;
+  let n = 0;
+  globalThis.crypto.getRandomValues = function (buf) {
+    for (let i = 0; i < buf.length; i++) { buf[i] = n & 0x7fffffff; n++; }
+    return buf;
+  };
+  return {
+    reset() { n = 0; },
+    used() { return n; },
+    restore() { globalThis.crypto.getRandomValues = real; }
+  };
+}
+
+test('排除易混字符：界面承诺的 Il1O0o 六个，字符池里一个都不许有', () => {
+  const I = view.__internals;
+  assert.strictEqual(I.AMBIGUOUS_CHARS, 'Il1O0o');
+  assert.strictEqual(I.CHARSETS.upper.length, 24, '大写池：26 减 I、O');
+  assert.strictEqual(I.CHARSETS.lower.length, 24, '小写池：26 减 l、o');
+  assert.strictEqual(I.CHARSETS.digit.length, 8, '数字池：10 减 0、1');
+  assert.strictEqual(I.CHARSETS.symbol.length, 18, '符号池：这六个字符本来就不在里面');
+  for (const k of ['upper', 'lower', 'digit', 'symbol']) {
+    for (const ch of I.AMBIGUOUS_CHARS) {
+      assert.ok(I.CHARSETS[k].indexOf(ch) < 0, k + ' 池里还留着易混字符 ' + ch);
+    }
+  }
+  assert.ok(I.CHARSETS.lower.indexOf('i') >= 0, '小写 i 不在排除集里，不该被牵连');
+});
+
+test('前端开关关掉后 Il1O0o 立刻可选（确定随机源，不靠概率）', () => {
+  const I = view.__internals;
+  const seed = seedCrypto();
+  try {
+    seed.reset();
+    const seen = new Set();
+    for (const ch of I.generatePassword({ length: 200, upper: true, lower: true, digit: true, symbol: true, noConfusable: false })) seen.add(ch);
+    for (const ch of I.AMBIGUOUS_CHARS) {
+      assert.ok(seen.has(ch), '关掉排除后 ' + ch + ' 仍取不到，说明开关没接上');
+    }
+    // 开关开着：这六个一个都不许出现
+    for (let i = 0; i < 200; i++) {
+      const pw = I.generatePassword({ length: 32 });
+      for (const ch of I.AMBIGUOUS_CHARS) assert.ok(pw.indexOf(ch) < 0, '默认应当排除 ' + ch + '，实得：' + pw);
+    }
+  } finally { seed.restore(); }
+});
+
+test('打开「新增凭证」弹层时强度提示就有值（不是等点「重新生成」才出现）', () => {
+  const I = view.__internals;
+  const mount = miniEl();
+  const realDoc = globalThis.document;
+  const seed = seedCrypto();
+  try {
+    globalThis.document = miniDocument(mount);
+    const root = miniEl();
+    const mounted = view.mountCredentialsView(root, { needsSetup: false, fetchImpl: async () => new Response('{}') });
+    const click = root.listeners.find(l => l[0] === 'click');
+    assert.ok(click, 'click 委托监听没装上');
+    const actEl = { getAttribute: (k) => (k === 'data-act' ? 'add' : null), classList: { contains: () => false } };
+    const target = { closest: (sel) => (sel === '[data-act]' ? actEl : null), classList: { contains: () => false } };
+    seed.reset();
+    click[1]({ target: target, preventDefault() {} });
+    const usedOpen = seed.used();
+
+    const st = mounted.getState();
+    assert.ok(st.modal, '弹层没打开');
+    const out = st.modal.gen.output;
+    assert.strictEqual(out.length, 20, '弹层里应当已经有一条口令');
+
+    // 强度提示：标签与色条都不能是空的
+    const label = mount.querySelector('.cv-gen-meter-label');
+    assert.ok(label, '标记里没有 .cv-gen-meter-label');
+    assert.ok(label.textContent && label.textContent.length > 0, '打开弹层时强度提示是空的');
+    assert.strictEqual(label.textContent, I.strengthBits(out).label);
+    const bar = mount.querySelector('.cv-gen-meter > i');
+    assert.ok(bar, '标记里没有 .cv-gen-meter > i');
+    assert.strictEqual(bar.style.width, I.clamp(I.strengthBits(out).bits / 100 * 100, 6, 100) + '%',
+      '色条宽度没设，或与强度算出来的对不上');
+
+    // 整块重绘（列表自动刷新）之后强度条也不能又变空：宽度与文案写死在标记里
+    const html = mount.innerHTML;
+    assert.ok(html.indexOf('<i style="width:') >= 0, '强度条宽度没写进标记，重绘后会变空');
+    assert.ok(html.indexOf('cv-gen-meter-label">' + I.strengthBits(out).label) >= 0, '强度文案没写进标记，重绘后会变空');
+    // 界面文案与排除集合必须是同一个常量
+    assert.ok(html.indexOf('排除易混字符 <code>' + I.AMBIGUOUS_CHARS + '</code>') >= 0, '界面文案与排除集合对不上');
+
+    // 补强度提示不该顺带再生成一次口令
+    seed.reset();
+    I.generatePassword({ length: 20, upper: true, lower: true, digit: true, symbol: true, noConfusable: true });
+    assert.strictEqual(usedOpen, seed.used(), '打开弹层不该多生成一次口令');
+  } finally {
+    seed.restore();
+    if (realDoc === undefined) delete globalThis.document; else globalThis.document = realDoc;
+  }
+});

@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -159,33 +160,74 @@ test('相邻两次生成几乎不可能完全相同', () => {
 
 /* ---------- 排除易混字符 ---------- */
 
-test('默认排除 I O 0 1 l，关掉开关后才允许出现', () => {
-  assert.strictEqual(AMBIGUOUS_CHARS, 'IO01l');
+/* 把随机源钉成确定序列（依次 0,1,2,…，对池长取模由 randomInt 自己完成）：
+   断言必须确定，不能靠概率。"某个字符能不能被取到"在这种源下是确定的判断，
+   不是采样碰运气——仓库里曾经就因为这种随机断言偶发红过。 */
+function withSeededRandom(fn) {
+  const real = crypto.randomInt;
+  let n = 0;
+  crypto.randomInt = function (max) { const v = n % max; n++; return v; };
+  try { return fn(); } finally { crypto.randomInt = real; }
+}
+/* 确定源下生成一条长口令，返回出现过的字符集合（池子够长时 = 整池） */
+function sweptChars(opts) {
+  return withSeededRandom(() => {
+    const seen = new Set();
+    for (const ch of generate(opts)) seen.add(ch);
+    return seen;
+  });
+}
+
+test('默认排除 I l 1 O 0 o 六个，关掉开关后才允许出现', () => {
+  assert.strictEqual(AMBIGUOUS_CHARS, 'Il1O0o');
+  // 默认：池子里根本没有这六个，生成多少次都不该出现（确定性断言）
   for (let i = 0; i < 200; i++) {
     const pw = generate({ length: 32 });
     for (const ch of AMBIGUOUS_CHARS) {
       assert.ok(pw.indexOf(ch) < 0, '默认应当排除 ' + ch + '，实得：' + pw);
     }
   }
-  // excludeAmbiguous:false 时这些字符必须重新可选（长串里必然出现若干个）
-  let sawAny = false;
-  for (let i = 0; i < 200; i++) {
-    const pw = generate({ length: 40, excludeAmbiguous: false });
-    for (const ch of AMBIGUOUS_CHARS) if (pw.indexOf(ch) >= 0) sawAny = true;
+  // 关掉开关：确定源下一次就把整池扫过，六个字符必须都在里面（不靠概率）
+  const seen = sweptChars({ length: 200, excludeAmbiguous: false });
+  for (const ch of AMBIGUOUS_CHARS) {
+    assert.ok(seen.has(ch), '关掉排除后 ' + ch + ' 仍取不到，说明开关没接上');
   }
-  assert.ok(sawAny, '关掉排除后仍然一个易混字符都不出，说明开关没接上');
+});
+
+test('生效字符池 = 完整池减掉这六个：一个不多一个不少', () => {
+  // 逐类扫一遍确定池：排除的是这六个具体字符，不按大小写牵连——
+  // 小写 i 仍在池里（期望串里带 i），小写 l、小写 o 已经不在。
+  const expect = {
+    upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    lower: 'abcdefghijkmnpqrstuvwxyz',
+    digit: '23456789',
+    symbol: POOL_SYMBOL
+  };
+  const only = {
+    upper: { upper: true, lower: false, digit: false, symbol: false },
+    lower: { upper: false, lower: true, digit: false, symbol: false },
+    digit: { upper: false, lower: false, digit: true, symbol: false },
+    symbol: { upper: false, lower: false, digit: false, symbol: true }
+  };
+  for (const k of Object.keys(expect)) {
+    const seen = sweptChars(Object.assign({ length: 200 }, only[k]));
+    assert.deepStrictEqual([...seen].sort(), [...expect[k]].sort(),
+      k + ' 池与预期不符，实得：' + [...seen].sort().join(''));
+  }
 });
 
 test('自定义 exclude 与默认排除是叠加关系，且区分大小写', () => {
-  const pw = generate({ length: 200, exclude: 'aeiou' });
+  const pw = withSeededRandom(() => generate({ length: 200, exclude: 'aeiou' }));
   for (const ch of 'aeiou') assert.ok(pw.indexOf(ch) < 0, ch + ' 应被排除');
   // 排除是小写的：'AEIOU' 这些大写还得能用，别把用户的意思理解成不区分大小写
   assert.match(pw, /[A-Z]/);
-  // 叠加：默认的 IO01l 不会因为传了 exclude 就失效
+  // 叠加：默认的 Il1O0o 不会因为传了 exclude 就失效
   for (const ch of AMBIGUOUS_CHARS) assert.ok(pw.indexOf(ch) < 0);
-  const both = generate({ length: 120, exclude: 'xyz', excludeAmbiguous: false });
+  const both = withSeededRandom(() => generate({ length: 120, exclude: 'xyz', excludeAmbiguous: false }));
   for (const ch of 'xyz') assert.ok(both.indexOf(ch) < 0);
-  assert.match(both, /[IO01l]/, '关掉易混排除后应当能出现 I/O/0/1/l');
+  for (const ch of AMBIGUOUS_CHARS) {
+    assert.ok(both.indexOf(ch) >= 0, '关掉易混排除后应当能出现 ' + ch);
+  }
 });
 
 test('generate 的参数校验：放不下的组合要当场拒绝而不是偷偷降级', () => {

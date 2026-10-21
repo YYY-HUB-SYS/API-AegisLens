@@ -97,7 +97,11 @@
     keys: '/api/keys'
   };
 
-  var CONFOUNDABLES = 'Il1O0oB8S5Z2tvwy'; // 排除的易混字符
+  /* 排除易混字符的唯一真相：I l 1 O 0 o 六个。
+     必须与后端 app/src/passgen.js 的 AMBIGUOUS_CHARS 一一对应，界面上的
+     「排除易混字符」文案也直接取这个常量（见 genFormFields），不再另写一份。
+     开关是给用户看的承诺：承诺排除什么，字符池里就必须真的没有它。 */
+  var AMBIGUOUS_CHARS = 'Il1O0o';
   var OVERDUE_DAYS_DEFAULT = 180;
   var REVEAL_HOLD_DEFAULT = 30000;
 
@@ -225,17 +229,34 @@
     return Math.floor(Math.random() * max); // 回退：非加密安全，仅无 crypto 环境下兜底
   }
 
-  var CHARSETS = {
-    upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
-    lower: 'abcdefghijkmnopqrstuvwxyz',
-    digit: '23456789',
-    symbol: '!@#$%^&*-_=+[]{}()'
-  };
-  var FULL = {
+  /* 字符池：BASE 是三类字母数字的完整写法，符号类另有一份底池。
+     开关关掉时用 FULL，开关打开（默认）时用 CHARSETS——
+     CHARSETS 一律由 AMBIGUOUS_CHARS 过滤 BASE 得到，不在各字符集里手写剔除：
+     手写的那份迟早会和界面文案对不上（历史上就漏过一个 o，界面上写着排除、池子里还留着）。 */
+  var BASE = {
     upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
     lower: 'abcdefghijklmnopqrstuvwxyz',
     digit: '0123456789',
+    symbol: '!@#$%^&*-_=+[]{}()'
+  };
+  var FULL = {
+    upper: BASE.upper,
+    lower: BASE.lower,
+    digit: BASE.digit,
     symbol: '!@#$%^&*()-_=+[]{};:,.<>?'
+  };
+  function stripAmbiguous(s) {
+    var out = '';
+    for (var i = 0; i < s.length; i++) {
+      if (AMBIGUOUS_CHARS.indexOf(s.charAt(i)) < 0) out += s.charAt(i);
+    }
+    return out;
+  }
+  var CHARSETS = {
+    upper: stripAmbiguous(BASE.upper),   // 24：I、O 已排
+    lower: stripAmbiguous(BASE.lower),   // 24：l、o 已排（小写 i 仍在）
+    digit: stripAmbiguous(BASE.digit),   // 8：0、1 已排
+    symbol: stripAmbiguous(BASE.symbol)  // 18：这六个字符本来就不在符号类里
   };
 
   // 生成口令：opts {length,upper,lower,digit,symbol,noConfusable,min,max,forceClasses}
@@ -803,6 +824,8 @@
       state.modal = { mode: mode, id: id || '', draft: draft, gen: gen, policy: null, policyState: 'idle', saveErr: '', saving: false, touchedPw: false, touchedNote: false };
       if (mode === 'edit' && src && src.url) loadPolicy(src.id);
       render();
+      /* 弹层一打开就该有强度提示：复用 regenerate() 里那一份画法（只画，不重生成口令） */
+      paintGenMeter(gen.output);
       var first = mountPoint.querySelector('.cv-modal [data-autofocus]');
       if (first) first.focus();
     }
@@ -822,6 +845,7 @@
         state.modal.gen = applyPolicyFromModal();
         state.modal.gen.output = generatePassword(state.modal.gen);
         render();
+        paintGenMeter(state.modal.gen.output); // 重绘后强度条同样要跟着新口令走
       });
     }
     function applyPolicyFromModal() {
@@ -1036,6 +1060,29 @@
     }
     function toneColor(tone) { return tone === 'danger' ? 'var(--cv-danger)' : tone === 'warn' ? 'var(--cv-warn)' : tone === 'ok' ? 'var(--cv-accent)' : 'var(--cv-ink-3)'; }
 
+    /* 生成器强度条的唯一算式：标签文字、色条宽度与颜色都出自这里。
+       「弹层刚打开」「点重新生成」「整块重绘」三条路共用它，不各算一遍
+       （两处各写一遍早晚会分叉：曾经就是弹层刚打开时条子是空的，点一次重新生成才出来）。 */
+    function genMeterState(output) {
+      var s = strengthBits(output || '');
+      return {
+        label: s.label,
+        width: clamp(s.bits / 100 * 100, 6, 100) + '%',
+        background: toneColor(s.tone)
+      };
+    }
+
+    /* 把强度条画到当前 DOM 上（重新生成时用）。
+       重绘整块 HTML 时由 genFormFields 直接把同样的值写进标记，
+       这样列表自动刷新重绘之后条子也不会又变空。 */
+    function paintGenMeter(output) {
+      var ms = genMeterState(output);
+      var gm = mountPoint.querySelector('.cv-gen-meter > i');
+      if (gm) { gm.style.width = ms.width; gm.style.background = ms.background; }
+      var gl = mountPoint.querySelector('.cv-gen-meter-label');
+      if (gl) gl.textContent = ms.label;
+    }
+
     function regenerate(silent) {
       if (!state.modal) return;
       var gen = state.modal.gen;
@@ -1043,8 +1090,7 @@
       var out = mountPoint.querySelector('.cv-gen-out');
       if (out) out.textContent = gen.output || '—';
       var lv = mountPoint.querySelector('.cv-range-val'); if (lv) lv.textContent = gen.length;
-      var gm = mountPoint.querySelector('.cv-gen-meter > i'); if (gm) { var s = strengthBits(gen.output); gm.style.width = clamp(s.bits / 100 * 100, 6, 100) + '%'; gm.style.background = toneColor(s.tone); }
-      var gl = mountPoint.querySelector('.cv-gen-meter-label'); if (gl) gl.textContent = strengthBits(gen.output).label;
+      paintGenMeter(gen.output);
       if (!silent) { /* noop */ }
     }
 
@@ -1526,6 +1572,7 @@
     function genFormFields() {
       var m = state.modal; var g = m.gen;
       var policyState = m.policyState;
+      var ms = genMeterState(g.output); // 强度条随口令一起写进标记：重绘后不会又变空
       var policyNote =
         policyState === 'loading' ? '<div class="cv-policy-note">' + IC.info + '<span>正在读取站点口令规则…</span></div>' :
         policyState === 'ready' ? '<div class="cv-policy-note" data-available="1">' + IC.shield + '<span>已套用站点规则：长度 ' + g.min + '–' + g.max + (g.note ? '；' + escapeHtml(g.note) : '') + '</span></div>' :
@@ -1534,7 +1581,8 @@
       var range = '<div class="cv-gen">' +
         '<div class="cv-gen-head">' + IC.wand + '<h4>口令生成器</h4></div>' +
         '<div class="cv-gen-out" role="textbox" tabindex="0" aria-label="生成的口令">' + escapeHtml(g.output || '—') + '</div>' +
-        '<div class="cv-meter cv-gen-meter" style="margin-top:8px"><i></i></div><div class="cv-meter-label"><span>强度</span><span class="cv-gen-meter-label"></span></div>' +
+        '<div class="cv-meter cv-gen-meter" style="margin-top:8px"><i style="width:' + ms.width + ';background:' + ms.background + '"></i></div>' +
+        '<div class="cv-meter-label"><span>强度</span><span class="cv-gen-meter-label">' + escapeHtml(ms.label) + '</span></div>' +
         '<div class="cv-gen-acts"><button class="cv-btn" type="button" data-act="gen-regen">' + IC.refresh + '重新生成</button>' +
         '<button class="cv-btn ghost" type="button" data-act="gen-copy">' + IC.copy + '复制</button>' +
         '<button class="cv-btn primary" type="button" data-act="gen-apply">' + IC.key + '填入口令框</button></div>' +
@@ -1546,7 +1594,7 @@
           toggle('upper', '大写字母', 'A–Z', g.upper) + toggle('lower', '小写字母', 'a–z', g.lower) +
           toggle('digit', '数字', '0–9', g.digit) + toggle('symbol', '符号', '!@#$', g.symbol) +
           '</div>' +
-          '<label class="cv-toggle"><input type="checkbox" class="cv-gen-conf"' + (g.noConfusable ? ' checked' : '') + '>排除易混字符 <code>Il1O0o</code></label>' +
+          '<label class="cv-toggle"><input type="checkbox" class="cv-gen-conf"' + (g.noConfusable ? ' checked' : '') + '>排除易混字符 <code>' + escapeHtml(AMBIGUOUS_CHARS) + '</code></label>' +
           policyNote +
         '</div></div>';
       return range;
@@ -1685,6 +1733,7 @@
       rateMessage: rateMessage, retryText: retryText, secretRowInner: secretRowInner,
       revealState: revealState, REVEAL_FIELDS: REVEAL_FIELDS,
       generatePassword: generatePassword, applyPolicy: applyPolicy, strengthBits: strengthBits,
+      CHARSETS: CHARSETS, FULL: FULL, AMBIGUOUS_CHARS: AMBIGUOUS_CHARS,
       normalizeHealth: normalizeHealth, isOverdue: isOverdue, hostOf: hostOf, clamp: clamp, formatCode: formatCode,
       submitPayload: submitPayload
     }
