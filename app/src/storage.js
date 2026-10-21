@@ -134,6 +134,46 @@ function emptyBalance(status) {
   return { value: null, status: status || 'pending', updatedAt: null };
 }
 
+/* ================= 用量/限流快照 =================
+   余额是 **Key 级** 的（同一把 key 查到的钱属于这把 key），
+   用量/限流窗口是 **账户级** 的（同一平台的多个 key 查出来是同一份数据）。
+   两套口径混在一列里，以后就再也分不清「上次调用时的限额快照」和「余额」，
+   所以这里另立一套字段（usage_json / usage_status / usage_updated_at）。
+   两个后端共用下面这段归一，读回来的形状因此不可能分叉。 */
+function emptyUsage(status) {
+  return { status: status || 'pending', windows: [], kind: null, raw: null, msg: null, updatedAt: null };
+}
+
+function usageNum(v) {
+  if (v == null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normWindow(w) {
+  const x = w || {};
+  return {
+    name: String(x.name == null ? '' : x.name),
+    used: usageNum(x.used),
+    limit: usageNum(x.limit),
+    resetAt: x.resetAt == null ? null : String(x.resetAt)
+  };
+}
+
+function normUsage(u) {
+  if (!u || typeof u !== 'object') return emptyUsage();
+  return {
+    status: u.status ? String(u.status) : 'pending',
+    windows: (Array.isArray(u.windows) ? u.windows : []).map(normWindow),
+    kind: u.kind == null ? null : String(u.kind),
+    raw: u.raw == null ? null : u.raw,
+    /* 失败原因要留得住：「密钥无效」和「没解析出窗口」是两回事，
+       界面上混成一句「失败」等于把这一轮修好的分文案又抹掉了 */
+    msg: u.msg == null ? null : String(u.msg),
+    updatedAt: u.updatedAt == null ? null : String(u.updatedAt)
+  };
+}
+
 /* ================= 观测历史 =================
    密钥记录上只留最近一次（d.test 被整条覆盖），延迟趋势、余额走势因此无数据可画。
    每次真实观测另存一行；pending / unsupported 是能力位与重置标记而不是观测结果，
@@ -551,6 +591,7 @@ function makeJsonStore(dataDir, masterKey) {
       exp: doc.exp || '',
       authNote: doc.authNote || '',
       balance: doc.balance || emptyBalance(),
+      usage: normUsage(doc.usage),
       test: doc.test || null,
       failCount: Number(doc.failCount) || 0,
       lastHealthAt: doc.lastHealthAt || null,
@@ -607,6 +648,7 @@ function makeJsonStore(dataDir, masterKey) {
         exp: input.exp || '',
         authNote: input.authNote || '',
         balance: emptyBalance(input.balanceStatus),
+        usage: emptyUsage('pending'),
         test: null,
         failCount: 0,
         lastHealthAt: null,
@@ -651,6 +693,17 @@ function makeJsonStore(dataDir, masterKey) {
       };
       const entry = balanceHistoryOf(balance);
       if (entry) pushHistory(id, entry, at);
+      persist();
+      return toRec(d);
+    },
+
+    /* 用量/限流快照：账户级数据，但快照挂在这把 key 上（谁查的记谁）。
+       与 balance 分开存：两者的口径与刷新时机都不一样。 */
+    saveUsage(id, usage) {
+      const d = find(id);
+      if (!d) return null;
+      const at = nowIso();
+      d.usage = normUsage(Object.assign({}, usage, { updatedAt: at }));
       persist();
       return toRec(d);
     },
@@ -1035,6 +1088,11 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     '  balance_value REAL,',
     '  balance_status TEXT DEFAULT \'pending\',',
     '  balance_updated_at TEXT,',
+    /* 用量/限流快照（账户级口径，与 balance 分开存） */
+    '  usage_json TEXT,',
+    '  usage_status TEXT DEFAULT \'pending\',',
+    '  usage_msg TEXT,',
+    '  usage_updated_at TEXT,',
     '  test_json TEXT,',
     '  fail_count INTEGER DEFAULT 0,',
     '  last_health_at TEXT,',
@@ -1131,6 +1189,14 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
   /* 健康快照两列：老库逐列补，抛错即列已存在 */
   try { db.exec('ALTER TABLE keys ADD COLUMN fail_count INTEGER DEFAULT 0'); } catch (e) { /* 已有 */ }
   try { db.exec('ALTER TABLE keys ADD COLUMN last_health_at TEXT'); } catch (e) { /* 已有 */ }
+  /* 用量/限流快照三列：老库逐列补，抛错即列已存在。
+     ★ 这里必须写 ALTER TABLE：上面那句 CREATE TABLE IF NOT EXISTS 对老库是空操作，
+       光改建表语句的话，老库一打开就在 prepare 那几步抛 "no such column" ——
+       服务在老库上根本起不来（本项目上周刚踩过这个坑，是 P0）。 */
+  try { db.exec('ALTER TABLE keys ADD COLUMN usage_json TEXT'); } catch (e) { /* 已有 */ }
+  try { db.exec('ALTER TABLE keys ADD COLUMN usage_status TEXT DEFAULT \'pending\''); } catch (e) { /* 已有 */ }
+  try { db.exec('ALTER TABLE keys ADD COLUMN usage_msg TEXT'); } catch (e) { /* 已有 */ }
+  try { db.exec('ALTER TABLE keys ADD COLUMN usage_updated_at TEXT'); } catch (e) { /* 已有 */ }
   /* pool_keys 的 role/sort_index 是「轮换」的地基。老库（加这两列之前建的）没有它们：
      不补的话，下面 prepare 这几条语句时就会 "no such column: role" 直接崩 ——
      服务在老库上根本起不来，不是用到池子才出问题。 */
@@ -1168,6 +1234,8 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     insert: db.prepare('INSERT INTO keys (name, platform, custom_name, key_enc, base, endpoints_json, model, reg, exp, auth_note, balance_status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     update: db.prepare('UPDATE keys SET name = ?, platform = ?, custom_name = ?, key_enc = ?, base = ?, endpoints_json = ?, model = ?, reg = ?, exp = ?, auth_note = ?, updated_at = ? WHERE id = ?'),
     setBalance: db.prepare('UPDATE keys SET balance_value = ?, balance_status = ?, balance_updated_at = ? WHERE id = ?'),
+    /* 用量/限流快照：快照本体一列，状态与时间各一列（与 balance 同款拆法） */
+    setUsage: db.prepare('UPDATE keys SET usage_json = ?, usage_status = ?, usage_msg = ?, usage_updated_at = ? WHERE id = ?'),
     setTest: db.prepare('UPDATE keys SET test_json = ? WHERE id = ?'),
     /* 健康快照：连续失败次数与最近一次有结论的探测时间 */
     setKeyHealth: db.prepare('UPDATE keys SET fail_count = ?, last_health_at = ? WHERE id = ?'),
@@ -1304,6 +1372,19 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     }
     return legacyEps(row.platform, row.base || '');
   }
+  /* 快照本体在 usage_json 一列，状态与时间各一列；
+     读出来与 JSON 后端走同一个 normUsage，两个后端的形状因此一致。 */
+  function usageFromRow(row) {
+    let snap = null;
+    if (row.usage_json) {
+      try { snap = JSON.parse(row.usage_json); } catch (e) { snap = null; }
+    }
+    const u = normUsage(snap);
+    u.status = row.usage_status || u.status || 'pending';
+    u.msg = row.usage_msg || u.msg || null;
+    u.updatedAt = row.usage_updated_at || null;
+    return u;
+  }
   function toRec(row) {
     let test = null;
     if (row.test_json) {
@@ -1327,6 +1408,7 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
         status: row.balance_status || 'pending',
         updatedAt: row.balance_updated_at || null
       },
+      usage: usageFromRow(row),
       test: test,
       failCount: Number(row.fail_count) || 0,
       lastHealthAt: row.last_health_at || null,
@@ -1463,6 +1545,19 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       );
       const entry = balanceHistoryOf(balance);
       if (entry) pushHistory(id, entry, at);
+      return toRec(getRow(id));
+    },
+
+    /* 用量/限流快照：与 balance 分开存（账户级口径 vs Key 级口径） */
+    saveUsage(id, usage) {
+      const cur = getRow(id);
+      if (!cur) return null;
+      const at = nowIso();
+      const u = normUsage(Object.assign({}, usage, { updatedAt: at }));
+      stmt.setUsage.run(
+        JSON.stringify({ windows: u.windows, kind: u.kind, raw: u.raw }),
+        u.status, u.msg, at, id
+      );
       return toRec(getRow(id));
     },
 

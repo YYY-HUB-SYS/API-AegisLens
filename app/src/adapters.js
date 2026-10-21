@@ -11,60 +11,24 @@ const config = require('./config');
 const PROXY_URL = config.proxy;
 const CATALOG = require('./platform-catalog.json');
 
-/* 余额接口按「端点域名」匹配：密钥任一端点命中已知域名即可查询余额，
+/* 余额与「用量/限流窗口」两类接口的厂商目录都在 balance-apis.js：
+   那边同时管「先判平台错误码、再谈解析」这一层 —— 认证失败被平台裹在
+   HTTP 200 里（智谱 body.code、MiniMax body.base_resp），报成
+   「没解析出金额」是误导，用户会以为平台返回了正常数据只是格式变了。
+   这里只做转发，避免两处各写一份接口表。
+   余额按「端点域名」匹配：密钥任一端点命中已知域名即可查询，
    与平台是否内置无关——自定义平台指向官方域名时同样生效。
-   path 相对域名根路径构造，避免用户 Base URL 带不带 /v1 造成偏差。
-   SiliconFlow 的 /v1/user/info 已于 2026-08-14 官方下线（410），替代接口未发布，
-   官方公布后在此重新登记即可 */
-const BALANCE_APIS = [
-  {
-    re: /(^|\.)deepseek\.com$/i,
-    path: '/user/balance',
-    parse: function (body) {
-      const infos = (body && Array.isArray(body.balance_infos)) ? body.balance_infos : [];
-      const cny = infos.find(function (x) { return x.currency === 'CNY'; }) || infos[0];
-      if (!cny || cny.total_balance == null) {
-        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
-      }
-      return { value: parseFloat(cny.total_balance), status: 'ok' };
-    }
-  },
-  {
-    re: /(^|\.)moonshot\.(cn|ai)$|(^|\.)kimi\.(com|ai)$/i,
-    path: '/v1/users/me/balance',
-    parse: function (body) {
-      const d = body && body.data;
-      if (!d || d.available_balance == null) {
-        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
-      }
-      return { value: Number(d.available_balance), status: 'ok' };
-    }
-  },
-  {
-    re: /(^|\.)bigmodel\.cn$/i,
-    path: '/api/biz/account/query-customer-account-report',
-    parse: function (body) {
-      const d = body && body.data;
-      if (!d || d.balance == null) {
-        throw fail(502, '平台返回了余额数据，但未能解析出金额', 'PARSE');
-      }
-      return { value: Number(d.balance), status: 'ok' };
-    }
-  }
-];
+   path 一律相对域名根路径构造，避免用户 Base URL 带不带 /v1 造成偏差。 */
+const balanceApis = require('./balance-apis.js');
+const BALANCE_APIS = balanceApis.BALANCE_APIS;
+const USAGE_APIS = balanceApis.USAGE_APIS;
 
 function hostOf(u) {
   try { return new URL(String(u)).hostname; } catch (e) { return null; }
 }
 
-function matchBalanceApi(url) {
-  const h = hostOf(url);
-  if (!h) return null;
-  for (let i = 0; i < BALANCE_APIS.length; i++) {
-    if (BALANCE_APIS[i].re.test(h)) return BALANCE_APIS[i];
-  }
-  return null;
-}
+function matchBalanceApi(url) { return balanceApis.matchBalanceApi(url); }
+function matchUsageApi(url) { return balanceApis.matchUsageApi(url); }
 
 /* 特殊认证平台按「端点域名」匹配：默认认证头（Bearer / x-api-key）不被接受，
    需改用平台自定义头。publicModels 表示模型列表接口完全公开（不校验密钥），
@@ -531,7 +495,9 @@ async function fetchBalance(platform, ep, key, opts) {
   try { origin = new URL(url).origin; } catch (e) { return null; }
   const res = await requestJson(origin + api.path, authHeaders(style, key, url), opts);
   if (!res.ok) throw fail(502, platformError(res.status), String(res.status));
-  return api.parse(res.body);
+  /* 先判平台错误码，再谈解析：认证失败被平台裹在 HTTP 200 里时，
+     该说的是「密钥无效/没权限」，不是「没解析出金额」 */
+  return balanceApis.parseBalanceBody(api, res.body);
 }
 
 /* 遍历密钥全部端点，用首个命中已知余额域名的端点查询；
@@ -554,6 +520,47 @@ async function fetchBalanceForKey(platform, endpoints, key, opts) {
 }
 
 function supportsBalanceUrl(url) { return !!matchBalanceApi(url); }
+
+/* 用量/限流窗口是**账户级**的：同一平台的多个 key 查出来是同一个账户的数据，
+   与余额（Key 级）不是一回事，各查各的、各存各的。
+   返回形状统一：{ windows: [{ name, used, limit, resetAt }], kind, raw } */
+async function fetchUsage(platform, ep, key, opts) {
+  const style = (ep && ep.style) || inferStyle(platform);
+  const url = (ep && ep.url) || '';
+  const api = matchUsageApi(url);
+  if (!api) return null;
+  let origin;
+  try { origin = new URL(url).origin; } catch (e) { return null; }
+  const res = await requestJson(origin + api.path, authHeaders(style, key, url), opts);
+  if (!res.ok) {
+    /* 平台对权限有额外要求时（Anthropic 用量要组织管理员密钥）说清楚，
+       别让用户拿普通 key 反复试 */
+    const custom = api.httpError ? api.httpError(res.status) : null;
+    throw fail(502, custom || platformError(res.status), String(res.status));
+  }
+  return balanceApis.parseUsageBody(api, res.body);
+}
+
+/* 遍历密钥全部端点，用首个命中已知用量域名的端点查询；
+   多个端点都命中时依次尝试，全部失败才抛最后一个错误 */
+async function fetchUsageForKey(platform, endpoints, key, opts) {
+  let lastError = null;
+  const eps = endpoints || [];
+  for (let i = 0; i < eps.length; i++) {
+    const ep = eps[i] || {};
+    if (!matchUsageApi(ep.url)) continue;
+    try {
+      const u = await fetchUsage(platform, ep, key, opts);
+      if (u) return u;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+function supportsUsageUrl(url) { return !!matchUsageApi(url); }
 
 function mergeModels(prev, fetched) {
   const prevById = {};
@@ -616,10 +623,14 @@ function mergeModels(prev, fetched) {
 
 module.exports = {
   PLATFORMS: PLATFORMS,
+  BALANCE_APIS: BALANCE_APIS,
+  USAGE_APIS: USAGE_APIS,
   fetchModels: fetchModels,
   testKey: testKey,
   fetchBalance: fetchBalance,
   fetchBalanceForKey: fetchBalanceForKey,
+  fetchUsage: fetchUsage,
+  fetchUsageForKey: fetchUsageForKey,
   mergeModels: mergeModels,
   lookupMeta: lookupMeta,
   modelsUrl: modelsUrl,
@@ -631,5 +642,6 @@ module.exports = {
   primaryEndpoint: primaryEndpoint,
   proxyFetch: proxyFetch,
   effectiveFetch: effectiveFetch,
-  supportsBalanceUrl: supportsBalanceUrl
+  supportsBalanceUrl: supportsBalanceUrl,
+  supportsUsageUrl: supportsUsageUrl
 };

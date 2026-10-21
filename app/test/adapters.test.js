@@ -192,9 +192,12 @@ test('fetchBalance：Moonshot / Kimi 余额解析', async () => {
   assert.strictEqual(balAi.value, 12.34, 'moonshot.ai 域名同样命中');
 });
 
-test('fetchBalance：SiliconFlow 余额接口已下线，不发起查询', async () => {
-  const bal = await adapters.fetchBalance('siliconflow', { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, 'sk-x', { fetchImpl: async () => res({}) });
-  assert.strictEqual(bal, null, '/v1/user/info 于 2026-08-14 官方下线，替代接口未发布');
+test('fetchBalance：SiliconFlow 余额接口重新启用（此前「已下线」的记录是错的）', async () => {
+  const bal = await adapters.fetchBalance('siliconflow', { url: 'https://api.siliconflow.cn/v1', style: 'openai' }, 'sk-x', {
+    fetchImpl: async () => res({ code: 200, data: { balance: '3.50' } })
+  });
+  assert.ok(bal, '/v1/user/info 仍在：实测假 key 回 401「Token is invalid」，同域名假路径回 404');
+  assert.strictEqual(bal.value, 3.5, '优先取 data.balance');
 });
 
 test('fetchBalance：智谱（bigmodel.cn）余额解析', async () => {
@@ -250,7 +253,7 @@ test('supportsBalanceUrl：按域名判定余额可查性', () => {
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.kimi.com/v1'), true);
   assert.strictEqual(adapters.supportsBalanceUrl('https://open.bigmodel.cn/api/paas/v4'), true, '智谱余额可查');
   assert.strictEqual(adapters.supportsBalanceUrl('https://api.z.ai/api/paas/v4'), false, '国际版 z.ai 未验证，不登记');
-  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), false, 'SiliconFlow 余额接口已下线');
+  assert.strictEqual(adapters.supportsBalanceUrl('https://api.siliconflow.cn/v1'), true, 'SiliconFlow 余额接口重新启用（实测 401 而非 404）');
   assert.strictEqual(adapters.supportsBalanceUrl('https://gw.example.com/v1'), false);
   assert.strictEqual(adapters.supportsBalanceUrl('https://fake-deepseek.com.evil.io'), false, '域名后缀伪装不应命中');
 });
@@ -266,7 +269,7 @@ test('平台目录：数据驱动加载，supportsBalance 由端点域名推导'
   assert.strictEqual(adapters.PLATFORMS.deepseek.supportsBalance, true);
   assert.strictEqual(adapters.PLATFORMS.moonshot.supportsBalance, true);
   assert.strictEqual(adapters.PLATFORMS.zhipu.supportsBalance, true, '智谱由端点域名自动推导为可查');
-  assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, false, 'SiliconFlow 余额接口已下线');
+  assert.strictEqual(adapters.PLATFORMS.siliconflow.supportsBalance, true, 'SiliconFlow 余额接口重新启用（实测 401 而非 404）');
   assert.strictEqual(adapters.PLATFORMS.volcark.supportsBalance, false);
   assert.strictEqual(adapters.PLATFORMS.openai.supportsBalance, false);
   assert.strictEqual(adapters.PLATFORMS.custom.endpoints.length, 0);
