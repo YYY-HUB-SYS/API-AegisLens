@@ -847,6 +847,19 @@ function makeJsonStore(dataDir, masterKey) {
       d.lastUsedAt = nowIso();
       persist();
       return tokRecord(d);
+    },
+
+    /* 清空**签发记录**（不是吊销）：恢复码重置口令成功后用它把之前签出去的令牌一次性作废。
+       ⚠ 只动 tokens 这一张表——keys / credentials / pools / 密文一律不碰：
+       忘口令是来找回访问权的，不是来删库的；换 DEK + 全量重加密那是格式化重来，用户明确否掉了。
+       nextTokenId 不回收：id 复用会让审计里的行号对不上旧记录。
+       返回清掉的条数（0 = 本来就一把都没有），api 层拿它记审计。 */
+    clearTokens() {
+      const n = data.tokens.length;
+      if (!n) return 0;
+      data.tokens = [];
+      persist();
+      return n;
     }
   };
 }
@@ -1025,7 +1038,9 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
     selToken: db.prepare('SELECT * FROM tokens WHERE tid = ?'),
     selAllTokens: db.prepare('SELECT * FROM tokens ORDER BY id DESC'),
     revokeToken: db.prepare('UPDATE tokens SET revoked_at = ? WHERE tid = ? AND revoked_at IS NULL'),
-    setTokenLastUsed: db.prepare('UPDATE tokens SET last_used_at = ? WHERE tid = ?')
+    setTokenLastUsed: db.prepare('UPDATE tokens SET last_used_at = ? WHERE tid = ?'),
+    countTokens: db.prepare('SELECT COUNT(*) AS n FROM tokens'),
+    clearTokens: db.prepare('DELETE FROM tokens')
   };
 
   /* 按字段来源与能力位不各占一列，统一存进 extra 一列 JSON：逐字段加列要为每个字段迁移一次，而 modalitiesIn 本身是数组终究要存 JSON。新增字段进这张表就不会再被持久层静默丢掉。 */
@@ -1506,6 +1521,15 @@ function makeSqliteStore(dataDir, masterKey, DatabaseSync) {
       if (!cur) return null;
       stmt.setTokenLastUsed.run(nowIso(), cur.tid);
       return tokenRecord(stmt.selToken.get(cur.tid) || null);
+    },
+
+    /* 同 JSON 后端：只删 tokens 表的行，keys / credentials / pools 一行不碰。
+       id 不回收（AUTOINCREMENT 继续往上走），审计里的行号不会撞回旧记录。 */
+    clearTokens() {
+      const row = stmt.countTokens.get();
+      const n = row ? Number(row.n) || 0 : 0;
+      if (n) stmt.clearTokens.run();
+      return n;
     }
   };
 }

@@ -337,7 +337,8 @@ async function routeApi(req, res, ctx) {
     });
   }
 
-  /* 忘口令的出口：恢复码解出 DEK → 用新口令重新封装 → 旧恢复码当场作废换新的。
+  /* 忘口令的出口：恢复码解出 DEK → 用新口令重新封装 → 旧恢复码当场作废换新的
+     → 之前签发的消费者令牌也一并作废（清空签发记录；密钥/凭证/账号池一条不动）。
      全程在锁定态可用（否则这条路就没意义）。
      限流与解锁同一档（maxFails=5、锁 5 分钟），但**自己一个桶**：
      恢复码也是解锁凭据，错了就该限；可它跟 unlock 共用一个计数，
@@ -373,11 +374,34 @@ async function routeApi(req, res, ctx) {
       return json(res, 400, { error: e.message });
     }
     ctx.onUnlock(dek, 'envelope');
+    /* 重置口令 = 换了保险库的「进门方式」，之前签出去的令牌必须当场作废。
+       DEK 没换（库里一条密文都不用重写），但**签发记录**被清空了：
+       旧令牌在门禁里查不到 tid ⇒ 401（reason: unknown / 不在本机的签发记录里），要重新签发。
+       ⚠ 只清 tokens 这一张表：keys / credentials / pools / 凭据密文一律不碰——
+       忘口令是来找回访问权的，不是来删库的；「换 DEK + 全量重新加密」那是格式化重来，用户明确否掉了。
+       放在 onUnlock 之后：锁着的时候 store 还不存在，签发记录就住在 store 里。 */
+    let cleared = 0;
+    try {
+      cleared = storage.clearTokens();
+    } catch (e) {
+      vault.audit.push({ kind: 'recover', status: 'fail', detail: 'tokens:' + String(e.message).slice(0, 60) });
+      return json(res, 500, {
+        error: '口令已重置，但旧令牌清理失败（旧令牌可能仍然有效）：' + String(e.message).slice(0, 120)
+      });
+    }
     throttle.unlock.passed(gateKey);
     vault.audit.push({ kind: 'recover', status: 'ok', detail: 'code' });
+    vault.audit.push({ kind: 'recover', status: 'ok', detail: 'tokens-cleared:' + cleared });
     /* restartRequired 这里必须是 false：store 已当场建好，解锁状态立刻生效。
        写 true 会让界面告诉用户「要重启才完全生效」，那是假话 */
-    return json(res, 200, { ok: true, unlocked: true, recoveryCode: recoveryCodeOut, restartRequired: false });
+    return json(res, 200, {
+      ok: true,
+      unlocked: true,
+      recoveryCode: recoveryCodeOut,
+      restartRequired: false,
+      /* 作废了几把旧令牌：界面可以据此告诉用户「旧令牌要重新签发」 */
+      tokensRevoked: cleared
+    });
   }
 
   /* 拆掉明文 master.key 是整条链上唯一不可逆的动作：不删它，「拷走目录也解不开」

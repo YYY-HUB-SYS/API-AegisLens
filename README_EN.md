@@ -114,9 +114,10 @@ curl -s http://127.0.0.1:37700/api/consumer/keys/3
 # 401 {"error":"缺少 Authorization: Bearer <token>","reason":"missing"}
 ```
 
-Three boundaries worth knowing before you build on this:
+Four boundaries worth knowing before you build on this:
 
-- **Changing the passphrase revokes nothing** — setting or changing the passphrase, or discarding `master.key`, only re-wraps the DEK; token validity is bound to the DEK itself. This was measured end to end, not inferred. Use "Revoke" in the UI to retire a token
+- **Changing the passphrase revokes nothing** — setting or changing the passphrase, or discarding `master.key`, only re-wraps the DEK; token validity is bound to the DEK itself. This was measured end to end, not inferred. Use "Revoke" in the UI to retire a token (the one exception is resetting the passphrase with the recovery code, see below)
+- **Resetting the passphrase with the recovery code invalidates every old token** — this path keeps the DEK too, and every key, credential and account pool survives untouched; but it wipes the **issued-token records**, so tokens minted earlier now answer `401` (`reason: unknown`) and have to be re-issued. This is the path you take when you have forgotten the passphrase: you get your access back, your data is not deleted
 - **After a restart, consumers get `423` first** on an installation that has a passphrase — without the DEK the server cannot even answer "did I sign this token", so it reports "server locked", not "your token is broken". Unlock once by hand, or set `AKM_PASSPHRASE` for non-interactive use (the trade-off is in the deployment guide)
 - **Resource lists are enumerations, not wildcards** — an empty list means "not one record readable"; grant everything by listing everything
 
@@ -147,7 +148,7 @@ Listed so that they never arrive as a surprise.
 - On a passphrase-free install a local process can still read keys one by one: neither `reveal` nor token minting needs a credential (the latter has its own rate-limit bucket and is audited by fingerprint only) — setting a passphrase is what tightens this
 - The DEK still lives next to the data by default; "copying the folder is not enough to decrypt" requires discarding the plaintext master key once (**irreversible**, and the server only allows it after a real passphrase unlock)
 - Consumer tokens are not "boot-and-go": once a passphrase is set, somebody must unlock after a restart, and valid tokens get `423` until then
-- A token is not a gateway — this tool does not proxy requests. Forget the passphrase and the only way in is that 52-character recovery code; lose both and the vault is permanently unreadable. There is no backdoor
+- A token is not a gateway — this tool does not proxy requests. Forget the passphrase and the only way in is that 52-character recovery code; lose both and the vault is permanently unreadable. There is no backdoor. Resetting with the recovery code invalidates the tokens issued earlier (they have to be re-issued), but not one stored key, credential or pool is touched
 - Exported JSON **omits the `key` field entirely** by default; including plaintext needs an explicit opt-in and item-by-item retrieval. For backups, copy the data directory instead
 - No KeePass (KDBX) import (KDBX4 needs a full variant-KDF and HMAC-block implementation, out of scope for a zero-dependency project); balance queries cover DeepSeek / Moonshot·Kimi / Zhipu only (SiliconFlow's `/v1/user/info` was retired by the vendor with HTTP 410 on 2026-08-14)
 - Endpoints whose style is neither `openai` nor `anthropic` are not auto-tested, and web-filled metadata is a guess too: the same model id has different limits at different providers, so platform-reported values win and anything from the web is labelled `web`

@@ -55,13 +55,17 @@ function fpOf(fingerprint) {
   return fingerprint ? 'fp=' + fingerprint : 'fp=-';
 }
 
+/* 两处「令牌不对」要分清楚：别把「恢复码重置口令」说成「换了保险库根」。
+   bad-signature = 验签就不过（手里这把 DEK 跟签发时不是同一把：不是本机签的，或密钥库数据被重建过）；
+   unknown      = 验签过了，但库里查不到这把令牌的签发记录（被清掉/被吊销，恢复码重置口令就属于前者）。
+   恢复码重置口令**不换 DEK**（数据一条不少），它落在 unknown 这一档，不是 bad-signature。 */
 function denyMessage(reason) {
   if (reason === 'missing') return '缺少 Authorization: Bearer <token>';
   if (reason === 'malformed') return '令牌格式不对';
-  if (reason === 'bad-signature') return '令牌签名不对（保险库根已更换？令牌要重新签发）';
+  if (reason === 'bad-signature') return '令牌签名不对（不是本机签发的令牌，或密钥库数据已重建）';
   if (reason === 'expired') return '令牌已过期';
   if (reason === 'revoked') return '令牌已被吊销';
-  if (reason === 'unknown') return '这把令牌不在本机的签发记录里';
+  if (reason === 'unknown') return '这把令牌不在本机的签发记录里（保险库重置过？令牌要重新签发）';
   if (reason === 'scope') return '令牌的作用域不覆盖这个资源';
   if (reason === 'locked') return '保险库未解锁，令牌无从验签';
   return '令牌校验未通过';

@@ -84,7 +84,7 @@ The TOTP seed may be bare Base32 or a whole `otpauth://` URI (in which case `per
 | `POST` | `/api/vault/unlock` | Unlock; failures count against the rate limit  separate bucket from the recovery code: mistyping the recovery code does not lock the unlock door |
 | `POST` | `/api/vault/lock` | Lock now (also closes the store) |
 | `POST` | `/api/vault/passphrase` | Set / change the passphrase; changing requires `current` |
-| `POST` | `/api/vault/recover` | Reset the passphrase with the 52-character recovery code, rotating it at the same time  failures count toward their own rate-limit bucket |
+| `POST` | `/api/vault/recover` | Reset the passphrase with the 52-character recovery code, rotating it at the same time  failures count toward their own rate-limit bucket  on success **every previously issued token is invalidated** (the issued-token records are cleared; the response carries `tokensRevoked`); keys, credentials and pools are untouched |
 | `POST` | `/api/vault/discard-master-key` | Remove the plaintext DEK copy. **Irreversible**; refused on a passphrase-free install |
 
 ## Machine consumer tokens
@@ -117,6 +117,10 @@ missing / invalid / expired / revoked, `403` scope not granted, `429` too freque
 The revocation check runs **after** the scope check: a revoked token used against an endpoint whose
 scope it does not carry gets `403` scope, not `401` revoked — to confirm that a token was revoked,
 call with a token whose scope matches.
+A token has two gates: the signature (derived from the DEK) and the **issued-token record** (the
+`tokens` table in the store). Resetting the passphrase with the recovery code takes the second gate:
+the DEK does not change and not one ciphertext is rewritten, but the issued-token records are wiped,
+so old tokens answer `401` (`reason: unknown`) and have to be re-issued.
 
 ## Scheduler
 
