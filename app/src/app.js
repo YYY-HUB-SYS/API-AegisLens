@@ -176,6 +176,9 @@ function createApp(opts) {
         fetchImpl: fetchImpl,
         version: version,
         scheduler: opts.scheduler || null,
+        /* 「立即跑一轮」的调用次数限流器（滑窗语义，不是 vault.js 那套失败计数）。
+           没注入时 api 层会跳过限流——所以生产必须注入，见 server.js。 */
+        scheduleThrottle: opts.scheduleThrottle || null,
         vault: vault,
         throttle: throttle,
         /* 解锁/锁定不只是改会话状态：store 的建与关归宿主（server.js）管，

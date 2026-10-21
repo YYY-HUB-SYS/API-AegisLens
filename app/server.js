@@ -6,6 +6,7 @@ const { vaultMode, unlockDek, MIN_PASSPHRASE } = require('./src/crypto');
 const { createStore } = require('./src/storage');
 const { createScheduler } = require('./src/scheduler');
 const { createVaultSession, createThrottle } = require('./src/vault');
+const { createDataThrottle } = require('./src/consumer-api');
 const daemon = require('./src/daemon');
 
 const ARGV = process.argv.slice(2);
@@ -68,6 +69,12 @@ const throttle = {
      就能把人在凭证页的「显示」全部锁掉——反过来人编辑凭证也会误伤机器面。 */
   token: createThrottle({ maxFails: 20 })
 };
+
+/* 「立即跑一轮」的限流：**调用次数**语义（滑窗），不是 vault.js 那套失败计数。
+   失败计数在成功一次后就清零了，挡不住「反复成功调用」——而这条路由每调一次
+   都会真的朝厂商发一轮请求（每把 Key 测一次 + 批量刷余额），是最不该被脚本轮询的一条。
+   复用 consumer-api 的滑窗限流器（同一个 reserve 语义），额度 5 次 / 1 小时。 */
+const scheduleThrottle = createDataThrottle({ max: 5, windowMs: 60 * 60 * 1000 });
 const scheduler = createScheduler({
   storage: storage,
   enabled: config.schedule.enabled,
@@ -165,6 +172,7 @@ const app = createApp({
   publicDir: path.join(__dirname, 'public'),
   version: pkg.version,
   scheduler: scheduler,
+  scheduleThrottle: scheduleThrottle,
   vault: vault,
   throttle: throttle,
   onUnlock: openStore,

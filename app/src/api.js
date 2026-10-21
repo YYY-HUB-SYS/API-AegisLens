@@ -230,14 +230,21 @@ async function routeApi(req, res, ctx) {
   }
 
   if (req.method === 'GET' && path === '/api/meta') {
+    /* dataDir 是真实路径（能定位到用户目录、也能看出装了哪些东西）。
+       锁着的时候连它都不给——这条路由本来是公开只读的（页面轮询用），
+       但「公开」不等于「该给路径」。
+       免密老安装永远 unlocked，不受影响；有口令的安装锁着时只回版本与存储类型。 */
+    const unlocked = vault.isUnlocked();
     return json(res, 200, {
       version: ctx.version,
       metaModels: META_MODELS._updated || null,
       storage: storage.backend,
-      dataDir: storage.dataDir,
+      dataDir: unlocked ? storage.dataDir : null,
       /* 界面把「配置去向」记到哪台电脑，默认就是服务这台 */
       host: os.hostname(),
-      shadowStore: storage.shadowStore || null
+      shadowStore: storage.shadowStore || null,
+      /* 锁着时 dataDir 拿不到，界面得知道「为什么没显示」而不是以为本来就没这一项 */
+      unlocked: unlocked
     });
   }
 
@@ -751,6 +758,41 @@ async function routeApi(req, res, ctx) {
       patch.intervalMinutes = Math.round(n);
     }
     return json(res, 200, { schedule: ctx.scheduler.configure(patch) });
+  }
+
+  /* 立即跑一轮：跟定时触发同一条路（scheduler.runAndRecord），所以跑完「上次运行」也有值。
+     这条会**真的朝各厂商发请求**（每把 Key 测一次 + 批量刷余额），因此：
+     ① 锁着不许跑 —— 没有 DEK 就没 store，跑不了；
+     ② 单独限流 —— 它是本机唯一一条「一按就朝外发钱」的路由，不能被脚本随手调成 DoS 厂商。
+     限流用的是「调用次数」语义（滑窗），不是 vault.js 那套失败计数：
+     失败计数在成功一次后就清零了，挡不住「反复成功调用」。
+     ctx.scheduleThrottle 由宿主注入（server.js 里 createDataThrottle 的实例）。 */
+  if (req.method === 'POST' && path === '/api/schedule/run') {
+    if (!ctx.scheduler) throw bad(404, '当前进程未挂载调度器');
+    if (!vault.isUnlocked()) {
+      vault.audit.push({ kind: 'schedule', status: 'denied', detail: 'locked' });
+      return json(res, 423, { error: '保险库未解锁：定时调度需要 DEK 才能跑' });
+    }
+    const limiter = ctx.scheduleThrottle;
+    const runKey = 'schedule-run:' + clientIp(req);
+    let gate = { allowed: true, retryAfterMs: 0 };
+    if (limiter && typeof limiter.reserve === 'function') {
+      gate = limiter.reserve(runKey);
+    }
+    if (!gate.allowed) {
+      vault.audit.push({ kind: 'schedule', status: 'denied', detail: 'throttled' });
+      return json(res, 429, { error: '手动触发过于频繁，请稍后再试', retryAfterMs: gate.retryAfterMs });
+    }
+    let result = null;
+    try {
+      result = await ctx.scheduler.runAndRecord();
+    } catch (e) {
+      vault.audit.push({ kind: 'schedule', status: 'fail', detail: String(e.message).slice(0, 60) });
+      /* 这一轮自己炸了（不是「跑完但部分失败」），要让调用方看见原因 */
+      return json(res, 500, { error: '跑一轮失败：' + String(e.message).slice(0, 120) });
+    }
+    vault.audit.push({ kind: 'schedule', status: 'ok', detail: 'run-once' });
+    return json(res, 200, { result: result, schedule: ctx.scheduler.status() });
   }
 
   if (req.method === 'GET' && path === '/api/pools') {

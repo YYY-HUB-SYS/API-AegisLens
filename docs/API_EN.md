@@ -128,6 +128,7 @@ so old tokens answer `401` (`reason: unknown`) and have to be re-issued.
 |---|---|---|
 | `GET` | `/api/schedule` | Current state |
 | `POST` | `/api/schedule` | Runtime toggle; **not persisted**, a restart goes back to the environment variable. **No UI switch** |
+| `POST` | `/api/schedule/run` | **Run one round now** (test every key once + refresh balances in bulk). **It really does send requests to the vendors**, so it requires an unlocked vault; it has its own rate limit of 5 per hour. The outcome is written into "last run" |
 
 ## Import / export
 
@@ -142,8 +143,8 @@ explicit checkbox, which then reveals items one by one.
 
 | Item | Value | Source |
 |---|---|---|
-| Total routes | 48 (method + path combinations; 38 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
-| UI actions | 69 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
+| Total routes | 49 (method + path combinations; 39 distinct path shapes) | `app/src/api.js`, `credentials-api.js`, `consumer-api.js` |
+| UI actions | 72 distinct `data-act` values | `app/public/*.js`, `app/public/index.html` |
 | Built-in platforms | 13 + custom | `app/src/platform-catalog.json` |
 | Base URLs per key | 6 (enforced once in the frontend, once in the backend) | `MAX_EPS` in `index.html`, literal `6` in `adapters.js` |
 | Passphrase length | 8 characters minimum, 1024 characters maximum | `crypto.js` |

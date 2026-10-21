@@ -114,6 +114,7 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 |---|---|---|
 | `GET` | `/api/schedule` | 当前状态 |
 | `POST` | `/api/schedule` | 运行时开关;**不持久**,重启回到环境变量的值。**界面上无开关** |
+| `POST` | `/api/schedule/run` | **立即跑一轮**(每把 Key 测一次 + 批量刷余额)。**会真的朝厂商发请求**,所以要已解锁;单独限流 5 次/小时。跑完的结果会写进「上次运行」 |
 
 ## 导入 / 导出
 
@@ -127,8 +128,8 @@ scope 共 4 个;资源清单是**枚举**——清单为空就是什么都拿不
 
 | 项 | 值 | 出处 |
 |---|---|---|
-| 路由总数 | 48(方法+路径组合;去重后 38 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
-| 界面动作 | 69 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
+| 路由总数 | 49(方法+路径组合;去重后 39 条路径形状) | `app/src/api.js`、`credentials-api.js`、`consumer-api.js` |
+| 界面动作 | 72 个 `data-act` | `app/public/*.js`、`app/public/index.html` |
 | 内置平台 | 13 家 + custom | `app/src/platform-catalog.json` |
 | 每把 Key 端点上限 | 6(前后端各一道) | `index.html` 的 `MAX_EPS`、`adapters.js` 的字面量 6 |
 | 口令长度 | 最短 8 位、最长 1024 位 | `crypto.js` |

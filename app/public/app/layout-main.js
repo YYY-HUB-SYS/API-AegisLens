@@ -260,8 +260,8 @@
     return null;
   }
 
-  /* 从 index.html 的完整卡里原样搬一块出来（模型抽屉 / 记录配置去向的输入条）。
-     这两块的实现在 index.html 的闭包里，布局层拿不到；
+  /* 从 index.html 的完整卡里原样搬一块出来（观测历史 / 模型抽屉 / 记录配置去向的输入条）。
+     这几块的实现在 index.html 的闭包里，布局层拿不到；
      与其自己复刻一份（复刻就会与真实行为分叉），不如把那张卡里的原物剪出来。
      按 div 深度配平，找到这一块的闭合位置。 */
   function extractBlock(html, cls) {
@@ -500,6 +500,9 @@
       try { card = api2.renderCard(k); } catch (e) { card = null; }
     }
     if (card) {
+      /* 观测历史这一块也在这儿剪：它在 index.html 的闭包里（ui.historyXxx 那些状态），
+         布局层拿不到，复刻一份就会与真实行为分叉。 */
+      html = insertBeforeEnd(html, extractBlock(card, 'hist-block'));
       html = insertBeforeEnd(html, extractBlock(card, 'tool-add-bar'));
       html = insertBeforeEnd(html, extractBlock(card, 'drawer'));
     }

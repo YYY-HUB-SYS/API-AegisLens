@@ -74,20 +74,35 @@ function createScheduler(opts) {
     };
   }
 
-  async function tick() {
-    if (running) { arm(); return; }
+  /* 跑一轮并记账：把「跑」与「记」合成一步。
+     早先记账只写在 tick() 里，而 tick() 只有定时器会调；
+     于是「立即跑一轮」那条路（如果直接调 runOnce）跑完不会留下任何痕迹——
+     界面上「上次运行 / 上次结果 / 上次错误」永远是空的，看着像没跑过。
+     抽成公共函数后，定时触发与手动触发走同一条路，记账只有这一处。 */
+  async function runAndRecord() {
     running = true;
     try {
       lastResult = await runOnce();
       lastRunAt = lastResult.at;
       lastError = null;
+      return lastResult;
     } catch (e) {
       /* 一轮失败不能把定时器带停 */
       lastError = e.message;
+      throw e;
     } finally {
       running = false;
-      arm();
     }
+  }
+
+  async function tick() {
+    if (running) { arm(); return; }
+    try {
+      await runAndRecord();
+    } catch (e) {
+      /* 错误已记进 lastError；一轮失败不能把定时器带停 */
+    }
+    arm();
   }
 
   function status() {
@@ -118,6 +133,8 @@ function createScheduler(opts) {
       return status();
     },
     runOnce: runOnce,
+    /* 手动跑一轮并记账：与定时触发同一条路，所以手动跑完「上次运行」也有值 */
+    runAndRecord: runAndRecord,
     configure: configure,
     status: status
   };

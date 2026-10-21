@@ -91,6 +91,8 @@
   .theme-ico, .cols-ico { margin-right: 6px; }
   /* sprite 里的 <symbol> 只带几何，呈现属性必须由引用处给（display:none 容器不往下传递） */
   .ic { vertical-align: -2px; flex-shrink: 0; }
+  /* 顶栏按钮里的图标：sprite 的 <symbol> 只带几何，间距得由引用处自己给 */
+  .btn .ic { margin-right: 6px; }
 
   .btn {
     border: 1px solid var(--rule); background: var(--surface); color: var(--ink);
@@ -281,6 +283,46 @@
   .m-item b { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
   .m-item.st-warn b { color: var(--warn); }
   .m-item.st-exp b, .m-item.st-revoked b { color: var(--danger); }
+
+  /* 观测历史：折叠区 + 行列表。
+     一次最多拉 200 条，屏幕上先画 50 条，剩下的点「再看一批」——
+     1000 条一次铺开会把卡片撑成一面墙。 */
+  .hist-block { margin-top: 10px; }
+  .hist-toggle { display: inline-flex; align-items: center; }
+  .hist-block .hist-toggle .ic { margin-right: 5px; }
+  .hist-panel {
+    margin-top: 8px; padding: 9px 11px;
+    border: 1px solid var(--rule-soft); border-radius: var(--r-ctl);
+    background: var(--surface-2);
+  }
+  /* hidden 属性要压得住 display:flex，否则折叠时这块照样占版面 */
+  .hist-panel[hidden] { display: none !important; }
+  .hist-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 7px; }
+  .hist-title { display: inline-flex; align-items: center; gap: 5px; font-size: var(--fs-sm); font-weight: 700; color: var(--ink); }
+  .hist-kinds { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .hist-kind {
+    border: 1px solid var(--rule); background: transparent; color: var(--ink-2);
+    font-size: var(--fs-xs); font-weight: 700; cursor: pointer;
+    padding: 2px 9px; border-radius: var(--r-chip); white-space: nowrap;
+  }
+  .hist-kind:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .hist-kind.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+  .hist-list { display: flex; flex-direction: column; gap: 2px; max-height: 300px; overflow-y: auto; }
+  .hist-row {
+    display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap;
+    font-size: var(--fs-sm); color: var(--ink-2);
+    border-bottom: 1px solid var(--rule-soft); padding: 3px 0;
+  }
+  .hist-at { font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .hist-res { font-weight: 700; }
+  .hist-res.ok { color: var(--accent-ink); }
+  .hist-res.bad { color: var(--danger); }
+  .hist-val { font-family: var(--mono); font-size: var(--fs-xs); color: var(--ink); }
+  .hist-kindtag { font-size: var(--fs-xs); color: var(--ink-3); }
+  .hist-detail { font-size: var(--fs-xs); color: var(--warn); overflow-wrap: anywhere; }
+  .hist-more { margin-top: 8px; }
+  .hist-note { margin: 0; }
+
   .auto-tag {
     font-size: var(--fs-xs); color: var(--ink-3); cursor: help;
     border: 1px dashed var(--rule); border-radius: var(--r-chip); padding: 1px 7px;
@@ -965,6 +1007,7 @@
       <button class="btn ghost" id="btn-pools">账号池</button>
       <button class="btn" id="btn-autorefresh" type="button" aria-pressed="true" title="当前开启自动刷新（每 10 秒拉一次密钥列表），点击关闭"><span id="autorefresh-label">自动刷新 · 开</span></button>
       <button class="btn" id="btn-refresh-all">刷新余额<span id="refresh-spin" style="display:none;margin-left:6px"><span class="spin"></span></span></button>
+      <button class="btn" id="btn-schedule" type="button" aria-pressed="false" title="定时调度当前关闭（不会自动向厂商发请求），点击查看与设置"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><use href="#i-calendar-days"></use></svg><span id="schedule-label">定时调度 · 关</span></button>
       <button class="btn primary" id="btn-add">+ 新增密钥</button>
     </div>
   </header>
@@ -1222,6 +1265,37 @@
   </div>
 </div>
 
+<!-- 定时调度 -->
+<div class="overlay" id="overlay-schedule">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="schedule-title" tabindex="-1">
+    <h3 id="schedule-title">定时调度</h3>
+    <p class="sub">按固定间隔自动跑一轮「每把密钥测一次 + 批量刷余额」。<b>默认关闭</b>：关着时不会自动向任何厂商发请求。</p>
+    <div class="name-err" id="schedule-locked" hidden></div>
+    <div class="export-select-all">
+      <input type="checkbox" id="f-schedule-enabled">
+      <label for="f-schedule-enabled">定时测试（按间隔自动跑一轮）</label>
+      <span class="export-count" id="schedule-switch-state">当前：关</span>
+    </div>
+    <div class="field">
+      <label for="f-schedule-interval">间隔分钟数 <span class="hint">1 – 10080（最多 7 天）</span></label>
+      <input id="f-schedule-interval" type="number" min="1" max="10080" step="1" inputmode="numeric" autocomplete="off">
+    </div>
+    <div class="name-err" id="schedule-err"></div>
+    <div class="meta" id="schedule-status">
+      <div>上次运行：<span id="schedule-last-run">—</span></div>
+      <div id="schedule-last-result">还没有跑过</div>
+      <div>下次运行：<span id="schedule-next-run">—</span></div>
+    </div>
+    <div class="name-err" id="schedule-last-error" hidden></div>
+    <p class="sub" id="schedule-run-note" style="margin-bottom:0">「立即跑一轮」会<b>真的朝各厂商发请求</b>（每把 Key 测一次 + 批量刷余额），限流 5 次/小时。</p>
+    <div class="btn-row">
+      <button class="btn" id="btn-schedule-run" type="button" title="立刻跑一轮：每把 Key 测一次 + 批量刷余额（会真的朝厂商发请求）">立即跑一轮</button>
+      <button class="btn" data-close="overlay-schedule">取消</button>
+      <button class="btn primary" id="btn-schedule-save">保存</button>
+    </div>
+  </div>
+</div>
+
 <input type="file" id="file-input" accept=".json" style="display:none">
 
 <script>
@@ -1235,7 +1309,9 @@
   var SELF_HOST = '';
   var ui = {
     drawerOpen: {}, editingNote: {}, editingSupp: {}, collapsedGroup: {},
-    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {}
+    manualOpen: {}, assignedOpen: {}, testing: {}, modelsLoading: {}, enriching: {}, authOpen: {},
+    /* 观测历史：展开与否、当前按哪种 kind 筛、已取回的行、加载/出错、屏幕上画到第几条 */
+    historyOpen: {}, historyKind: {}, historyRows: {}, historyLoading: {}, historyErr: {}, historyShown: {}
   };
   var editingId = null;
   var configKeyRef = null;
@@ -2079,6 +2155,7 @@
             '</span>' +
           '</div>' +
           toolAddBar +
+          renderHistoryBlock(k) +
         '</div>' +
         (ui.drawerOpen[k.id] ? '<div class="drawer open">' + renderDrawer(k) + '</div>' : '<div class="drawer"></div>') +
       '</article>'
@@ -2185,6 +2262,179 @@
       '</div>';
   }
 
+  /* ================= 观测历史 =================
+     后端契约（app/src/api.js，路由 /^\/api\/keys\/(\d+)\/history$/）：
+       GET /api/keys/:id/history?kind=test|balance&limit=N → { history: [...] }
+       kind 省略 = 全部。后端只认 test / balance，发 kind=all 会被 400 挡掉。
+       锁态下这个接口回 423「保险库未解锁」——路由本身不查会话，
+       是 server.js 那层 storage 门面在锁着时抛的（见 app/src/server.js 的 lockedError）。
+       api() 收到 423 会把整页带进门态，这里不用再管。
+     行的字段（app/src/storage.js 的 historyRow，两个后端一致）：
+       { id, keyId, at, kind, status, latency, value, detail }
+       kind=test    ：status=pass|fail，latency=毫秒数，value=null，detail=失败原因（通过时 null）
+       kind=balance ：status=ok|fail，value=余额数字，latency=null，detail=失败原因（成功时 null）
+       时间字段叫 at（ISO 串），不是 time / timestamp。
+     两条硬边界：
+       1) 一次只拉 200 条（后端默认也是 200，每把 Key 最多存 1000 条），
+          屏幕上先画 50 条，剩下的点「再看一批」——一次铺满会把卡片撑成一面墙。
+       2) 后端按时间正序返回（旧的在前），这里倒过来：最新的在最上面。 */
+
+  var HISTORY_LIMIT = 200;   /* 一次拉多少条 */
+  var HISTORY_PAGE = 50;    /* 一次画多少行 */
+  var HISTORY_KINDS = [
+    { id: 'all', label: '全部' },
+    { id: 'test', label: '连通测试' },
+    { id: 'balance', label: '余额' }
+  ];
+
+  function historyKindOf(k) {
+    var cur = ui.historyKind[k.id];
+    return (cur === 'test' || cur === 'balance') ? cur : 'all';
+  }
+  function historyQuery(kind) {
+    /* 「全部」不带 kind 参数：后端只认 test / balance */
+    return (kind === 'test' || kind === 'balance')
+      ? '?kind=' + kind + '&limit=' + HISTORY_LIMIT
+      : '?limit=' + HISTORY_LIMIT;
+  }
+  function historyAt(at) {
+    var t = new Date(at);
+    if (!at || isNaN(t.getTime())) return '时间未知';
+    var p = function (n) { return String(n).padStart(2, '0'); };
+    return p(t.getMonth() + 1) + '-' + p(t.getDate()) + ' ' +
+      p(t.getHours()) + ':' + p(t.getMinutes()) + ':' + p(t.getSeconds());
+  }
+  function historyResult(h) {
+    /* 结果词按 kind 分：连通测试说通 / 不通，余额说正常 / 查询失败 */
+    var st = String(h.status == null ? '' : h.status);
+    if (h.kind === 'balance') {
+      if (st === 'ok') return { text: '正常', cls: 'ok' };
+      if (st === 'fail') return { text: '查询失败', cls: 'bad' };
+      return { text: st || '未知', cls: '' };
+    }
+    if (st === 'pass') return { text: '通', cls: 'ok' };
+    if (st === 'fail') return { text: '不通', cls: 'bad' };
+    return { text: st || '未知', cls: '' };
+  }
+  function historyRowKind(h) { return h.kind === 'balance' ? '余额' : '连通'; }
+  function historyValue(k, h) {
+    if (h.kind === 'balance') {
+      if (h.value == null) return '—';
+      return (P(k.platform).currency === 'USD' ? '$' : '¥') + Number(h.value).toFixed(2);
+    }
+    if (h.latency == null) return '—';
+    return h.latency + 'ms';
+  }
+
+  function renderHistoryPanel(k) {
+    var kind = historyKindOf(k);
+    var head =
+      '<div class="hist-head">' +
+        '<span class="hist-title">' + ic('activity') + ' 最近观测</span>' +
+        '<span class="hist-kinds" role="group" aria-label="观测类型">' +
+          HISTORY_KINDS.map(function (x) {
+            var on = (kind === x.id);
+            return '<button type="button" class="hist-kind' + (on ? ' active' : '') + '" data-act="history-kind" data-kind="' + x.id + '"' +
+              ' aria-pressed="' + (on ? 'true' : 'false') + '">' + x.label + '</button>';
+          }).join('') +
+        '</span>' +
+        '<span class="meta">每把 Key 最多留 1000 条，这里只取最近 ' + HISTORY_LIMIT + ' 条</span>' +
+      '</div>';
+
+    var body;
+    if (ui.historyLoading[k.id]) {
+      body = '<p class="meta hist-note"><span class="spin"></span> 正在读取观测记录…</p>';
+    } else if (ui.historyErr[k.id]) {
+      body = '<p class="meta hist-note">读不到观测记录：' + esc(ui.historyErr[k.id]) + '</p>';
+    } else if (!ui.historyRows[k.id]) {
+      body = '<p class="meta hist-note">点「最近观测」读取这把 Key 的观测记录。</p>';
+    } else if (!ui.historyRows[k.id].length) {
+      body = '<p class="meta hist-note">这把 Key 还没有观测记录。测一次连通或查一次余额，这里就会有记录。</p>';
+    } else {
+      /* 后端按时间正序返回（旧的在前）：倒过来，最新的在最上面 */
+      var all = ui.historyRows[k.id].slice().reverse();
+      var shown = ui.historyShown[k.id] || HISTORY_PAGE;
+      if (shown > all.length) shown = all.length;
+      body = '<div class="hist-list">' + all.slice(0, shown).map(function (h) {
+        var res = historyResult(h);
+        return '<div class="hist-row">' +
+          '<span class="hist-at">' + esc(historyAt(h.at)) + '</span>' +
+          '<span class="hist-kindtag">' + esc(historyRowKind(h)) + '</span>' +
+          '<span class="hist-res ' + res.cls + '">' + esc(res.text) + '</span>' +
+          '<span class="hist-val">' + esc(historyValue(k, h)) + '</span>' +
+          (h.detail ? '<span class="hist-detail">' + esc(h.detail) + '</span>' : '') +
+        '</div>';
+      }).join('') + '</div>';
+      if (all.length > shown) {
+        body += '<button class="btn ghost small hist-more" data-act="history-more">再看 ' +
+          Math.min(HISTORY_PAGE, all.length - shown) + ' 条（还有 ' + (all.length - shown) + ' 条没显示）</button>';
+      }
+    }
+    return head + body;
+  }
+
+  /* 折叠区本体：开关按钮 + 面板。整块带 hist-block 这个 class，
+     布局层（app/public/app/layout-main.js）从完整卡里原样剪这一块，接到详情面板尾部——
+     跟模型抽屉、记录去向输入条走同一条路，不复刻一份。 */
+  function renderHistoryBlock(k) {
+    var open = !!ui.historyOpen[k.id];
+    return '<div class="hist-block">' +
+      '<button type="button" class="btn ghost small hist-toggle" data-act="toggle-history"' +
+        ' aria-expanded="' + (open ? 'true' : 'false') + '"' +
+        ' aria-controls="hist-panel-' + k.id + '"' +
+        ' title="这把 Key 的观测记录：连通测试与余额查询的每一次结果">' +
+        ic('activity') + ' 最近观测</button>' +
+      '<div class="hist-panel" id="hist-panel-' + k.id + '" role="region" aria-label="最近观测"' +
+        (open ? '' : ' hidden') + '>' + renderHistoryPanel(k) + '</div>' +
+    '</div>';
+  }
+
+  function loadHistory(k) {
+    var kind = historyKindOf(k);
+    ui.historyLoading[k.id] = true;
+    ui.historyErr[k.id] = null;
+    rerenderCard(k.id);
+    api('GET', '/keys/' + k.id + '/history' + historyQuery(kind)).then(function (d) {
+      ui.historyRows[k.id] = (d && d.history) || [];
+      ui.historyLoading[k.id] = false;
+      ui.historyShown[k.id] = HISTORY_PAGE;
+      rerenderCard(k.id);
+    }, function (e) {
+      ui.historyLoading[k.id] = false;
+      /* 423 已经把整页带进门态（api() 里挂了钩子），这时再往卡上贴错误是多余的 */
+      if (e && e.status === 423) return;
+      ui.historyErr[k.id] = (e && e.message) || '读取失败';
+      rerenderCard(k.id);
+    });
+  }
+
+  /* ================= 底栏：服务元信息 =================
+     底栏这一行有三态，之前是三处各写各的 textContent：
+       解锁后 —— 版本 / 存储后端 / 数据目录 / 加密说明
+       锁上后 —— 保险库未解锁，页面数据已清空
+       服务连不上 —— 本该说「服务连不上」，却和锁着共用同一句，
+                    于是服务没起来被说成保险库锁着，人会去输口令而不是查服务。
+     收成一个出口，三态互不覆盖。
+     数据目录是真实路径：锁着的时候它不许出现在任何一处。
+     （/api/meta 后端不查会话，锁着也照样把 dataDir 带出来——
+       界面这一层是自己挡着的，后端要不要加校验是另一回事。） */
+
+  function footMetaText(mode, meta, errMsg) {
+    if (mode === 'locked') return '保险库未解锁 · 页面数据已清空';
+    if (mode === 'offline') return '服务连不上 · 页面数据已清空' + (errMsg ? '：' + errMsg : '');
+    if (mode === 'error') return '服务连接失败' + (errMsg ? '：' + errMsg : '');
+    var m = meta || {};
+    var parts = ['API-AegisLens v' + (m.version || '?')];
+    if (m.storage) parts.push(m.storage + ' 本地存储');
+    if (m.dataDir) parts.push(m.dataDir);
+    parts.push('密钥字段 AES-256-GCM 加密');
+    return parts.join(' · ');
+  }
+  function footMetaSet(mode, meta, errMsg) {
+    var el = document.getElementById('foot-meta');
+    if (el) el.textContent = footMetaText(mode, meta, errMsg);
+  }
+
   /* ================= 看板事件（委托） ================= */
 
   /* 「收起全部 / 展开全部」画在筛选行右侧，不在 #board 的委托范围内 */
@@ -2287,6 +2537,25 @@
     }
     if (act === 'toggle-models') {
       ui.drawerOpen[k.id] = !ui.drawerOpen[k.id];
+      rerenderCard(k.id);
+      return;
+    }
+    /* 观测历史：三个动作都只重画这一张卡，不动整板 */
+    if (act === 'toggle-history') {
+      ui.historyOpen[k.id] = !ui.historyOpen[k.id];
+      /* 第一次展开才去取；已经取过就直接重画（切回折叠不重新拉） */
+      if (ui.historyOpen[k.id] && !ui.historyRows[k.id]) { loadHistory(k); return; }
+      rerenderCard(k.id);
+      return;
+    }
+    if (act === 'history-kind') {
+      ui.historyKind[k.id] = btn.dataset.kind || 'all';
+      ui.historyShown[k.id] = HISTORY_PAGE;
+      loadHistory(k);
+      return;
+    }
+    if (act === 'history-more') {
+      ui.historyShown[k.id] = (ui.historyShown[k.id] || HISTORY_PAGE) + HISTORY_PAGE;
       rerenderCard(k.id);
       return;
     }
@@ -3342,6 +3611,221 @@
     }
   });
 
+  /* ================= 定时调度（开关 + 间隔 + 运行记录） =================
+     后端契约（照此消费，不自创）：
+       GET  /api/schedule → {schedule:{enabled,intervalMinutes,running,lastRunAt,lastResult,lastError,nextRunAt}}
+       POST /api/schedule {enabled?,intervalMinutes?} → 同上
+     三条硬边界：
+       1) 默认是关的。界面只负责「显示状态」和「用户手动打开」，
+          自己绝不把 enabled 置 true —— 打开这个弹层不该让服务开始朝厂商发请求。
+       2) 锁态自己判断：/api/schedule 那两条路由不查会话，锁着也返回 200，
+          但调度器要跑得有 DEK（锁着时 store 是关的），所以先问
+          /api/vault/status 的 unlocked，锁着就把开关与输入摁住。
+       3) 「立即跑一轮」走 POST /api/schedule/run（后端与定时触发同一条路，
+          跑完的结果会写进「上次运行」）。它会真的朝厂商发请求，所以后端要求
+          已解锁、并且单独限流 5 次/小时。 */
+
+  var SCHEDULE_MIN_MINUTES = 1;
+  var SCHEDULE_MAX_MINUTES = 7 * 24 * 60;   /* 10080，与 app/src/api.js 的上限一致 */
+  var scheduleState = {
+    enabled: false, intervalMinutes: 60, running: false,
+    lastRunAt: null, lastResult: null, lastError: null, nextRunAt: null
+  };
+  var scheduleLocked = false;
+
+  function scheduleEl(id) { return document.getElementById(id); }
+
+  function fmtScheduleTime(iso) {
+    if (!iso) return '—';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso);
+    function p(n) { return n < 10 ? '0' + n : String(n); }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) +
+      ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  function syncScheduleBtn() {
+    var b = scheduleEl('btn-schedule');
+    if (!b) return;
+    var on = !!scheduleState.enabled;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    b.title = on
+      ? '定时调度已开启（每 ' + scheduleState.intervalMinutes + ' 分钟自动跑一轮），点击查看与设置'
+      : '定时调度已关闭（不会自动向厂商发请求），点击查看与设置';
+    var label = scheduleEl('schedule-label');
+    if (label) label.textContent = on ? '定时调度 · 开' : '定时调度 · 关';
+  }
+
+  function scheduleResultText(r) {
+    if (!r) return '还没有跑过';
+    function n(v) { var x = Number(v); return isFinite(x) ? x : 0; }
+    return '本轮 ' + n(r.keys) + ' 把：通过 ' + n(r.passed) + ' · 失败 ' + n(r.failed) +
+      ' · 跳过 ' + n(r.skipped) + ' · 余额更新 ' + n(r.balanceUpdated) +
+      ' · 余额失败 ' + n(r.balanceFailed) + ' · 耗时 ' + n(r.durationMs) + ' 毫秒';
+  }
+
+  function renderScheduleStatus() {
+    var s = scheduleState;
+    var sw = scheduleEl('schedule-switch-state');
+    if (sw) sw.textContent = '当前：' + (s.enabled ? '开' : '关');
+    var lastRun = scheduleEl('schedule-last-run');
+    if (lastRun) lastRun.textContent = fmtScheduleTime(s.lastRunAt);
+    var res = scheduleEl('schedule-last-result');
+    if (res) res.textContent = scheduleResultText(s.lastResult);
+    var next = scheduleEl('schedule-next-run');
+    if (next) next.textContent = s.running ? '正在跑这一轮…' : (s.enabled ? fmtScheduleTime(s.nextRunAt) : '未开启');
+    var err = scheduleEl('schedule-last-error');
+    if (err) {
+      if (s.lastError) { err.textContent = '上次运行报错：' + s.lastError; err.hidden = false; }
+      else { err.textContent = ''; err.hidden = true; }
+    }
+  }
+
+  function applySchedule(s) {
+    if (!s) return;
+    scheduleState.enabled = !!s.enabled;
+    if (Number(s.intervalMinutes) > 0) scheduleState.intervalMinutes = Number(s.intervalMinutes);
+    scheduleState.running = !!s.running;
+    scheduleState.lastRunAt = s.lastRunAt || null;
+    scheduleState.lastResult = s.lastResult || null;
+    scheduleState.lastError = s.lastError || null;
+    scheduleState.nextRunAt = s.nextRunAt || null;
+    syncScheduleBtn();
+    renderScheduleStatus();
+    var cb = scheduleEl('f-schedule-enabled');
+    if (cb) cb.checked = scheduleState.enabled;
+    var num = scheduleEl('f-schedule-interval');
+    if (num && document.activeElement !== num) num.value = String(scheduleState.intervalMinutes);
+  }
+
+  function loadSchedule() {
+    return api('GET', '/schedule').then(function (d) {
+      applySchedule(d && d.schedule);
+      return d;
+    });
+  }
+
+  function setScheduleLocked(locked, msg) {
+    scheduleLocked = !!locked;
+    var el = scheduleEl('schedule-locked');
+    if (el) {
+      if (locked) {
+        el.textContent = msg || '保险库未解锁：定时调度需要 DEK 才能跑，先解锁再开启。';
+        el.hidden = false;
+      } else {
+        el.textContent = '';
+        el.hidden = true;
+      }
+    }
+    ['f-schedule-enabled', 'f-schedule-interval', 'btn-schedule-save', 'btn-schedule-run'].forEach(function (id) {
+      var c = scheduleEl(id);
+      if (c) c.disabled = !!locked;
+    });
+  }
+
+  function scheduleSetErr(msg) {
+    var el = scheduleEl('schedule-err');
+    if (el) el.textContent = msg || '';
+  }
+
+  function openScheduleModal() {
+    scheduleSetErr('');
+    openOverlay('overlay-schedule');
+    /* 先问锁没锁：锁着就把开关摁住，也不去改后端状态 */
+    return api('GET', '/vault/status').then(function (s) {
+      s = s || {};
+      if (s.unlocked === false) {
+        setScheduleLocked(true);
+        renderScheduleStatus();
+        return null;
+      }
+      setScheduleLocked(false);
+      return loadSchedule().then(function () { return null; }, function (e) {
+        scheduleSetErr('读不到调度状态：' + ((e && e.message) || '服务没有回应'));
+        return null;
+      });
+    }, function (e) {
+      /* 连保险库状态都问不到：不许当成「已解锁」，开关摁住 */
+      setScheduleLocked(true, '保险库未解锁（或服务没连上）：定时调度需要 DEK 才能跑，先解锁再开启。');
+      scheduleSetErr('读不到保险库状态：' + ((e && e.message) || '服务没有回应'));
+      return null;
+    });
+  }
+
+  function saveSchedule() {
+    scheduleSetErr('');
+    if (scheduleLocked) {
+      scheduleSetErr('保险库未解锁，不能改定时调度。');
+      return Promise.resolve(false);
+    }
+    var cb = scheduleEl('f-schedule-enabled');
+    var num = scheduleEl('f-schedule-interval');
+    var enabled = !!(cb && cb.checked);
+    var raw = num ? String(num.value).trim() : '';
+    var n = Number(raw);
+    if (raw === '' || !isFinite(n) || Math.floor(n) !== n ||
+        n < SCHEDULE_MIN_MINUTES || n > SCHEDULE_MAX_MINUTES) {
+      /* 前端自己挡住：越界的间隔不该发出去让后端回 400 */
+      scheduleSetErr('间隔分钟数要填 ' + SCHEDULE_MIN_MINUTES + ' 到 ' + SCHEDULE_MAX_MINUTES +
+        ' 之间的整数（最多 7 天）。');
+      return Promise.resolve(false);
+    }
+    return api('POST', '/schedule', { enabled: enabled, intervalMinutes: n }).then(function (d) {
+      applySchedule(d && d.schedule);
+      toast(enabled ? ('定时调度已开启，每 ' + n + ' 分钟跑一轮') : '定时调度已关闭', 'ok');
+      return true;
+    }, function (e) {
+      scheduleSetErr('保存失败：' + ((e && e.message) || '服务没有回应'));
+      return false;
+    });
+  }
+
+  /* 立即跑一轮：走 POST /api/schedule/run。
+     这条会**真的朝各厂商发请求**（每把 Key 测一次 + 批量刷余额），所以：
+       - 锁着不许按（后端也会 423 挡一道，界面这层是让用户少白按一次）；
+       - 按下去之后按钮要变成「跑着呢」，不许让人连点（后端限流 5 次/小时，
+         连点几下就把额度烧光了）。
+     跑完把后端回的 schedule 状态整个吃下去 —— 那一刻的 lastRunAt / lastResult
+     就是这一轮的，界面上的「上次运行」立刻就有值。 */
+  function runScheduleOnce() {
+    scheduleSetErr('');
+    if (scheduleLocked) {
+      scheduleSetErr('保险库未解锁，不能跑。');
+      return Promise.resolve(false);
+    }
+    var btn = scheduleEl('btn-schedule-run');
+    if (btn) { btn.disabled = true; btn.textContent = '跑着呢…'; }
+    return api('POST', '/schedule/run', {}).then(function (d) {
+      applySchedule(d && d.schedule);
+      var r = d && d.result;
+      toast(r ? ('跑完一轮：' + scheduleResultText(r)) : '跑完一轮', 'ok');
+      return true;
+    }, function (e) {
+      scheduleSetErr('跑一轮失败：' + ((e && e.message) || '服务没有回应'));
+      return false;
+    }).then(function (ok) {
+      if (btn) { btn.disabled = false; btn.textContent = '立即跑一轮'; }
+      return ok;
+    });
+  }
+
+  var scheduleBtn = scheduleEl('btn-schedule');
+  if (scheduleBtn) scheduleBtn.addEventListener('click', function () { openScheduleModal(); });
+  var scheduleRunBtn = scheduleEl('btn-schedule-run');
+  if (scheduleRunBtn) scheduleRunBtn.addEventListener('click', function () { runScheduleOnce(); });
+  var scheduleSaveBtn = scheduleEl('btn-schedule-save');
+  if (scheduleSaveBtn) scheduleSaveBtn.addEventListener('click', function () { saveSchedule(); });
+  var scheduleSwitch = scheduleEl('f-schedule-enabled');
+  if (scheduleSwitch) scheduleSwitch.addEventListener('change', function () {
+    var sw = scheduleEl('schedule-switch-state');
+    if (sw) sw.textContent = '当前：' + (this.checked ? '开' : '关');
+  });
+
+  /* 顶栏那个按钮要如实反映服务端的开关状态，所以开机拉一次。
+     这条只读本机状态：不碰密钥、不发厂商请求；锁着时也不续期
+     （vault.touch 在未解锁/免密两种情况下都是空转）。 */
+  loadSchedule().catch(function () { /* 拉不到就停在默认的「关」 */ });
+
   /* ================= 列表自动刷新（轻量轮询） =================
      别的窗口新增了密钥，这边不跟着变，只能手动刷 —— 加一条 10 秒的轮询：
      每轮只拉 GET /api/keys（列表接口，不去碰单条详情），内容没变就什么都不做。
@@ -3541,8 +4025,7 @@
       loadCollapsed();
       var m = state.meta || {};
       SELF_HOST = m.host || '';
-      document.getElementById('foot-meta').textContent =
-        'API-AegisLens v' + (m.version || '?') + ' · ' + (m.storage || '') + ' 本地存储 · ' + (m.dataDir || '') + ' · 密钥字段 AES-256-GCM 加密';
+      footMetaSet('unlocked', m);
       render();
       /* 轮询从这里起：之后每 10 秒拉一次列表，跟屏上这份比。 */
       startAutoRefresh();
@@ -3556,7 +4039,7 @@
     }).catch(function (e) {
       /* 门态下的失败是被 423 拦的，门上已经把话说清楚了，别再喊一遍「服务连不上」误导人 */
       if (gateState.open) return;
-      document.getElementById('foot-meta').textContent = '服务连接失败：' + e.message;
+      footMetaSet('error', null, e.message);
       toast('服务连接失败，请检查后台服务是否在运行', 'warn');
     });
   }
@@ -3668,13 +4151,16 @@
   }
 
   /* 门态下不许留着上一次解锁时的残留：正在显示的明文、卡片、统计、余额一律就地清空 */
-  function gateScrub() {
+  function gateScrub(mode) {
     Object.keys(revealTimers).forEach(function (id) { dropRevealed(id); });
     revealTmp = {}; revealNote = {};
     state.keys = []; state.pools = []; state.meta = null; state.view = 'keys';
     ui.drawerOpen = {}; ui.editingNote = {}; ui.editingSupp = {};
     ui.manualOpen = {}; ui.assignedOpen = {}; ui.testing = {};
     ui.modelsLoading = {}; ui.enriching = {}; ui.authOpen = {};
+    /* 观测记录也是保险库里的数据，锁上后不留残影 */
+    ui.historyOpen = {}; ui.historyKind = {}; ui.historyRows = {};
+    ui.historyLoading = {}; ui.historyErr = {}; ui.historyShown = {};
     editingId = null; configKeyRef = null;
     gateEl('board').innerHTML = '';
     gateEl('pool-board').innerHTML = '';
@@ -3683,7 +4169,7 @@
     gateEl('empty').style.display = 'none';
     /* 批量刷新的转圈不许在门后继续转（它对应的请求早被 423 掐了） */
     gateEl('refresh-spin').style.display = 'none';
-    gateEl('foot-meta').textContent = '保险库未解锁 · 页面数据已清空';
+    footMetaSet(mode || 'locked');
     /* 清空后的空状态（"还没有任何密钥"）在门后会被读成"这台机器没存过 Key"，
        而那才是错的：门后不该有任何一面看板。遮罩半透明，所以整片收起来。 */
     var wrap = document.querySelector('.wrap');
@@ -3719,7 +4205,7 @@
     gateState.open = true;
     gateEl('gate').hidden = false;
     gateStopTimers();
-    gateScrub();
+    gateScrub('offline');
     gateState.mode = 'offline';
     gateSync();
     gateMsg('取不到保险库状态：' + ((e && e.message) || '服务没有回应'), 'err');
