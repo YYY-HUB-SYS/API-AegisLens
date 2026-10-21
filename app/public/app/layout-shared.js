@@ -574,6 +574,24 @@
     '</button>';
   }
 
+  /* 限额快照的两个原子：值与说明都从 ctx.api（AegisUI）取。
+     共享层的规矩是「行为不重写」—— 自己复刻一份就会与真实行为分叉；
+     ctx.api 缺位时（index.html 的导出块没跑到）退回空串，不显示这格。 */
+  function usageTextOf(ctx, k) {
+    var api = ctx && ctx.api;
+    if (api && typeof api.usageText === 'function') {
+      try { return String(api.usageText(k) || ''); } catch (e) { return ''; }
+    }
+    return '';
+  }
+  function usageTitleOf(ctx, k) {
+    var api = ctx && ctx.api;
+    if (api && typeof api.usageTitle === 'function') {
+      try { return String(api.usageTitle(k) || ''); } catch (e) { return ''; }
+    }
+    return '';
+  }
+
   /* ================= 详情面板（主从） ================= */
 
   /* 四段：基本项 / 端点 / 模型参数 / 配置去向。 */
@@ -598,6 +616,8 @@
         authChipOf(ctx, k) +
         '<span class="lm-acts">' +
           testBtnOf(ctx, k) +
+          /* 业务动作只出 data-act，事件委托在 index.html 里统一处理（本层不绑事件） */
+          '<button class="btn ghost small" data-act="key-usage" title="查这个平台的限额快照（用量/限流窗口）：账户级数据，与余额不是一回事">查限额</button>' +
           '<button class="btn ghost small" data-act="edit">编辑</button>' +
           '<button class="btn ghost small danger" data-act="del">删除</button>' +
         '</span>' +
@@ -608,6 +628,7 @@
         '<div class="lm-kv"><span class="lbl2">平台</span><span>' + escOf(ctx, platLabel(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">状态</span><span>' + statusBadgeOf(ctx, k) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">余额</span><span>' + escOf(ctx, balanceTextOf(ctx, k)) + '</span></div>' +
+        '<div class="lm-kv"><span class="lbl2">限额快照</span><span title="' + escOf(ctx, usageTitleOf(ctx, k)) + '">' + escOf(ctx, usageTextOf(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">有效期</span><span>' + escOf(ctx, expiryTextOf(ctx, k)) + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">注册时间</span><span>' + escOf(ctx, k.reg || '未记录') + '</span></div>' +
         '<div class="lm-kv"><span class="lbl2">协议风格</span><span>' + escOf(ctx, styles.length ? styles.join(' / ') : '未设置') + '</span></div>' +

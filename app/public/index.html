@@ -1396,6 +1396,10 @@
     get renderCard() { return renderCard; },
     get keyStatus() { return keyStatus; },
     get balanceText() { return balanceText; },
+  /* 限额快照的两个原子：布局层（layout-shared.js）画详情面板时从这里取，
+     不自己复刻一份 —— 复刻就会与真实行为分叉（共享层的硬规矩之一）。 */
+  get usageText() { return usageText; },
+  get usageTitle() { return usageTitle; },
     get platLabel() { return platLabel; },
     get shortName() { return shortName; },
     get styleShort() { return styleShort; },
@@ -1800,7 +1804,9 @@
       loadBoard();
     }).catch(function (e) {
       ui.usageBusy[k.id] = false;
-      toast('查限额失败：' + e.message, 'warn');
+      /* 400 是「这个平台压根没公开接口」—— 那是事实，不是失败。
+         笼统说「失败」会让人以为是自己哪里操作错了。照后端原话转达。 */
+      toast('查限额：' + e.message, 'warn');
       loadBoard();
     });
   }
