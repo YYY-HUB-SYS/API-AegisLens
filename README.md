@@ -7,7 +7,7 @@
 ![Node](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite%20后端-Node%20%3E%3D22-00758F?logo=sqlite&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/依赖-零-0E9F6E)
-![Tests](https://img.shields.io/badge/测试-779%20全绿-4B3FE3)
+![Tests](https://img.shields.io/badge/测试-789%20全绿-4B3FE3)
 ![Loopback](https://img.shields.io/badge/监听-默认%20127.0.0.1-0B7285)
 ![License](https://img.shields.io/badge/License-MIT-4B3FE3)
 
@@ -166,7 +166,7 @@ pm install 装上可选依赖 @napi-rs/keyring 后在「凭证保险库 → 明�
 cd app && npm test        # 等价于 node --test test/*.test.js
 ```
 
-2026-10-21 在 Node v24.10.0 实跑：`tests 779 / pass 779 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、**恢复码重置口令作废旧令牌但数据一条不少**、TOTP 与口令生成、API 集成与校验、**账号池的轮换链路与健康快照**、**两个存储后端的池语义逐字一致**、**老库升级不炸**、**逐家余额与限额快照接口（认证失败与解析失败分得清）**、**本地网关的数据面（令牌鉴权 / 故障切换 / 密钥不回显）**、**本机各 agent 的 token 用量统计**、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
+2026-10-21 在 Node v24.10.0 实跑：`tests 789 / pass 789 / fail 0`，项数随代码演进变化，**以实跑为准**。覆盖：加密、保险库会话与限流、恢复信封、双存储后端与影子库检测、凭证路由、消费者令牌的签发 / 验签 / 吊销 / 四条数据路由的门禁顺序、**恢复码重置口令作废旧令牌但数据一条不少**、TOTP 与口令生成、API 集成与校验、**账号池的轮换链路与健康快照**、**两个存储后端的池语义逐字一致**、**老库升级不炸**、**逐家余额与限额快照接口（认证失败与解析失败分得清）**、**本地网关的数据面（令牌鉴权 / 故障切换 / 密钥不回显）**、**本机各 agent 的 token 用量统计**、平台适配器、代理与启动脚本、前端模板与弹层行为、测试临时目录的回收（`tmp-sweep.test.js`），以及一组盯着**文档和代码是否一致**的 `docs.test.js`。
 
 ## 报告安全问题 / 备份
 
